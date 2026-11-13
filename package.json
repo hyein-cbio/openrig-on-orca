@@ -1,0 +1,23 @@
+{
+  "name": "openrig-for-orca",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "stage": "node scripts/stage.mjs",
+    "test": "node --test test/*.test.mjs",
+    "security:scan": "node scripts/scan-secrets.mjs",
+    "security:history": "node ci/check-secrets.mjs --bootstrap",
+    "test:orca": "orca plugin test . --json",
+    "check": "orca plugin check . --json",
+    "typecheck": "tsc --noEmit -p .",
+    "validate": "orca plugin validate . --json",
+    "test:sandbox": "node scripts/sandbox.mjs",
+    "ci:core": "node ci/run-ci.mjs --suite core",
+    "ci:orca": "node ci/run-ci.mjs --suite orca"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.7.0"
+  }
+}

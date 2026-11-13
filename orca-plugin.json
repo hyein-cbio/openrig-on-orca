@@ -1,0 +1,36 @@
+{
+  "manifestVersion": 2,
+  "id": "openrig-for-orca",
+  "name": "OpenRig for Orca",
+  "version": "0.1.0",
+  "description": "A tmux-backed OpenRig team, viewed and prepared inside Orca. No separate terminal workspace required.",
+  "engines": {
+    "orca": ">=1.4.248"
+  },
+  "execution": "trusted-worker",
+  "pluginApi": 1,
+  "main": "src/worker.ts",
+  "capabilities": [
+    {
+      "kind": "workspace:read"
+    },
+    {
+      "kind": "terminal:send"
+    },
+    {
+      "kind": "storage:own"
+    }
+  ],
+  "contributes": {
+    "panels": [
+      { "id": "examples", "title": "Example Window", "icon": "lightbulb", "entry": "src/examples-panel.tsx", "ui": "components" },
+      {
+        "id": "openrig",
+        "title": "OpenRig",
+        "icon": "layers",
+        "entry": "src/panel.tsx",
+        "ui": "components"
+      }
+    ]
+  }
+}
