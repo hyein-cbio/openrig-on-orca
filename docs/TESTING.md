@@ -86,7 +86,7 @@ The managed macOS four-job matrix (secret gate, two core jobs, and one live job)
 - CircleCI CLI configuration validation passed.
 - Pinned Gitleaks 8.24.3 and the local candidate scanner completed with no findings against current Git candidates and reachable history. Reports are location-only; raw streams, raw reports and temporary candidate copies are removed.
 
-**These results are not a hosted CircleCI VM pass.** The working repository has no Git remote, so no remote connection, push, or pipeline was started. No release or commit was made in the actual working repository. Commits in a separate temporary snapshot were used only to verify source provenance for local CI-worker reproduction.
+**These local results are not a hosted CircleCI VM pass.** The implementation has now been committed and pushed to the public repository. The CircleCI GitHub App pipeline/trigger were created after the initial implementation push, so that earlier event was not received retroactively. The enabled trigger has been aligned with the reference's `only-build-prs` preset; see [CI.md](CI.md#connection-and-first-push-diagnostics). A newly received revision and its actual hosted job results must be verified separately. The local reproduction records above came from isolated temporary source snapshots.
 
 ## Security-review regressions
 

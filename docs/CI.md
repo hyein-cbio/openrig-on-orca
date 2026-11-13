@@ -133,6 +133,29 @@ The repository must first exist at its intended Git remote with this config comm
 
 Automatic tags and non-main ordinary pushes are excluded by the workflow expression. Confirm macOS credits and `m4pro.medium` availability. Add check names to branch protection only after real hosted runs succeed.
 
+### Connection and first-push diagnostics
+
+The macOS route is a native CircleCI GitHub App connection, not a GitHub Actions dispatcher. The reference project's Actions workflow and `MODAL_TOKEN_ID` / `MODAL_TOKEN_SECRET` are for its separate Modal Ubuntu route; those secrets do not subscribe CircleCI to GitHub events and are not needed by these macOS jobs.
+
+The initial implementation push reached GitHub at **2026-11-13 15:56:38 UTC**, but this project's CircleCI pipeline/trigger were created at **16:00:51–52 UTC**. CircleCI cannot retroactively receive that earlier push. Once connected, use a new main-branch push or one explicit API run; do not launch both to diagnose the same revision.
+
+The existing connection was verified and retained, not duplicated:
+
+- Project: `7488aefc-b9ab-4810-a845-3fb1fb6a7575`.
+- Pipeline definition: `e02de98b-6ed9-4941-9351-dcba583264f3`.
+- Both config and checkout repository: `hyein-cbio/openrig-on-orca`; native config `.circleci/config.yml`.
+- Existing trigger: `eb14f558-05f0-40ad-b99c-f5599026e919`, enabled, updated in place from `all-pushes` to the reference's `only-build-prs` preset. Config and checkout refs are unpinned.
+
+For GitHub App projects, legacy `gh/owner/repo` lookup can return `project.not_found` even while the project exists. Discover it with `circleci project list --json`, then use its project ID or CircleCI project slug:
+
+```sh
+circleci pipeline list --project-id 7488aefc-b9ab-4810-a845-3fb1fb6a7575 --json
+circleci project trigger list --project-id 7488aefc-b9ab-4810-a845-3fb1fb6a7575 --pipeline-definition-id e02de98b-6ed9-4941-9351-dcba583264f3 --json
+circleci run list --project circleci/4b33f991-6901-4499-9855-5965f4396514/7488aefc-b9ab-4810-a845-3fb1fb6a7575 --branch main --json
+```
+
+Check that a received run names the intended commit and actually creates the four macOS jobs. A project connection, an empty GitHub commit-status response, or a pipeline record without workflows is not a passing test result. No secret values are needed for these metadata-only diagnostics.
+
 ## Validation status
 
 Locally verified on macOS ARM64:
@@ -143,4 +166,4 @@ Locally verified on macOS ARM64:
 - Node 22's full first-install, native Example Window, two-seat attach/detach/stop, template validation and cleanup path, with JUnit and artifact generation.
 - The new publication gate was run locally with the pinned Gitleaks binary against both candidate files and reachable history. Frozen launch/input-consent regressions and real terminal-only bundle execution are covered separately from paid-provider behavior.
 
-**This is not a hosted CircleCI pass.** The working repository has no Git remote configured, so no hosted pipeline was created or triggered, and no branch protection or publication was changed. Real hosted execution remains a separate acceptance gate after connecting/pushing the repository.
+**This local evidence is not a hosted CircleCI pass.** The repository is now published and its CircleCI GitHub App connection has been inspected and aligned with the reference. Receiving a push and creating jobs is a separate checkpoint from successful managed-macOS execution. Inspect the actual revision's hosted job results before claiming that acceptance gate or making its checks mandatory.
