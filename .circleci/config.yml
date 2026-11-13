@@ -67,6 +67,9 @@ jobs:
       - store_artifacts:
           path: ci-results
           destination: core-<< parameters.node-version >>
+      - store_artifacts:
+          path: test-reports
+          destination: core-junit-<< parameters.node-version >>
 
   orca-live:
     executor: macos
@@ -88,6 +91,9 @@ jobs:
       - store_artifacts:
           path: ci-results
           destination: orca-live
+      - store_artifacts:
+          path: test-reports
+          destination: orca-junit
 
 workflows:
   macos-validation:

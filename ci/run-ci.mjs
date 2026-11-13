@@ -70,7 +70,7 @@ export async function runCi(argv) {
     const op = await findExecutable('op', env)
     await step('dependencies', op || 'npm', op ? ['plugin', 'run', '--', 'npm', 'ci', '--ignore-scripts', '--no-audit', '--no-fund'] : ['ci', '--ignore-scripts', '--no-audit', '--no-fund'])
     const tests = (await readdir(path.join(root, 'test'))).filter(p => p.endsWith('.test.mjs')).sort().map(p => `test/${p}`)
-    await step('core-tests', process.execPath, ['--test', '--test-reporter=spec', '--test-reporter-destination=stdout', '--test-reporter=junit', `--test-reporter-destination=${path.join(reports, `${suite}-core.xml`)}`, ...tests])
+    await step('core-tests', process.execPath, ['--test', '--test-reporter=spec', '--test-reporter-destination=stdout', '--test-reporter=./ci/junit-reporter.mjs', `--test-reporter-destination=${path.join(reports, `${suite}-core.xml`)}`, ...tests])
     if (suite === 'orca') {
       const provided = optionValue(argv, '--orca-cli')
       if (provided) env.ORCA_CLI_COMMAND = path.resolve(provided)

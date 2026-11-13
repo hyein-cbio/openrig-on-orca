@@ -8,7 +8,7 @@ Run with Node and Git for publication-policy fixtures, without CircleCI, Orca, t
 node --test test/*.test.mjs
 ```
 
-The core suite has **66 tests** covering environment/version/path handling, plan confirmation and expiration, frozen launch inputs and uncertainty acknowledgment, shell quoting, example generation, private action scripts, secret detection/redaction, bootstrap integrity and cleanup, CI failure reporting, onboarding seeds, and the English-only repository text policy.
+The core suite has **73 tests** covering environment/version/path handling, plan confirmation and expiration, frozen launch inputs and uncertainty acknowledgment, shell quoting, example generation, private action scripts, secret detection/redaction, bootstrap integrity and cleanup, CI failure reporting, onboarding seeds, and the English-only repository text policy.
 
 With Orca installed in a development environment:
 
@@ -21,7 +21,7 @@ orca plugin check . --json
 
 Current automated results:
 
-- **81 core, native-panel, and worker tests passed**, with no failures or skips.
+- **88 core, native-panel, and worker tests passed**, with no failures or skips.
 - TypeScript strict checking passed.
 - **Eight panel scenarios passed:** three Example Window scenarios and five existing Setup/Teams/Paths scenarios.
 - No rendering errors, dropped-prop warnings, or refused host calls.
@@ -86,7 +86,7 @@ The managed macOS four-job matrix (secret gate, two core jobs, and one live job)
 - CircleCI CLI configuration validation passed.
 - Pinned Gitleaks 8.24.3 and the local candidate scanner completed with no findings against current Git candidates and reachable history. Reports are location-only; raw streams, raw reports and temporary candidate copies are removed.
 
-**These local results are not a hosted CircleCI VM pass.** The implementation has now been committed and pushed to the public repository. The CircleCI GitHub App pipeline/trigger were created after the initial implementation push, so that earlier event was not received retroactively. The enabled trigger has been aligned with the reference's `only-build-prs` preset; see [CI.md](CI.md#connection-and-first-push-diagnostics). A newly received revision and its actual hosted job results must be verified separately. The local reproduction records above came from isolated temporary source snapshots.
+**These local results are not a hosted CircleCI VM pass.** The implementation has now been committed and pushed to the public repository. The CircleCI GitHub App pipeline/trigger were created after the initial implementation push, so that earlier event was not received retroactively. The enabled trigger has been aligned with the reference's `only-build-prs` preset; see [CI.md](CI.md#connection-and-first-push-diagnostics). Hosted revision `41aa1f4` subsequently passed all four job workloads, including the tmux preflight and live Orca execution, but its test-result upload steps rejected Node's built-in JUnit hierarchy. A green workflow is therefore not proof of successful result ingestion; inspect the individual upload steps. The compatible custom reporter and retained XML artifacts address this reporting failure. The local reproduction records above came from isolated temporary source snapshots.
 
 ## Security-review regressions
 
@@ -99,9 +99,11 @@ The managed macOS four-job matrix (secret gate, two core jobs, and one live job)
 - Secret-policy fixtures cover ignored versus force-staged credentials, redacted output, and scanner failure paths.
 - Ten offline tmux-preflight regressions cover reuse, explicit installation, Homebrew exit 1 with working/broken tmux, missing binaries, verify-only mode, private-session failures, interrupted installs, cleanup failures and CI-only installation. These tests mock commands and do not require tmux or Homebrew. A separate real local tmux 3.8 private-socket probe passed without installing software or touching a personal server.
 
+- Seven JUnit regressions cover CircleCI hierarchy, safe metadata, failure/skip/todo/hook semantics, invalid input, decimal timings, real standalone Node test execution, and a suite whose skipped body never runs. The failing fixture must retain exit code 1 while producing well-formed report structure.
+
 ## Unverified behavior
 
-- Successful hosted CircleCI live Orca execution. The first hosted workflow passed secret scanning and both core jobs, but live failed in Homebrew post-install handling before Orca startup; this is not a live compatibility pass.
+- Compatibility with Orca/OpenRig/macOS versions outside the pinned hosted and local targets. Hosted workload success and JUnit ingestion are separate acceptance checks; see the reporting history above.
 - Real Linux package-manager installation and terminal UI.
 - Manual tmux installation on macOS without a package manager.
 - Actual Claude/Codex sign-in, paid-agent work quality, and handoffs.

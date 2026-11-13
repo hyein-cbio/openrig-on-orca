@@ -106,6 +106,14 @@ test-reports/
   orca-steps.xml
 ```
 
+### CircleCI-compatible test reports
+
+Node's built-in JUnit reporter can emit `<testcase>` directly inside `<testsuites>` for top-level tests. CircleCI rejects this with `invalid testsuites element: testcase`. `ci/junit-reporter.mjs` follows the reference project's allowlisted custom-reporter approach and always emits `testsuites > testsuite > testcase`. It preserves failures, skips/todos and hook failures, uses relative file identities and per-file ordinals, and excludes test payloads, console output, stack traces and absolute paths. Failed tests still produce a nonzero Node exit.
+
+The original `41aa1f4` hosted workflow reported all four jobs successful and completed the live workload, yet all three `store_test_results` steps failed on the built-in reporter's XML. CircleCI treats this reporting error as nonfatal to the job, which explains why an automatically generated failure prompt disagreed with green workflow/commit statuses. Check step outcomes as well as the overall workflow; neither view alone proves clean result ingestion.
+
+Both core jobs and the live job now preserve `test-reports/` as separate downloadable JUnit artifacts, in addition to submitting them as test results. This makes report-format failures inspectable without requiring access to the executor.
+
 Partial summaries and completed step logs are kept after failure. Exceptions outside command steps, including bootstrap/version/report validation, are recorded as failed JUnit cases while retaining the nonzero exit. Upload is limited to these generated report/log/image directories, never the temporary profile/HOME, account files, checkouts or environment dumps. The child environment is allowlisted; CI tokens, SSH agent, provider variables and inherited Orca identities are not forwarded. On developer machines with 1Password npm integration, npm commands retain that integration; the hosted jobs attach no credentials/context and need only public packages.
 
 The screenshots are evidence of rendered panels, not a pixel-baseline comparison or proof of paid-agent quality. Full external-provider behavior remains outside CI.
