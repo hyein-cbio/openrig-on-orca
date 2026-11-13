@@ -46,7 +46,13 @@ The config pins `circleci/node@7.2.1`. Only npm downloads are cached, keyed by m
 
 `ci/bootstrap-orca.mjs` verifies the DMG hash **before mounting**, copies the app into a disposable user-owned directory, verifies its code signature and publisher, checks its CLI version, and detaches the DMG. It never replaces `/Applications/Orca.app`, installs a latest cask, or disables Gatekeeper/SIP. The runner records its owned download directory and removes it in `finally` after success or failure. An externally supplied `--orca-cli` path is not owned and is never removed.
 
-macOS VM tmux is reused or installed using its existing Homebrew. There is no provider CLI installation or login. The full job deliberately starts with a fresh plugin-managed OpenRig prefix and exercises its installer through an actual Orca terminal.
+tmux is mandatory, not an optional or skipped live dependency. `ci/ensure-tmux.mjs --install` reuses a working installation or explicitly installs it with the disposable VM's Homebrew. Automatic installation is restricted to macOS ARM64 with `CIRCLECI=true`; ordinary tests and developer verify-only runs never install software. The worker independently repeats the verify-only preflight before dependencies or Orca startup and records `tmux-preflight` in JUnit/logs and the binary/version in its summary. Standard Homebrew directories are appended without shadowing the selected Node installation.
+
+Readiness requires `tmux -V`, a detached session and a verified session name on a short task-owned private socket, followed by server cleanup. The probe uses `-f /dev/null`, removes inherited tmux identity and never targets the default/personal server. Missing binaries, broken execution, session failures, interrupted installations and cleanup failures block live execution.
+
+The first hosted live job installed tmux 3.8 successfully, but Homebrew returned exit 1 after `ca-certificates`/`openssl@4` post-install warnings, stopping the old one-line setup before any Orca tests. The replacement disables opportunistic Homebrew update/cleanup and accepts that ordinary exit 1 **only if the installed tmux passes every functional/cleanup check**. Other abnormal exits are not recovered; a nonzero status is disclosed rather than silently ignored. This validates tmux readiness, not the health of unrelated Homebrew packages.
+
+There is no provider CLI installation or login. The full job deliberately starts with a fresh plugin-managed OpenRig prefix and exercises its installer through an actual Orca terminal.
 
 ## Onboarding: no computer use required for the pinned release
 

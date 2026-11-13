@@ -8,7 +8,7 @@ Run with Node and Git for publication-policy fixtures, without CircleCI, Orca, t
 node --test test/*.test.mjs
 ```
 
-The core suite has **56 tests** covering environment/version/path handling, plan confirmation and expiration, frozen launch inputs and uncertainty acknowledgment, shell quoting, example generation, private action scripts, secret detection/redaction, bootstrap integrity and cleanup, CI failure reporting, onboarding seeds, and the English-only repository text policy.
+The core suite has **66 tests** covering environment/version/path handling, plan confirmation and expiration, frozen launch inputs and uncertainty acknowledgment, shell quoting, example generation, private action scripts, secret detection/redaction, bootstrap integrity and cleanup, CI failure reporting, onboarding seeds, and the English-only repository text policy.
 
 With Orca installed in a development environment:
 
@@ -21,7 +21,7 @@ orca plugin check . --json
 
 Current automated results:
 
-- **71 core, native-panel, and worker tests passed**, with no failures or skips.
+- **81 core, native-panel, and worker tests passed**, with no failures or skips.
 - TypeScript strict checking passed.
 - **Eight panel scenarios passed:** three Example Window scenarios and five existing Setup/Teams/Paths scenarios.
 - No rendering errors, dropped-prop warnings, or refused host calls.
@@ -97,10 +97,11 @@ The managed macOS four-job matrix (secret gate, two core jobs, and one live job)
 - Tilde entries in extraPath are stored expanded.
 - Runner-level exceptions generate failed JUnit cases; owned application downloads are removed after success or failure, while external installations are untouched.
 - Secret-policy fixtures cover ignored versus force-staged credentials, redacted output, and scanner failure paths.
+- Ten offline tmux-preflight regressions cover reuse, explicit installation, Homebrew exit 1 with working/broken tmux, missing binaries, verify-only mode, private-session failures, interrupted installs, cleanup failures and CI-only installation. These tests mock commands and do not require tmux or Homebrew. A separate real local tmux 3.8 private-socket probe passed without installing software or touching a personal server.
 
 ## Unverified behavior
 
-- Actual pipeline execution on hosted CircleCI macOS.
+- Successful hosted CircleCI live Orca execution. The first hosted workflow passed secret scanning and both core jobs, but live failed in Homebrew post-install handling before Orca startup; this is not a live compatibility pass.
 - Real Linux package-manager installation and terminal UI.
 - Manual tmux installation on macOS without a package manager.
 - Actual Claude/Codex sign-in, paid-agent work quality, and handoffs.

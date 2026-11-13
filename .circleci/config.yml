@@ -11,6 +11,7 @@ executors:
     environment:
       CI: "true"
       HOMEBREW_NO_AUTO_UPDATE: "1"
+      HOMEBREW_NO_INSTALL_CLEANUP: "1"
 
 commands:
   prepare:
@@ -73,8 +74,8 @@ jobs:
       - prepare:
           node-version: "22.23.4"
       - run:
-          name: Ensure tmux on the disposable VM
-          command: command -v tmux >/dev/null || brew install tmux
+          name: Ensure functional tmux on the disposable VM
+          command: node ci/ensure-tmux.mjs --install
       - run:
           name: Pinned Orca, plugin, first-run installer and example topology lifecycle
           no_output_timeout: 20m

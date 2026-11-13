@@ -52,6 +52,8 @@ test('CircleCI uses managed macOS, pinned versions and no credential context or 
   for (const pin of ['26.4.1', 'm4pro.medium', 'circleci/node@7.2.1', '22.23.4', '24.22.1']) assert.ok(config.includes(pin))
   assert.doesNotMatch(config, /self-hosted|context:|pull_request_target|automatic_reruns/)
   assert.match(config, /store_test_results/); assert.match(config, /store_artifacts/)
+  assert.match(config, /node ci\/ensure-tmux\.mjs --install/)
+  assert.doesNotMatch(config, /command -v tmux.*\|\| brew install/)
 })
 test('cleanup waits on macOS exit transitions but never treats an unrelated live PID as owned', () => {
   assert.equal(processSampleState('', ['/test']), 'gone')

@@ -63,6 +63,10 @@ export async function runCi(argv) {
     if (process.version !== `v${version}`) throw new Error('Node does not match the exact CI cell version')
     summary.source = (await exec('git', ['rev-parse', 'HEAD'], { cwd: root, env })).stdout.trim()
     await step('source-secrets', process.execPath, ['scripts/scan-secrets.mjs'])
+    if (suite === 'orca') {
+      summary.tmux = JSON.parse(await step('tmux-preflight', process.execPath, ['ci/ensure-tmux.mjs']))
+      env.PATH = [env.PATH, path.dirname(summary.tmux.path)].filter(Boolean).join(path.delimiter)
+    }
     const op = await findExecutable('op', env)
     await step('dependencies', op || 'npm', op ? ['plugin', 'run', '--', 'npm', 'ci', '--ignore-scripts', '--no-audit', '--no-fund'] : ['ci', '--ignore-scripts', '--no-audit', '--no-fund'])
     const tests = (await readdir(path.join(root, 'test'))).filter(p => p.endsWith('.test.mjs')).sort().map(p => `test/${p}`)
