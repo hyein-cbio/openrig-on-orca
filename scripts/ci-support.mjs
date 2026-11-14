@@ -41,11 +41,11 @@ export function optionValue(argv, name) {
   return argv[index + 1]
 }
 
-export const LIVE_CHECKS = ['runtime-verified', 'daemon-opened', 'daemon-no-agents', 'example-opened', 'two-seats', 'seat-attached', 'detach-preserves-seat', 'example-stopped', 'templates-validated', 'frozen-launch-review', 'frozen-terminal-launch', 'example-panel', 'cleanup-complete']
+export const LIVE_CHECKS = ['runtime-verified', 'daemon-opened', 'daemon-no-agents', 'example-opened', 'two-seats', 'seat-attached', 'detach-preserves-seat', 'example-stopped', 'templates-validated', 'frozen-launch-review', 'frozen-terminal-launch', 'unified-panel', 'cleanup-complete']
 export function assertLiveReport(report, { install = false } = {}) {
   if (report.exitCode !== 0 || report.error) throw new Error('Live suite did not succeed')
   const required = [...LIVE_CHECKS, ...(install ? ['install-opened', 'first-install'] : [])]
   for (const id of required) if (report.checks.filter(check => check.id === id).length !== 1) throw new Error(`Missing or duplicate live check: ${id}`)
   if (report.versions?.orca !== '1.4.258' || !report.versions?.node?.startsWith('v22.')) throw new Error('Live report runtime does not match the pinned compatibility target')
-  if (report.visual !== 'captured-seeded-profile') throw new Error('Example panel capture is missing')
+  if (report.visual !== 'captured-seeded-profile') throw new Error('Unified panel capture is missing')
 }

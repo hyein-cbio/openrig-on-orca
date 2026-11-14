@@ -21,10 +21,10 @@ orca plugin check . --json
 
 Current automated results:
 
-- **108 core, native-panel, and worker tests passed**, with no failures or skips.
-- TypeScript strict checking passed.
-- **Eight panel scenarios passed:** three Example Window scenarios and five existing Setup/Teams/Paths scenarios.
-- No rendering errors, dropped-prop warnings, or refused host calls.
+- Core/parser/controller tests and the retained native-control/worker regression tests pass. The command output supplies the current totals.
+- TypeScript strict checking passes.
+- Manifest/HTML checks enforce one contributed panel with exactly two internal tabs and inline topology; source/content hashes reject stale viewer builds.
+- `plugin check` validates the manifest but does not execute HTML. The old components scenarios are not registered panels or evidence of the current GUI. Actual HTML navigation and rendering are covered separately below.
 - The allowlisted staging artifact passed `plugin inspect`. Do not use a source directory containing development node_modules, indexes, or sockets directly as a distribution folder.
 
 ## Real Orca integration tests
@@ -60,7 +60,7 @@ The following real-app checks passed:
 8. Generate Claude-only and Codex-only examples, then validate **both RigSpecs and all four AgentSpecs** with real OpenRig. Do not launch actual agents.
 9. Freeze both real-provider templates with OpenRig's assembler and inspect their declared settings/uncertainties. Verify source-role changes do not alter the archives.
 10. Run the frozen-bundle confirmation program against a separate two-seat terminal-only fixture. Preview and launch require the uncertainty acknowledgment; no model runtime is used.
-11. Drive a walkthrough button and capture Example Window at 440 px in the light theme and 320 px in the dark theme.
+11. Verify there is exactly one registered `openrig` panel. In the same isolated app's read-only browser preview, switch its two internal views, select a diagram node and advance the preparation walkthrough; ensure every mutation remains disabled without a plugin bridge. Capture the actual native HTML panel at 440 px light and 320 px dark.
 12. Clean up the test team, daemon, plugin, terminals, and profile-owned desktop/terminal-host processes.
 
 `--install` authorizes official package downloads and install scripts; `--approve-plugin` authorizes the exact test-plugin grants in that disposable profile. `--keep` retains the profile, daemon, and plugin for manual inspection. Ordinary user Orca profiles and agent settings are not directly modified.
@@ -113,15 +113,23 @@ The managed macOS four-job matrix (secret gate, two core jobs, and one live job)
 
 ## Single-seat instruction GUI
 
-The Teams instruction form reuses native `rig send`, not a new RPC adapter. Isolated tests cover exact recipient/text review, cancel/confirm behavior, disabled shell/busy/attention targets, immutable one-use plans, stopped or retargeted seats, literal argument quoting, control-input rejection and explicit local-instance routing. A harmless executable CLI fixture records the actual generated argv without a model or shell-command injection. Real OpenRig 0.7.12 and 0.7.13 were also run against a task-owned mock HTTP endpoint: each produced exactly one guarded `/api/transport/send` request for the synthetic recipient, preserving the exact text and 1000 ms idle condition.
+The dashboard instruction form reuses native `rig send`, not a new RPC adapter. Isolated tests cover exact recipient/text review, cancel/confirm behavior, disabled shell/busy/attention targets, immutable one-use plans, stopped or retargeted seats, literal argument quoting, control-input rejection and explicit local-instance routing. A harmless executable CLI fixture records the actual generated argv without a model or shell-command injection. Real OpenRig 0.7.12 and 0.7.13 were also run against a task-owned mock HTTP endpoint: each produced exactly one guarded `/api/transport/send` request for the synthetic recipient, preserving the exact text and 1000 ms idle condition.
 
 These checks do not send to a real agent or prove model acknowledgment/completion. Existing live teams, kernel, account settings and instance selection were not changed. No paid-model smoke run is part of this verification; obtain approval before one. CI monitoring was not resumed.
 
 ## Single-seat start and durable task registration
 
-Offline coverage includes never-started registrations without fabricated session addresses; start consent; already-running no-op behavior; model/cwd changes; shell/kernel/unknown targets; busy-agent durable destinations; private exclusive body staging; literal title/body argv; fixed request IDs; and read-only registration checks for matching, missing, changed-content and changed-instance responses. Native panel tests exercise startup acknowledgment and registration snapshots without resubmitting work.
+Offline coverage includes never-started registrations without fabricated session addresses; start consent; already-running no-op behavior; model/cwd changes; shell/kernel/unknown targets; busy-agent durable destinations; private exclusive body staging; literal title/body argv; fixed request IDs; and read-only registration checks for matching, missing, changed-content and changed-instance responses. The shared HTML session-controller tests and retained native-control regressions exercise startup acknowledgment and registration snapshots without resubmitting work.
 
 Real OpenRig 0.7.12 and 0.7.13 were each connected only to an isolated mock HTTP server: the generated start command made one single-node launch POST (no subset/fresh/stop/model fields), queue creation made one POST preserving its ID, destination, declared external source and multiline body, and registration readback added no POST. These are native CLI/API contract checks, not live-agent startup or model-work validation. Existing live teams, kernel, accounts and global settings were not modified; CI was not monitored.
+
+## Unified HTML panel and local topology
+
+`test/topology.test.mjs` imports the shipped bundled parser, including under Orca's no-bare-import loader. It covers generated native templates, explicit directed edges, mapping forms, ambiguous cross-pod endpoints, missing declarations, aliases/custom tags/duplicate documents, nesting and size bounds, prototype-shaped keys, label injection, Mermaid-prefixed selection IDs, asset/source integrity, license presence, and a read-only loopback server that refuses private paths and uploads. Rebuild with `node scripts/build-visualizer.mjs` after source or lockfile changes; the integrity test rejects stale generated assets.
+
+The earlier standalone topology HTML was exercised in a fresh isolated Orca browser profile with synthetic local YAML: node selection, zoom, layout redraw, malformed-source clearing, the local File handler, and inert injected HTML/directive/math captions. Resource origins remained loopback-only. The HTML plugin panel was also captured in an isolated Orca 1.4.258 app/profile and temporary folder workspace in wide light and narrow dark sizes. No real team, agent, daemon, kernel, login or model was involved, and the personal installed plugin was not replaced. Screenshots are visual evidence, not a pixel-baseline regression gate.
+
+`test/plugin-state.test.mjs` covers navigation without execution, preserving drafts, invalidating reviews, read-only discovery navigation, startup consent, one-use confirmation, task-ID retention after unknown results, accepted receipts surviving refresh failures and existing-terminal recovery. The native operating-system save dialog and arbitrary third-party RigSpec dialects are not automatically verified. SVG payloads are sanitized; exporting private topology remains an explicit user decision. This is a bounded YAML projection, not a complete RigSpec validator, AgentSpec resolver or live orchestration graph.
 
 ## Unverified behavior
 
@@ -132,7 +140,7 @@ Real OpenRig 0.7.12 and 0.7.13 were each connected only to an isolated mock HTTP
 - Operational migration of an existing daemon after account-path changes.
 - Orca-managed account export: not provided because the current host API does not support it.
 - Remote/WSL host connections: explicitly refused as outside v0.1's scope.
-- Full pixel-baseline UI regression testing. Current coverage uses native-component tests and real panel captures.
+- Full pixel-baseline UI regression testing. Current coverage uses controller/worker tests, retained native-control regressions, isolated browser interaction checks and real HTML panel captures.
 
 ## Integration issues resolved
 

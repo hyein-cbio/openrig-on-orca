@@ -17,7 +17,15 @@ Use the repository's private vulnerability reporting channel when enabled. Do no
 
 Private review bundles can contain sensitive resources explicitly referenced by a selected spec. Treat `<data>/launches/`, `<data>/actions/`, instance state and account directories as private. Do not upload them as CI evidence or commit them. Do not remove a materialized bundle while a running team still needs its resources.
 
+## Untrusted YAML visualization
+
+The dashboard topology renderer parses only an explicitly selected/pasted document in the single HTML panel. That parser/renderer makes no worker/daemon request and does not persist source or resolve AgentSpec/resource paths. The containing panel separately performs read-only environment discovery and offers explicit reviewed operations; internal navigation itself never executes an operation. YAML aliases, duplicate keys, custom tags, multiple documents and excessive input/nesting/topology sizes are refused. Only a bounded projection of declared pods/members/edges becomes generated Mermaid flowchart syntax; labels cannot supply directives, raw Mermaid, HTML or math. Strict Mermaid rendering is followed by SVG sanitization that removes executable/linked/image/foreign-object content. A content policy blocks network connections and images. This is defense in depth, not a claim that third-party renderers are vulnerability-free.
+
+Generated local assets are pinned to the lockfile and covered by source/content hashes in `src/visualizer/assets.json`. Keep the dependency audit and asset-integrity tests passing when updating them; copied prebuilt Mermaid modules must also be updated, not merely the npm dependency tree. Explicit SVG export contains displayed topology and may expose private names or model declarations. Native save-dialog consent remains with the user.
+
 ## Credential and publication safeguards
+
+Repository ignore rules exclude developer/test scratch, local profiles/captures, private runtime/provider/instance/action/launch directories, logs/PIDs/sockets, SQLite sidecars and browser/CLI session exports. They deliberately retain the prebuilt `src/visualizer/` bundle, its integrity/notice files, public specs and reviewed documentation images. `test/ignore.test.mjs` checks this distinction in an isolated Git repository. The code-index directory remains covered by the user's global ignore, not a repository rule. Ignore rules do not protect already tracked files; candidate/history scanning remains mandatory before publication.
 
 - The plugin reuses supported CLI authentication environments; it does not export Orca-managed accounts or print authentication-check output.
 - Ignore rules cover common local credential files, keys, databases, bundles and generated state. Ignore rules alone are not secret detection, especially for force-staged files or prior commits.

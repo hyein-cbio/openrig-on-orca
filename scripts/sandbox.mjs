@@ -14,6 +14,7 @@ import { stagePlugin } from './stage.mjs'
 import { exampleBundle, writeExampleCommand } from '../src/examples.mjs'
 import { prepareLaunchReview, stageLaunchProgram } from '../src/launch-review.mjs'
 import { optionValue, processSampleState, seedFreshOrcaProfile } from './ci-support.mjs'
+import { startTopologyPreview } from './preview-topology.mjs'
 
 const exec = promisify(execFile)
 const source = path.dirname(path.dirname(fileURLToPath(import.meta.url)))
@@ -35,7 +36,7 @@ const check = (id, detail) => report.checks.push({ id, detail })
 let fixtureStarted = false, daemonStarted = false, loaded = false, runtimePid, terminalId, rig, rigEnv
 let ownedWorkspacePaths = [project]
 let rigName
-let frozenFixture
+let frozenFixture, previewServer, previewPage
 
 async function invoke(command, argv, options = {}) {
   return exec(command, argv, { cwd: source, env, timeout: 45000, maxBuffer: 4 * 1024 * 1024, ...options })
@@ -203,15 +204,39 @@ try {
   await until(async () => assert.equal((await request('seats.list')).seats.filter(seat => seat.rigName === frozenFixture && seat.status === 'running').length, 2))
   await invoke(rig.file, [...rig.args, 'down', frozenFixture], { env: rigEnv }); frozenFixture = undefined
   check('frozen-terminal-launch', 'The frozen-bundle confirmation program previewed and launched two real terminal-only seats; no model runtime was used')
-  await orca(['plugin', 'open', 'local.openrig-for-orca', '--panel', 'examples'])
+  const registered = (await orca(['plugin', 'list'])).result.plugins.find(p => p.pluginKey === 'local.openrig-for-orca')
+  assert.deepEqual(registered.panels.map(p => p.id), ['openrig'])
+  const preview = await startTopologyPreview(); previewServer = preview.server
+  previewPage = (await orca(['tab', 'create', '--worktree', `path:${project}`, '--url', preview.url])).result.browserPageId
+  const evaluate = async expression => JSON.parse((await orca(['eval', '--page', previewPage, '--expression', expression])).result.result)
+  await orca(['viewport', '--page', previewPage, '--width', '1200', '--height', '1200'])
+  await until(async () => assert.equal(await evaluate('JSON.stringify(document.querySelectorAll(\'[role="tab"]\').length)'), 2))
+  await evaluate('JSON.stringify(document.getElementById("view-dashboard").click() || true)')
+  await until(async () => assert.equal(await evaluate('JSON.stringify(document.querySelectorAll("#diagram g.node[role=button]").length)'), 3))
+  assert.equal(await evaluate('JSON.stringify(!document.getElementById("dashboard-view").hidden && document.getElementById("preparation-view").hidden)'), true)
+  await until(async () => assert.ok(await evaluate('JSON.stringify(document.querySelector("#diagram svg").getBoundingClientRect().width > 100)')))
+  await evaluate('JSON.stringify(document.querySelector(\'#diagram [aria-label="Inspect reviewer"]\').dispatchEvent(new MouseEvent("click",{bubbles:true})))')
+  assert.equal(await evaluate('JSON.stringify(document.getElementById("agent-name").textContent)'), 'reviewer')
+  const dashboardShot = await orca(['screenshot', '--page', previewPage])
+  await copyFile(dashboardShot.result.path, path.join(root, 'dashboard-preview.png'))
+  await evaluate('(()=>{const source=document.getElementById("yaml-source");source.value+="\\n# retained across internal views";source.dispatchEvent(new Event("input",{bubbles:true}));return JSON.stringify(true)})()')
+  await evaluate('JSON.stringify(document.getElementById("view-preparation").click() || true)')
+  await evaluate('(()=>{const button=document.getElementById("example-next");button.closest("details").open=true;button.click();return JSON.stringify(true)})()')
+  assert.match(await evaluate('JSON.stringify(document.getElementById("example-step-count").textContent)'), /^Step 2 /)
+  assert.equal(await evaluate('JSON.stringify(document.getElementById("yaml-source").value.endsWith("# retained across internal views"))'), true)
+  assert.equal(await evaluate('JSON.stringify([...document.querySelectorAll("[data-operation]")].every(button=>button.disabled))'), true)
+  const preparationShot = await orca(['screenshot', '--page', previewPage])
+  await copyFile(preparationShot.result.path, path.join(root, 'preparation-preview.png'))
+  await orca(['tab', 'close', '--page', previewPage]); previewPage = undefined
+  previewServer.closeAllConnections(); await new Promise(resolve => previewServer.close(resolve)); previewServer = undefined
+  await orca(['plugin', 'open', 'local.openrig-for-orca', '--panel', 'openrig'])
   for (const [theme, width] of [['light', '440'], ['dark', '320']]) {
-    const shot = await orca(['plugin', 'shot', 'local.openrig-for-orca', '--panel', 'examples', '--theme', theme, '--width', width, '--act', '[{"press":{"text":"Next step"}}]', '--out', path.join(root, `examples-${theme}.png`)])
+    const shot = await orca(['plugin', 'shot', 'local.openrig-for-orca', '--panel', 'openrig', '--theme', theme, '--width', width, '--out', path.join(root, `openrig-${theme}.png`)])
     assert.deepEqual(shot.result.errors, [])
-    assert.ok(shot.result.actions.every(action => action.ok))
     assert.equal(shot.result.pendingRequests || 0, 0)
   }
   report.visual = 'captured-seeded-profile'
-  check('example-panel', 'Example panel captured at narrow light/dark sizes after a real walkthrough control action; onboarding seeded before startup')
+  check('unified-panel', 'One native HTML panel captured in light/dark; its two-view navigation, inline diagram selection and internal walkthrough exercised in the isolated browser without a worker bridge')
   if (keep) console.log('Keeping this disposable daemon and plugin loaded for manual inspection.')
   report.exitCode = 0
 } catch (error) {
@@ -223,6 +248,8 @@ try {
     const cleanup = async (label, task) => {
       try { await task() } catch (error) { report.warnings.push(`Cleanup ${label}: ${error.message}`); process.exitCode = 1 }
     }
+    if (previewPage) await cleanup('preview page', () => orca(['tab', 'close', '--page', previewPage]))
+    if (previewServer) await cleanup('preview server', async () => { previewServer.closeAllConnections(); await new Promise(resolve => previewServer.close(resolve)) })
     if (terminalId) await cleanup('seat view', () => orca(['terminal', 'close', '--terminal', terminalId]))
     if (frozenFixture && rig) await cleanup('frozen fixture', () => invoke(rig.file, [...rig.args, 'down', frozenFixture], { env: rigEnv }))
     if (fixtureStarted && rig) await cleanup('fixture', () => invoke(rig.file, [...rig.args, 'down', rigName], { env: rigEnv }))
@@ -282,7 +309,7 @@ try {
   }
   if (output) {
     await mkdir(artifactDirectory, { recursive: true })
-    for (const file of ['examples-light.png', 'examples-dark.png']) {
+    for (const file of ['openrig-light.png', 'openrig-dark.png', 'dashboard-preview.png', 'preparation-preview.png']) {
       try { await copyFile(path.join(root, file), path.join(artifactDirectory, file)) } catch (error) { if (error.code !== 'ENOENT') throw error }
     }
   }

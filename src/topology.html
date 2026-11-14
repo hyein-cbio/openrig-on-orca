@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="connect-src 'none'; img-src 'none'; font-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
+  <title>OpenRig · Topology Studio</title>
+  <link rel="stylesheet" href="./topology.css">
+  <script type="module" src="./visualizer/app.mjs"></script>
+</head>
+<body>
+  <main class="studio">
+    <header class="hero">
+      <div class="eyebrow"><span class="brand-mark" aria-hidden="true">↗</span> OPENRIG FOR ORCA <span class="privacy-pill">LOCAL · READ ONLY</span></div>
+      <h1>Your team, connected.</h1>
+      <p>Turn a RigSpec into a clear map of pods, agents and declared relationships.</p>
+      <div class="toolbar">
+        <label class="button primary" for="yaml-file">Open YAML <span aria-hidden="true">↗</span></label>
+        <input id="yaml-file" type="file" accept=".yml,.yaml,text/yaml,application/yaml" aria-label="Choose RigSpec YAML">
+        <button id="sample" type="button">Load example</button>
+        <span id="source-name" class="source-name">Built-in example</span>
+      </div>
+    </header>
+    <details id="editor" class="source-card">
+      <summary>YAML source <span>Paste, inspect or edit locally</span></summary>
+      <div class="source-body">
+        <label for="yaml-source" class="sr-only">RigSpec YAML source</label>
+        <textarea id="yaml-source" spellcheck="false" maxlength="262144" placeholder="Paste a RigSpec with pods, members and edges…"></textarea>
+        <div class="source-footer"><small>256 KiB · 16 pods · 80 agents · 160 edges. No referenced files are opened.</small><button id="render" type="button" class="primary">Render diagram</button></div>
+      </div>
+    </details>
+    <div id="notice" role="status" aria-live="polite">Loading the local renderer…</div>
+    <div id="error" role="alert" hidden></div>
+    <section class="workspace" aria-label="Declared topology">
+      <section class="map-card">
+        <div class="map-heading"><div><span class="eyebrow">DECLARED TOPOLOGY</span><h2 id="rig-name">Build & Review</h2></div><span class="declaration-badge">Not live status</span></div>
+        <div class="map-toolbar">
+          <div class="counts"><span><b id="pod-count">—</b> <span id="pod-noun">pods</span></span><span><b id="agent-count">—</b> agents</span><span><b id="edge-count">—</b> edges</span></div>
+          <div class="view-tools"><label class="sr-only" for="direction">Layout direction</label><select id="direction"><option value="LR">Left to right</option><option value="TB">Top to bottom</option></select><button id="zoom-out" type="button" aria-label="Zoom out">−</button><button id="zoom-in" type="button" aria-label="Zoom in">+</button><button id="fit" type="button">Fit</button></div>
+        </div>
+        <div id="viewport" tabindex="0" aria-label="Topology diagram; scroll to pan, use the zoom controls to resize"><div id="diagram"></div><div id="empty" hidden>No diagram to display. Check the YAML and render again.</div></div>
+        <div class="map-footer"><span><i class="solid-line"></i> delegates to <i class="dashed-line"></i> other relationship</span><button id="export" type="button" disabled>Save SVG</button></div>
+      </section>
+      <aside class="inspector" aria-label="Selected agent details">
+        <span class="eyebrow">AGENT DETAILS</span><h2 id="agent-name">Select an agent</h2><p id="agent-hint">Select a node in the diagram to inspect its declared settings.</p>
+        <dl><dt>Pod</dt><dd id="detail-pod">—</dd><dt>Role</dt><dd id="detail-role">—</dd><dt>Runtime</dt><dd id="detail-runtime">—</dd><dt>Model</dt><dd id="detail-model">—</dd><dt>Agent reference</dt><dd id="detail-reference">—</dd></dl>
+        <div class="inspector-note"><b>Declarations, not guarantees.</b><p>AgentSpecs, model defaults, startup hooks and permissions are not resolved. This diagram does not start, message or stop an agent.</p></div>
+      </aside>
+    </section>
+    <ul id="warnings" aria-label="Projection notes"></ul>
+    <details class="source-card generated"><summary>Generated Mermaid <span>Read-only diagram source</span></summary><label class="sr-only" for="mermaid-source">Generated Mermaid source</label><textarea id="mermaid-source" readonly spellcheck="false"></textarea></details>
+    <footer class="privacy-footer">Rendered on this device with Mermaid. YAML stays in this frame's memory; no uploads, telemetry or automatic saves. SVG exports contain the displayed topology.</footer>
+    <noscript>This local visualizer requires JavaScript. No YAML was processed.</noscript>
+  </main>
+</body>
+</html>

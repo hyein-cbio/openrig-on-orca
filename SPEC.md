@@ -2,7 +2,7 @@
 
 ## 1. Goal and scope
 
-Starting with Orca and no OpenRig installation, install the plugin, prepare its dependencies, and inspect and interact with OpenRig teams and seats through Orca panels and terminals.
+Starting with Orca and no OpenRig installation, install the plugin, prepare its dependencies, and inspect and interact with OpenRig teams and seats through one Orca plugin panel and its terminal views.
 
 **tmux remains required.** Orca replaces the visualization and workspace roles of Herdr/cmux/Ghostty and separate terminal apps. It does not reimplement or replace OpenRig orchestration, seat identity, or the tmux execution backend.
 
@@ -64,7 +64,7 @@ Verify daemon readiness and actual seat execution separately. Unknown, failed, o
 
 ## 6. Teams and seat views
 
-- Read only necessary observation fields through `rig ps --nodes -A --json --no-cleanup --fields ...`. Do not request resume-token or credential payloads.
+- Read only supported observation fields through `rig ps --nodes -A --json --no-cleanup --fields ...`. Native 0.7.12/0.7.13 do not support a cwd projection: leave it unverified, never request an unsupported field that prevents all seat reads. Do not request resume-token or credential payloads.
 - The logical connection key is `(workspaceId, rigId, logicalId)`. An occupant's tmux session name is not a permanent identity.
 - Refresh the list before opening a view and use the current canonical session. Do not automatically restart a seat that is not running.
 - Run `rig terminal attach [--read-only] -- <canonical-session>` in a new Orca terminal. Let OpenRig select its own tmux server.
@@ -102,9 +102,13 @@ Real sandbox Orca integration:
 
 Actual billable Claude/Codex execution, Linux package-manager installation, Orca account export, remote connectivity, hosted CircleCI execution, and pixel-baseline UI regression testing are separate acceptance scopes. Never report unverified behavior as complete.
 
-## 9. Example Window
+## 9. One panel, preparation and dashboard
 
-Provide a separate Example Window panel in Orca's native sidebar. Do not claim to create a standalone OS window unsupported by the public host API.
+Contribute exactly one sidebar panel, `openrig`, titled **OpenRig for Orca**. Its HTML document has exactly two internal tabs: **OpenRig Preparation** and **OpenRig Dashboard**. There are no separate topology/example panels, nested frames or new browser tabs for plugin navigation. Keep drafts and the YAML viewer mounted across view changes. Navigation invalidates pending reviews, never executes a command and remains available during read-only discovery; an in-flight operation locks navigation.
+
+Preparation contains environment/provider/daemon setup, path configuration, and the built-in examples below. Dashboard embeds the bounded YAML/Mermaid viewer and explicit seat/task/message operations. A declared graph is not live seat status. The advanced terminal TUI is labelled separately and is not the GUI dashboard. Result and seat terminals remain deliberate Orca terminal views.
+
+### Built-in examples
 
 - The default topology is `You -> Builder -> Reviewer -> Builder -> You`.
 - The walkthrough explains the steps without sign-in, commands, or model calls.

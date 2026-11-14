@@ -23,13 +23,12 @@
   ],
   "contributes": {
     "panels": [
-      { "id": "examples", "title": "Example Window", "icon": "lightbulb", "entry": "src/examples-panel.tsx", "ui": "components" },
       {
         "id": "openrig",
-        "title": "OpenRig",
+        "title": "OpenRig for Orca",
         "icon": "layers",
-        "entry": "src/panel.tsx",
-        "ui": "components"
+        "entry": "src/visualizer/plugin.html",
+        "ui": "html"
       }
     ]
   }

@@ -1,0 +1,5 @@
+# Keep generated bundles and upstream notices byte-identical to their inventory.
+# Their authored sources are checked normally; integrity tests verify the output.
+src/visualizer/** -whitespace linguist-generated=true
+src/visualizer/mermaid/** linguist-vendored=true
+src/visualizer/licenses/** linguist-vendored=true

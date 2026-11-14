@@ -42,11 +42,22 @@ Requested access:
 
 The plugin does not request account-secret storage, access to existing terminal output, or automatic agent-launch capabilities. However, a trusted worker itself has your account's file and process access, so approve only source you trust.
 
-After approval, open the setup panel:
+The plugin contributes **exactly one Orca sidebar panel: OpenRig for Orca**. Open it with the layers icon or:
 
 ```sh
-orca plugin open local.openrig-for-orca --panel openrig --json
+orca plugin open local.openrig-for-orca --panel openrig --environment local --json
 ```
+
+Inside that one panel are exactly two views:
+
+- **OpenRig Preparation**: tool/daemon checks, installation and account setup, paths, the walkthrough and recorded examples.
+- **OpenRig Dashboard**: the inline YAML topology viewer, manual live-seat observations, reviewed seat starts, instructions, durable tasks and team launch.
+
+![One panel with its internal dashboard view](docs/images/openrig-dashboard.png)
+
+[Preparation view](docs/images/openrig-preparation.png). These read-only preview captures use the built-in declared example; they do not claim a running team or verified installation.
+
+Topology and examples have no independent Orca panel/tab. Switching the two internal views never starts a daemon, agent or command, retains form/YAML drafts, and invalidates an unconfirmed operation review. Read-only discovery does not block access to the dashboard. The HTML, styles, renderer/parser/sanitizer and notices are bundled; the declared topology viewer needs no server, npm installation or OpenRig daemon. Live operations retain their existing explicit worker review/confirmation boundary.
 
 Local-folder installation is also available. Its installed copy is separate from the development folder and requires the same code-execution approval.
 
@@ -55,38 +66,32 @@ node scripts/stage.mjs
 # Run the printed inspect/install commands against the temporary staging directory.
 ```
 
-Use the **staging directory** for local-folder installation. Orca's content inspection is separate from Git's `.gitignore`; packaging a source directory containing development `node_modules` symlinks or local indexes/sockets can fail. The staging script copies only allowlisted runtime files and documentation and refuses to overwrite a nonempty destination. Do not commit generated files for Git distribution.
+Use the **staging directory** for local-folder installation. Orca's content inspection is separate from Git's `.gitignore`; packaging a source directory containing development `node_modules` symlinks or local indexes/sockets can fail. The staging script copies only allowlisted runtime files, integrity-listed viewer assets and documentation and refuses to overwrite a nonempty destination. It also rejects stale viewer source/lockfile hashes, so changes cannot accidentally be packaged with an older generated visualizer. For Git distribution, retain the intentional prebuilt viewer assets in `src/visualizer/` with their source/content hashes and licenses. Do not commit generated `.orca/` state, `node_modules`, test profiles or staging folders.
 
-`local.openrig-for-orca` is the local development-folder key. For Git distribution, Orca derives the publisher from the repository owner. This repository has not been published or released.
+`local.openrig-for-orca` is the local development-folder key. For Git distribution, Orca derives the publisher from the repository owner. The repository is public, but Git installation reads a committed revision, not your local uncommitted work. Use the staged local folder to prepare the current working tree; do not assume local additions are already released.
 
-## Example Window: explore a team first
+## Built-in examples: explore a team first
 
-Open **Example Window** using the lightbulb icon in Orca's right sidebar, or run:
-
-```sh
-orca plugin open local.openrig-for-orca --panel examples --json
-```
+Within **OpenRig Preparation**, expand **Learn with the built-in example**. The walkthrough and templates are part of the same panel, not another Orca tab.
 
 - **Walkthrough:** Explains `You -> Builder -> Reviewer -> Builder -> You` step by step. This simulation runs no commands or models.
 - **Terminal demo:** Uses an installed OpenRig and a no-agent daemon to create two real tmux seats. Their prerecorded role descriptions are labelled **SIMULATION ONLY**; they do not pretend to perform AI work or exchange messages. Try opening/closing views and the separate **Stop demo** action.
 - **Claude/Codex templates:** Create two agents using the same provider, their RigSpec and AgentSpecs, role guidance, and a small clamp() example project. Existing project files are not overwritten, and creation does not launch agents.
 - **Preview real team launch:** After authenticating the selected provider, review a private frozen bundle. The terminal shows declared settings and explicitly unverified native/model/host settings. Acknowledge those with `ACCEPT UNVERIFIED SETTINGS`, then type `LAUNCH`. Model usage may incur charges.
 
-Orca 1.4.258's public plugin API does not create standalone OS windows, so Example Window is a **separate native sidebar panel**. It uses no additional browser or terminal app.
-
-<img src="docs/images/example-window-light.png" width="360" alt="Example Window showing the topology and step-by-step walkthrough in the light theme" />
+Example operations use the same shared destination and review card. Their result/seat terminals remain Orca terminal views; they are not additional plugin panels.
 
 ## First use
 
-1. Explicitly select a local workspace in **Destination Orca workspace**. Both destination selectors show **project name / worktree name**, with a path suffix for duplicate names. Selection still uses Orca's exact workspace ID; changing a label never changes the target.
-2. Use **Setup -> Recheck environment** to inspect Node/npm, OpenRig, tmux, and SQLite.
+1. Explicitly select a local workspace in the shared **Destination Orca workspace** selector. It uses project/worktree names and Orca's exact workspace ID; labels never change the target.
+2. Use **OpenRig Preparation -> Recheck environment** to inspect Node/npm, OpenRig, tmux, and SQLite.
 3. Select an installation action for missing OpenRig or tmux. **Review the exact command, source, write scope, and warnings** before running it in an Orca terminal. Opening a terminal does not prove installation succeeded.
 4. Inspect the terminal result and recheck the environment.
 5. Choose a coding agent and select **Save configuration**. Reuse an available CLI login or open its official sign-in command in an Orca terminal. Choosing `Later` is also valid.
-6. Select **Start daemon · no agents** to start only this instance. No kernel or agent starts automatically. Inspect its terminal, then **Recheck environment**. Setup shows whether this instance is reachable; **Open dashboard** stays disabled until it responds. The worker rechecks the connection both before preparing and before executing a dashboard plan. The dashboard runs standalone `rig tui`: `--shared` requires a kernel-owned terminal and is incompatible with the initial no-kernel setup.
-7. Refresh the seat list in **Teams**, then select **Open seat view**. Connections default to read-only; disable read-only and open a new view to provide input.
+6. Select **Start daemon · no agents** to start only this instance. No kernel or agent starts automatically. Inspect its terminal, then **Recheck environment**. **Go to OpenRig Dashboard** is internal GUI navigation and never runs `rig tui`. The separate **Advanced · terminal console** operation retains the reviewed standalone terminal TUI path and is disabled until this instance responds.
+7. In **OpenRig Dashboard**, use **Refresh seats**, then **Open seat view**. Views default to read-only; disable the checkbox and open a new view if writable input is intended.
 
-Action buttons prepare a **Review card above the Setup/Teams/Paths sections**, not an installation or launch. The long setup form is temporarily replaced so the review is not hidden below it. The card identifies the destination workspace and requires explicit confirmation. Cancel the review or select a settings tab to return to editing; changing tabs invalidates the pending plan. Example Window likewise replaces its walkthrough/actions with the pending review until you cancel, confirm, or change destination.
+Operation buttons prepare a shared **Review operation** card, not an installation or launch. It identifies destination, source, writes, warnings and exact command and requires explicit confirmation. Operation forms are hidden while reviewing. Cancel or change the internal view to invalidate the review. Executing an operation locks navigation until its response; read-only checks do not.
 
 Immediately before execution, confirmed commands are stored as private scripts with mode `0600` under `<data>/actions/`. This accommodates Orca's terminal-command length limit without accepting a command different from the reviewed plan. These scripts contain explicit environment paths and the reviewed command. Instruction plans also contain the entered message, which may be sensitive; never include credentials.
 
@@ -96,9 +101,31 @@ The panel distinguishes **Terminal tab connected** from **Terminal created · ta
 
 Each Open seat view click creates a separate view. **Closing a tab detaches from tmux; it does not stop the seat.** Stop or recover teams through the OpenRig dashboard or explicit lifecycle operations.
 
+### Dashboard topology: local YAML to Mermaid/SVG
+
+In **OpenRig Dashboard**, choose **Open YAML** or expand **YAML source** to paste a RigSpec and **Render diagram**. The built-in example works without installing OpenRig or starting any agent. Pods form groups; members become selectable nodes; explicit `from`/`to` edges are drawn with their declared kind. Select a node to inspect its role, runtime, model and AgentSpec reference. Zoom, fit, left-to-right/top-to-bottom layouts and **Save SVG** are available. Narrow views default to a vertical layout unless you choose another direction.
+
+This is a **declared topology, not live status or native spec validation**. Referenced AgentSpecs, environment/model defaults, startup hooks, cwd and permission settings are not loaded or executed. Missing runtime/model values stay **Not declared here**. Unresolved/ambiguous edges are omitted with a note, not guessed; root-level cross-pod edges should use `pod.member` references. Sequence and ID-keyed mapping forms of pods/members are supported. Diagram captions normalize markup/math punctuation; the inspector shows bounded declared metadata.
+
+The viewer is embedded directly in the dashboard document, without a nested frame or another panel. The built-in sample is not a running team.
+
+YAML parsing/rendering stays in the HTML frame's memory and never calls the worker/daemon, uploads, CDN assets, telemetry or automatic saves. Separately, the containing plugin performs read-only environment discovery and offers explicitly confirmed operations. Aliases, duplicate keys, custom tags and multiple YAML documents are refused. Limits: 256 KiB input, 16 pods, 80 agents and 160 edges. An invalid source clears the previous diagram; editing disables export until the new source is rendered. Explicit SVG exports contain the displayed topology and may be sensitive.
+
+The dependency-backed renderer uses pinned **Mermaid 12.3.0**, **yaml 2.9.1** and **DOMPurify 3.4.17**. Only generated flowcharts with the Dagre layout enter Mermaid; strict mode and a second SVG sanitization pass are enabled. Local prebuilt ESM assets, integrity/source hashes and third-party notices are shipped in `src/visualizer/`; plugin users do not need npm or a network connection for the viewer. Normal plugin use stops here; the following commands are **development-only**. Update/rebuild the bundled assets after changing the client, projection or lockfile:
+
+```sh
+# Development dependency installation follows the project's 1Password npm policy.
+op plugin run -- npm ci --ignore-scripts
+node scripts/build-visualizer.mjs
+node scripts/preview-topology.mjs
+# Open the printed loopback URL in Orca's browser; Ctrl-C stops this static preview.
+```
+
+The standalone preview serves only allowlisted static assets and rejects uploads. It does not install or replace your existing Orca plugin. The SVG save dialog in an installed HTML panel uses Orca's explicit user-gesture save API; the standalone browser uses a normal SVG download.
+
 ### Send one instruction to an existing agent
 
-In **Teams**, use **Refresh seats**, choose an **Instruction recipient**, enter a **Short instruction**, and press **Review instruction**. Review the exact target/text and side effects, then **Confirm and open in Orca terminal**. The existing single-use, five-minute plan runs `rig send --wait-for-idle 1 --json -- <session> <text>` in an Orca result terminal; no TUI typing is needed.
+In **OpenRig Dashboard**, use **Refresh seats**, choose an **Instruction recipient**, enter a **Short instruction**, and press **Review instruction**. Review the exact target/text and side effects, then **Confirm and open in Orca terminal**. The existing single-use, five-minute plan runs `rig send --wait-for-idle 1 --json -- <session> <text>` in an Orca result terminal; no TUI typing is needed.
 
 This deliberately small feature accepts one running, explicitly idle Claude Code, Codex or Pi seat without an attention request. An existing Pi seat does not require selecting a new installer/provider or changing its model. Shell/unknown runtimes, stopped/busy/unknown-activity seats, control characters and host-qualified targets are refused. Text is a single line of at most 2000 characters. The worker refreshes the target at confirmation and refuses a changed session/runtime; the native CLI retains its idle and prompt/permission guards. The configured loopback instance is explicit, overriding persisted remote-host selection and legacy URL aliases, without changing global settings.
 
@@ -106,9 +133,9 @@ This is a **terminal message**, not a durable queue item, ownership handoff, ack
 
 ### Start one registered seat
 
-After **Teams -> Refresh seats**, use **Review seat start** on one stopped/exited/detached or never-started agent row. Registrations with no conversation remain visible as **No session yet**; no session address is invented. The review shows the registered rig ID/logical ID and declared runtime/model/cwd. Acknowledge **I accept unverified native startup settings and possible model costs**, then confirm. This runs only `rig launch --json -- <rigId> <logicalId>` in the result terminal, not an all-seat launch or the separate `--seats` snapshot-restore path.
+After **OpenRig Dashboard -> Refresh seats**, use **Review seat start** on one stopped/exited/detached or never-started agent row. Registrations with no conversation remain visible as **No session yet**; no session address is invented. The review shows the registered rig ID/logical ID and declared runtime/model/cwd. Acknowledge **I accept unverified native startup settings and possible model costs**, then confirm. This runs only `rig launch --json -- <rigId> <logicalId>` in the result terminal, not an all-seat launch or the separate `--seats` snapshot-restore path.
 
-Running seats are disabled. If another actor starts the seat after review, confirmation returns a no-op and creates no launch terminal. Changed definitions require another review. Shell, unknown and reserved `kernel` targets are excluded. No fresh occupant, stop, model override, permission bypass or kernel recovery is requested. The review is not a complete first-start preflight: native `--plan` cannot preview a never-started materialized seat. Provider settings, permissions and hooks remain unverified, and startup may incur model costs or edit files. Refresh actual seat status after inspecting the result; opening the terminal is not proof of startup.
+Running seats are disabled. If another actor starts the seat after review, confirmation returns a no-op and creates no launch terminal. Changes to observable session/runtime/model definitions require another review. Native 0.7.12/0.7.13 cannot project cwd through `ps --fields`; cwd therefore remains explicitly UNVERIFIED rather than breaking all seat queries. Shell, unknown and reserved `kernel` targets are excluded. No fresh occupant, stop, model override, permission bypass or kernel recovery is requested. The review is not a complete first-start preflight: native `--plan` cannot preview a never-started materialized seat. Provider settings, permissions and hooks remain unverified, and startup may incur model costs or edit files. Refresh actual seat status after inspecting the result; opening the terminal is not proof of startup.
 
 ### Register one durable task
 
@@ -130,7 +157,7 @@ The server fixes a random request ID before execution, stores the body in an exc
 
 ## Paths, accounts, and installation policy
 
-Use **Paths** to set absolute paths or `~/...` overrides.
+Use **OpenRig Preparation -> Paths and existing configuration** to set absolute paths or `~/...` overrides.
 
 - Default data directory: `~/.local/share/openrig-for-orca/`
 - Managed CLI: `<data>/runtime/node_modules/.bin/rig`
