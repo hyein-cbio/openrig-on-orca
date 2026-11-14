@@ -208,11 +208,13 @@ export function rowsFrom(payload) {
 }
 
 export function seatsFrom(payload) {
-  return rowsFrom(payload).filter(row => row && typeof row.rigId === 'string' && typeof row.logicalId === 'string' && typeof row.canonicalSessionName === 'string')
+  return rowsFrom(payload).filter(row => row && typeof row.rigId === 'string' && typeof row.logicalId === 'string' && (typeof row.canonicalSessionName === 'string' || row.canonicalSessionName === null))
     .map(row => ({
-      key: JSON.stringify([row.rigId, row.logicalId]), rigId: row.rigId, rigName: String(row.rigName || row.rigId),
-      logicalId: row.logicalId, session: row.canonicalSessionName, runtime: String(row.runtime || 'unknown'),
-      status: String(row.sessionStatus || row.lifecycleState || 'unknown'),
+      key: JSON.stringify([row.rigId, row.logicalId]), rigId: row.rigId, rigName: String(row.rigName || row.rigId), rigNameKnown: typeof row.rigName === 'string' && Boolean(row.rigName.trim()),
+      logicalId: row.logicalId, session: typeof row.canonicalSessionName === 'string' ? row.canonicalSessionName : '', runtime: String(row.runtime || 'unknown'),
+      status: row.canonicalSessionName === null && row.sessionStatus === null && row.lifecycleState === 'detached' ? 'not-started' : String(row.sessionStatus || row.lifecycleState || 'unknown'),
+      lifecycle: typeof row.lifecycleState === 'string' ? row.lifecycleState : 'unknown',
+      model: typeof row.model === 'string' ? row.model : null, cwd: typeof row.cwd === 'string' ? row.cwd : null,
       attention: Boolean(row.needsAttention || row.arbitratedNeedsInput), activity: String(row.agentActivity?.state || 'unknown')
     }))
 }
@@ -228,14 +230,22 @@ export async function daemonState(config, snapshot) {
   }
 }
 
+// Messaging must not inherit a persisted remote-host selection or a legacy URL alias.
+export async function listInstructionSeats(config, snapshot, execute = run, base = process.env) {
+  return listSeats(config, snapshot, (file, args, options) => execute(file, args, { ...options,
+    env: { ...options.env, OPENRIG_URL: `http://127.0.0.1:${config.daemonPort}`, OPENRIG_HOST_SELECTED: 'local' }
+  }), base)
+}
+
 export async function listSeats(config, snapshot, execute = run, base = process.env) {
   if (!snapshot.tools.rig || !snapshot.tools.node || !snapshot.tools.tmux) throw fail('dependencies_missing', 'Node, OpenRig and tmux are required')
   try { await access(path.join(config.root, 'instance', 'daemon.json')) } catch {
     throw fail('daemon_unavailable', 'This instance has no daemon state. Start its daemon first; no fallback to another instance was attempted.')
   }
   const command = await rigInvocation(snapshot.tools.rig, snapshot.tools.node)
+  // Native 0.7.12/0.7.13 do not project cwd. Keep it unverified instead of making every seat query fail.
   const result = await execute(command.file, [...command.args, 'ps', '--nodes', '-A', '--json', '--no-cleanup', '--fields',
-    'rigId,rigName,logicalId,canonicalSessionName,runtime,sessionStatus,lifecycleState,needsAttention,arbitratedNeedsInput,agentActivity'], { env: environment({ ...config, nodePath: snapshot.tools.node }, base) })
+    'rigId,rigName,logicalId,canonicalSessionName,runtime,model,sessionStatus,lifecycleState,needsAttention,arbitratedNeedsInput,agentActivity'], { env: environment({ ...config, nodePath: snapshot.tools.node }, base) })
   if (!result.ok) throw fail('daemon_unavailable', 'Cannot read OpenRig seats. Start this instance’s daemon or check its terminal/logs; it was not started automatically.')
   try { return seatsFrom(JSON.parse(result.stdout)) } catch (error) {
     if (error.code) throw error

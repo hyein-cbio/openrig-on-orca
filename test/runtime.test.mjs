@@ -74,6 +74,22 @@ test('missing instance state never queries a daemon on a fallback port', async (
   } finally { await rm(dir, { recursive: true, force: true }) }
 })
 
+test('seat projection requests supported native fields and leaves cwd unverified', async () => {
+  const directory = await mkdtemp(path.join(tmpdir(), 'openrig-fields-'))
+  try {
+    await mkdir(path.join(directory, 'instance'))
+    await writeFile(path.join(directory, 'instance', 'daemon.json'), '{}')
+    const rig = path.join(directory, 'rig.mjs'); await writeFile(rig, '')
+    const result = await listSeats(configFrom({ root: directory }), { tools: { node: process.execPath, rig, tmux: '/fixture/tmux' } }, async (file, args) => {
+      const fields = args[args.indexOf('--fields') + 1].split(',')
+      assert.ok(fields.includes('model')); assert.equal(fields.includes('cwd'), false)
+      assert.ok(args.includes('--no-cleanup'))
+      return { ok: true, stdout: JSON.stringify({ entries: [{ rigId: 'r', rigName: 'demo', logicalId: 'dev.worker', canonicalSessionName: null, runtime: 'pi', sessionStatus: null, lifecycleState: 'detached', model: 'declared-model' }] }) }
+    })
+    assert.equal(result[0].cwd, null); assert.equal(result[0].model, 'declared-model')
+  } finally { await rm(directory, { recursive: true, force: true }) }
+})
+
 test('native Windows is refused rather than trying POSIX commands', async () => {
   await assert.rejects(discover(configFrom(), { platform: 'win32' }), { code: 'unsupported_platform' })
 })

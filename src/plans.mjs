@@ -1,9 +1,12 @@
 import { randomUUID } from 'node:crypto'
 import { realpath } from 'node:fs/promises'
 import path from 'node:path'
-import { commandEnvironment, environment, fail, findExecutable, OPENRIG_VERSION, rigInvocation, shellCommand } from './runtime.mjs'
+import { commandEnvironment, environment, fail, findExecutable, OPENRIG_VERSION, quote, rigInvocation, shellCommand } from './runtime.mjs'
 import { prepareLaunchReview } from './launch-review.mjs'
 import { exampleBundle, writeExampleCommand } from './examples.mjs'
+import { canInstruct, instructionEndpoint, instructionTextError } from './seat-instructions.mjs'
+import { canStartSeat, canQueueTask, taskTextError } from './seat-tasks.mjs'
+import { taskBodyPath } from './task-files.mjs'
 
 export const SOURCES = {
   rig: 'https://github.com/mvschwarz/openrig',
@@ -53,7 +56,7 @@ function npmCommand(snapshot, args) {
 export async function buildPlan(action, config, snapshot, workspace, input = {}, options = {}) {
   if (!workspace || (workspace.hostId && workspace.hostId !== 'local')) throw fail('local_workspace_required', 'Choose a local Orca workspace; remote execution is not supported yet')
   const env = commandEnvironment(config, snapshot, options.baseEnv)
-  let command, title, source, example, launchReview, writes = [], warnings = []
+  let command, title, source, example, launchReview, instruction, seatLaunch, queueTask, writes = [], warnings = []
   const root = config.root
   if (['install-rig', 'install-claude', 'install-codex'].includes(action) && snapshot.tools.op && config.npmPath) {
     const selectedEnv = environment({ ...config, nodePath: snapshot.tools.node }, options.baseEnv)
@@ -89,6 +92,45 @@ export async function buildPlan(action, config, snapshot, workspace, input = {},
     writes = [path.join(root, 'instance')]
     warnings = ['Explicitly stops only this recorded demo team, including its two tmux seats. Example files are kept. Other teams and views are not targeted.']
     command = shellCommand(rig.file, [...rig.args, 'down', example.rigName])
+  } else if (action === 'launch-seat' || action === 'create-task') {
+    if (!snapshot.installed) throw fail('dependencies_missing', 'Verify Node, OpenRig, tmux and SQLite first')
+    const seat = input.seat
+    if (action === 'launch-seat' && !canStartSeat(seat)) throw fail('seat_unavailable', 'Choose one stopped, exited, detached or never-started agent seat. Running, unknown, shell and kernel seats are refused.')
+    if (action === 'create-task') {
+      if (!canQueueTask(seat)) throw fail('seat_unavailable', 'Choose one running local agent without an attention request; shell, remote and kernel targets are refused')
+      const problem = taskTextError(input.summary, input.body)
+      if (problem) throw fail('invalid_task', problem)
+    }
+    const rig = await rigInvocation(snapshot.tools.rig, snapshot.tools.node)
+    const local = `unset OPENRIG_SESSION_NAME OPENRIG_NODE_ID OPENRIG_RIG_ID RIGGED_SESSION_NAME RIGGED_NODE_ID RIGGED_RIG_ID; export OPENRIG_URL=${quote(instructionEndpoint(config))}; export OPENRIG_HOST_SELECTED=local; export OPENRIG_NO_KERNEL=1;`
+    source = SOURCES.rig
+    if (action === 'launch-seat') {
+      seatLaunch = { ...seat }
+      title = `Start one seat: ${seat.logicalId}`
+      writes = [path.join(root, 'instance'), 'The selected native seat cwd, provider files, hooks, logs and tmux session']
+      warnings = ['Starts only this registered rig ID and logical ID. No --seats, fresh occupant, stop, model override or kernel recovery is requested. Other running seats remain unchanged.', 'This is a command review, not a complete native startup plan. First-start --plan is not supported for never-started materialized seats. Model defaults, permissions, provider configuration and hooks remain unverified; explicit startup-risk acknowledgment is required.', 'May start paid model calls and edit files. A declared cwd, role or read-only terminal view is not an OS sandbox. Inspect the CLI result and refresh; a result terminal is not proof that the seat is running.']
+      command = `${local} ${shellCommand(rig.file, [...rig.args, 'launch', '--json', '--', seat.rigId, seat.logicalId])}`
+    } else {
+      const id = `qitem-orca-${randomUUID().replaceAll('-', '')}`
+      queueTask = { id, destination: seat.session, key: seat.key, runtime: seat.runtime, summary: input.summary, body: input.body, bodyFile: taskBodyPath(root, id) }
+      title = `Register task for ${seat.session}`
+      writes = [path.join(root, 'instance'), queueTask.bodyFile, 'One durable queue row and the native destination nudge/message history']
+      warnings = ['This registers work with the selected destination; it does not claim that the agent accepted, completed or independently verified the work. Native nudges may invoke a paid model.', 'The source orca-gui@external is a declared external source, not an authenticated human or a forged seat identity. No guaranteed human reply route is created.', 'The preassigned task ID is not proof of persistence. After confirmation, use Check task registration to read the matching row without creating or nudging again. A missing row or timeout is not permission to create another ID for the same work.', 'The title/body are saved in private action files and native queue history. Do not include credentials. The destination workspace only hosts the result terminal and does not change the agent cwd.']
+      command = `${local} ${shellCommand(rig.file, [...rig.args, 'queue', 'create', '--id', id, '--source', 'orca-gui@external', '--destination', seat.session, `--summary=${input.summary}`, '--body-file', queueTask.bodyFile, '--json'])}`
+    }
+  } else if (action === 'send-instruction') {
+    if (!snapshot.installed) throw fail('dependencies_missing', 'Verify Node, OpenRig, tmux and SQLite first')
+    if (!canInstruct(input.seat)) throw fail('seat_unavailable', 'Choose a running, explicitly idle Claude Code, Codex or Pi seat without an attention request. Shell and remote targets are refused.')
+    const problem = instructionTextError(input.message)
+    if (problem) throw fail('invalid_instruction', problem)
+    const seat = input.seat
+    const rig = await rigInvocation(snapshot.tools.rig, snapshot.tools.node)
+    instruction = { key: seat.key, session: seat.session, runtime: seat.runtime, text: input.message }
+    title = `Send instruction to ${seat.session}`
+    source = SOURCES.rig
+    writes = ['The selected agent terminal and OpenRig message/audit history', 'The agent may edit files and use paid model capacity; its cwd is not a security sandbox']
+    warnings = ['Sends one terminal message, not a durable queue task or ownership handoff. The sender may be shown as unknown; no reply route is guaranteed. Delivery is not acknowledgment or task completion.', 'The existing local instance and selected seat are rechecked before opening the result terminal. OpenRig must still prove idle within one second and keeps its native prompt/permission guard; no force, raw input or approval bypass is used.', 'A timeout or missing output can follow delivery. Inspect the recipient before any resend; no automatic retry is performed.', 'The destination Orca workspace only hosts the CLI result terminal; it does not change the agent cwd. The reviewed text is saved in a private action script and may appear in local terminal/message history. Do not include credentials.']
+    command = `export OPENRIG_URL=${quote(instructionEndpoint(config))}; export OPENRIG_HOST_SELECTED=local; ${shellCommand(rig.file, [...rig.args, 'send', '--wait-for-idle', '1', '--json', '--', seat.session, input.message])}`
   } else if (action === 'install-rig') {
     title = `Install OpenRig ${OPENRIG_VERSION}`
     source = SOURCES.rig
@@ -161,7 +203,7 @@ export async function buildPlan(action, config, snapshot, workspace, input = {},
   } else throw fail('invalid_action', 'Unknown setup action')
   writes.push(path.join(root, 'actions'))
   const terminalCommand = shellCommand('/bin/sh', ['-c', `${env} ${command}`])
-  if (terminalCommand.length > 12000) throw fail('plan_display_too_large', 'The exact command cannot be displayed completely. Shorten executable/environment paths before preparing a new plan.')
+  if (terminalCommand.length > 12000) throw fail('plan_display_too_large', 'The exact command cannot be displayed completely. Shorten the message or executable/environment paths before preparing a new plan.')
   return { action, title, source, writes, warnings, workspaceId: workspace.id,
-    command: terminalCommand, ...(example ? { example } : {}), ...(launchReview ? { launchReview } : {}) }
+    command: terminalCommand, ...(example ? { example } : {}), ...(launchReview ? { launchReview } : {}), ...(instruction ? { instruction } : {}), ...(seatLaunch ? { seatLaunch } : {}), ...(queueTask ? { queueTask } : {}) }
 }

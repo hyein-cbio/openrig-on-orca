@@ -111,6 +111,18 @@ The managed macOS four-job matrix (secret gate, two core jobs, and one live job)
 
 - Seven JUnit regressions cover CircleCI hierarchy, safe metadata, failure/skip/todo/hook semantics, invalid input, decimal timings, real standalone Node test execution, and a suite whose skipped body never runs. The failing fixture must retain exit code 1 while producing well-formed report structure.
 
+## Single-seat instruction GUI
+
+The Teams instruction form reuses native `rig send`, not a new RPC adapter. Isolated tests cover exact recipient/text review, cancel/confirm behavior, disabled shell/busy/attention targets, immutable one-use plans, stopped or retargeted seats, literal argument quoting, control-input rejection and explicit local-instance routing. A harmless executable CLI fixture records the actual generated argv without a model or shell-command injection. Real OpenRig 0.7.12 and 0.7.13 were also run against a task-owned mock HTTP endpoint: each produced exactly one guarded `/api/transport/send` request for the synthetic recipient, preserving the exact text and 1000 ms idle condition.
+
+These checks do not send to a real agent or prove model acknowledgment/completion. Existing live teams, kernel, account settings and instance selection were not changed. No paid-model smoke run is part of this verification; obtain approval before one. CI monitoring was not resumed.
+
+## Single-seat start and durable task registration
+
+Offline coverage includes never-started registrations without fabricated session addresses; start consent; already-running no-op behavior; model/cwd changes; shell/kernel/unknown targets; busy-agent durable destinations; private exclusive body staging; literal title/body argv; fixed request IDs; and read-only registration checks for matching, missing, changed-content and changed-instance responses. Native panel tests exercise startup acknowledgment and registration snapshots without resubmitting work.
+
+Real OpenRig 0.7.12 and 0.7.13 were each connected only to an isolated mock HTTP server: the generated start command made one single-node launch POST (no subset/fresh/stop/model fields), queue creation made one POST preserving its ID, destination, declared external source and multiline body, and registration readback added no POST. These are native CLI/API contract checks, not live-agent startup or model-work validation. Existing live teams, kernel, accounts and global settings were not modified; CI was not monitored.
+
 ## Unverified behavior
 
 - Compatibility with Orca/OpenRig/macOS versions outside the pinned hosted and local targets. Hosted workload success and JUnit ingestion are separate acceptance checks; see the reporting history above.

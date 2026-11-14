@@ -5,7 +5,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const source = path.dirname(path.dirname(fileURLToPath(import.meta.url)))
-const runtimeFiles = ['action-files.mjs', 'runtime.mjs', 'plans.mjs', 'launch-review.mjs', 'examples.mjs', 'example-story.mjs', 'protocol.ts', 'terminal-receipt.mjs', 'terminal-status.tsx', 'workspace-labels.mjs', 'worker.ts', 'panel.tsx', 'examples-panel.tsx']
+const runtimeFiles = ['action-files.mjs', 'seat-instructions.mjs', 'seat-tasks.mjs', 'task-files.mjs', 'runtime.mjs', 'plans.mjs', 'launch-review.mjs', 'examples.mjs', 'example-story.mjs', 'protocol.ts', 'terminal-receipt.mjs', 'terminal-status.tsx', 'workspace-labels.mjs', 'worker.ts', 'panel.tsx', 'examples-panel.tsx']
 
 /** Allowlist shipping files: never package node_modules, indexes, sockets or local state. */
 export async function stagePlugin(destination) {

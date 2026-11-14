@@ -1,11 +1,13 @@
 import {
   atom, Badge, Box, Button, Callout, Card, Checkbox, Code, CodeView, Collapsible,
   EmptyState, Heading, Input, Link, plugin, read, Row, Select, set, Spinner, Stack,
-  Tab, Tabs, Text, update, type PanelContext
+  Tab, Tabs, Text, Textarea, update, type PanelContext
 } from 'orca'
-import type { Config, Plan, Seat, State, TerminalReceipt } from './protocol'
+import type { Config, Plan, Seat, State, TerminalReceipt, TaskStatus } from './protocol'
 import { TerminalStatus } from './terminal-status'
 import { workspaceLabel, workspaceOptions } from './workspace-labels.mjs'
+import { canInstruct, INSTRUCTION_LIMIT, instructionTextError } from './seat-instructions.mjs'
+import { canStartSeat, canQueueTask, taskTextError, TASK_SUMMARY_LIMIT, TASK_BODY_LIMIT } from './seat-tasks.mjs'
 
 const state = atom<State | null>(null)
 const draft = atom<Config | null>(null)
@@ -19,6 +21,13 @@ const plan = atom<Plan | null>(null)
 const seats = atom<Seat[] | null>(null)
 const readOnly = atom(true)
 const spec = atom('')
+const instructionSeat = atom('')
+const instructionText = atom('')
+const startupRisk = atom(false)
+const taskRecipient = atom('')
+const taskSummary = atom('')
+const taskBody = atom('')
+const taskResult = atom<TaskStatus | null>(null)
 
 async function perform(work: () => Promise<void>) {
   if (read(busy)) return
@@ -30,8 +39,10 @@ async function perform(work: () => Promise<void>) {
 }
 
 function apply(next: State) {
+  if (read(taskResult) && JSON.stringify(read(state)?.config) !== JSON.stringify(next.config)) set(taskResult, { ...read(taskResult)!, registration: 'unverified', detail: 'Instance configuration changed. Check at the original instance before retrying.' })
   set(state, next)
   set(draft, next.config)
+  set(instructionSeat, ''); set(taskRecipient, '')
   if (!next.workspaces.some(w => w.id === read(workspaceId))) set(workspaceId, '')
 }
 
@@ -61,10 +72,10 @@ async function save() {
   })
 }
 
-async function prepare(action: string) {
+async function prepare(action: string, input: { seatKey?: string; message?: string; summary?: string; body?: string } = {}) {
   await perform(async () => {
-    set(plan, null)
-    set(plan, await plugin.request('setup.prepare', { action, workspaceId: read(workspaceId), spec: read(spec) }, { timeoutMs: 120000 }))
+    set(plan, null); set(startupRisk, false)
+    set(plan, await plugin.request('setup.prepare', { action, workspaceId: read(workspaceId), spec: read(spec), ...input }, { timeoutMs: 120000 }))
   })
 }
 
@@ -73,8 +84,20 @@ async function execute() {
     const pending = read(plan)
     if (!pending) return
     set(plan, null)
-    const result = await plugin.request('setup.execute', { planId: pending.id, workspaceId: read(workspaceId) })
+    if (pending.queueTask) set(taskResult, { id: pending.queueTask.id, destination: pending.queueTask.destination, registration: 'unverified', state: 'unknown', detail: 'Create requested; registration is not confirmed. Reconcile this ID before any retry.' })
+    const result = await plugin.request('setup.execute', { planId: pending.id, workspaceId: read(workspaceId), ...(pending.seatLaunch ? { acceptStartupRisk: read(startupRisk) } : {}) })
+    if ('noOp' in result) { set(notice, result.detail); return }
     set(receipt, result)
+    if (result.task) set(taskResult, result.task)
+    if (pending.queueTask) { set(taskRecipient, ''); set(taskSummary, ''); set(taskBody, '') }
+    if (pending.action === 'send-instruction') { set(instructionText, ''); set(instructionSeat, '') }
+  })
+}
+
+async function checkRegistration() {
+  await perform(async () => {
+    const current = read(taskResult)
+    if (current) set(taskResult, await plugin.request('task.check', { id: current.id }, { timeoutMs: 120000 }))
   })
 }
 
@@ -87,6 +110,7 @@ async function reveal() {
 
 async function refreshSeats() {
   await perform(async () => {
+    set(plan, null); set(instructionSeat, ''); set(taskRecipient, '')
     set(seats, null)
     set(seats, (await plugin.request('seats.list')).seats)
   })
@@ -133,6 +157,10 @@ export default function Panel() {
   const snapshot = current?.snapshot
   const isDirty = dirty()
   const waiting = read(busy)
+  const selectedAgent = read(seats)?.find(seat => seat.key === read(instructionSeat))
+  const instructionProblem = instructionTextError(read(instructionText))
+  const taskTarget = read(seats)?.find(seat => seat.key === read(taskRecipient))
+  const taskProblem = taskTextError(read(taskSummary), read(taskBody))
   return (
     <Box padding="md" gap="md">
       <Row justify="between" wrap>
@@ -141,6 +169,13 @@ export default function Panel() {
       </Row>
       {read(error) && <Callout tone="danger" title="Action needs attention"><Text>{read(error)}</Text></Callout>}
       {read(notice) && <Callout tone="success" title="Request accepted"><Text>{read(notice)}</Text></Callout>}
+      {!pending && read(taskResult) && <Card title="Task registration · manual snapshot">
+        <Stack gap="xs"><Code>{read(taskResult)!.id}</Code><Text>Destination: {read(taskResult)!.destination}</Text>
+          <Text>Registration: {read(taskResult)!.registration} · Recorded state: {read(taskResult)!.state}</Text>
+          <Text size="xs">{read(taskResult)!.detail}</Text><Text muted size="xs">Recorded done is not proof of correct results. This check never creates, nudges or retries a task.</Text>
+          <Button disabled={waiting || isDirty} onPress={checkRegistration}>Check task registration</Button>
+        </Stack>
+      </Card>}
       {!pending && read(receipt) && <TerminalStatus receipt={read(receipt)!} busy={waiting} onReveal={reveal} />}
       {!pending && snapshot?.installed && <Callout title="Daemon connection" tone={current?.daemon?.status === 'reachable' ? 'neutral' : 'warning'}>
         <Text>Daemon: {current?.daemon?.status || 'unavailable'}. {current?.daemon?.detail || 'Recheck environment to verify this instance.'}</Text>
@@ -162,9 +197,12 @@ export default function Panel() {
               <Heading level={3}>Writes and effects</Heading>
               {pending.writes.map((value, index) => <Text key={`write-${index}`} size="xs">{value}</Text>)}
               {pending.warnings.map((value, index) => <Text key={`warning-${index}`} size="xs" tone="warning">{value}</Text>)}
+              {pending.seatLaunch && <Stack gap="xs"><Text>Registered seat: {pending.seatLaunch.rigId} / {pending.seatLaunch.logicalId}</Text><Text>Runtime: {pending.seatLaunch.runtime} · Model: {pending.seatLaunch.model || 'UNVERIFIED default'}</Text><Text>Cwd: {pending.seatLaunch.cwd || 'UNVERIFIED native seat cwd'}</Text><Checkbox label="I accept unverified native startup settings and possible model costs" checked={read(startupRisk)} onChange={value => set(startupRisk, value)} /></Stack>}
+              {pending.queueTask && <Stack gap="xs"><Text>Request ID (not proof of registration): {pending.queueTask.id}</Text><Text>Destination: {pending.queueTask.destination}</Text><Text>Title: {pending.queueTask.summary}</Text><CodeView label="Reviewed task body" code={pending.queueTask.body} wrap /></Stack>}
+              {pending.instruction && <Stack gap="xs"><Text>Agent: {pending.instruction.session} · {pending.instruction.runtime}</Text><CodeView label="Reviewed instruction" code={pending.instruction.text} wrap /></Stack>}
               {pending.launchReview && <CodeView label="Frozen launch declarations and unverified settings" code={JSON.stringify(pending.launchReview.display, null, 2)} language="json" wrap />}
               <CodeView label="Exact command" code={pending.command} language="shell" wrap />
-              <Row gap="xs" wrap><Button disabled={waiting || isDirty} onPress={execute}>Confirm and open in Orca terminal</Button><Button variant="ghost" disabled={waiting} onPress={() => set(plan, null)}>Cancel plan</Button></Row>
+              <Row gap="xs" wrap><Button disabled={waiting || isDirty || Boolean(pending.seatLaunch && !read(startupRisk))} onPress={execute}>Confirm and open in Orca terminal</Button><Button variant="ghost" disabled={waiting} onPress={() => set(plan, null)}>Cancel plan</Button></Row>
             </Stack>
           </Card>}
           <Tabs label="OpenRig sections" value={read(tab)} onChange={value => { set(tab, value); set(plan, null) }}>
@@ -226,11 +264,39 @@ export default function Panel() {
                       <Card key={seat.key} title={`${seat.rigName} / ${seat.logicalId}`}>
                         <Stack gap="xs">
                           <Row gap="xs" wrap><Badge tone={seat.attention ? 'warning' : 'neutral'}>{seat.attention ? 'Needs attention' : seat.status}</Badge><Text size="xs" muted>{seat.runtime} · {seat.activity}</Text></Row>
-                          <Code>{seat.session}</Code>
+                          <Code>{seat.session || 'No session yet'}</Code>
+                          <Button key={`start:${seat.key}`} size="sm" disabled={waiting || isDirty || !read(workspaceId) || !snapshot.installed || !canStartSeat(seat)} onPress={() => prepare('launch-seat', { seatKey: seat.key })}>Review seat start</Button>
                           <Button size="sm" disabled={waiting || isDirty || !read(workspaceId) || seat.status !== 'running'} onPress={() => attach(seat.key)}>Open seat view</Button>
                         </Stack>
                       </Card>
                     ))}
+                  </Stack>
+                </Card>
+                <Card title="Send one instruction" description="A guarded terminal message to one existing idle agent, not a durable queue task.">
+                  <Stack gap="sm">
+                    <Text muted size="xs">Refresh seats first. Stopped, busy, attention-requesting, unknown and shell seats are disabled. The result opens in your selected Orca workspace; the agent cwd does not change.</Text>
+                    <Select label="Instruction recipient" value={read(instructionSeat)} placeholder="Choose one idle agent" disabled={waiting || isDirty}
+                      options={(read(seats) || []).map(seat => ({ value: seat.key, label: `${seat.rigName} / ${seat.logicalId} · ${seat.runtime} · ${seat.activity}`, disabled: !canInstruct(seat) }))}
+                      onChange={value => { set(instructionSeat, value); set(plan, null) }} />
+                    <Input label="Short instruction" value={read(instructionText)} maxLength={INSTRUCTION_LIMIT} disabled={waiting || isDirty}
+                      placeholder="A single-line instruction, up to 2000 characters"
+                      onChange={value => { set(instructionText, value); set(plan, null) }} />
+                    {read(instructionText) && instructionProblem && <Text tone="warning" size="xs">{instructionProblem}</Text>}
+                    <Text tone="warning" size="xs">May trigger paid model calls and file edits. Read-only seat view does not restrict agent tools. Review the exact recipient and text before confirming. Do not include secrets or resend after a timeout without checking the agent.</Text>
+                    <Button size="sm" disabled={waiting || isDirty || !read(workspaceId) || !snapshot.installed || !canInstruct(selectedAgent) || Boolean(instructionProblem)}
+                      onPress={() => prepare('send-instruction', { seatKey: read(instructionSeat), message: read(instructionText) })}>Review instruction</Button>
+                  </Stack>
+                </Card>
+                <Card title="Register one durable task" description="Persist work for one running agent. Busy agents may claim it later; registration is not completion.">
+                  <Stack gap="sm">
+                    <Select label="Task recipient" value={read(taskRecipient)} placeholder="Choose an existing agent" disabled={waiting || isDirty}
+                      options={(read(seats) || []).map(seat => ({ value: seat.key, label: `${seat.rigName} / ${seat.logicalId} · ${seat.runtime}`, disabled: !canQueueTask(seat) }))}
+                      onChange={value => { set(taskRecipient, value); set(plan, null) }} />
+                    <Input label="Task title" value={read(taskSummary)} maxLength={TASK_SUMMARY_LIMIT} disabled={waiting || isDirty} onChange={value => { set(taskSummary, value); set(plan, null) }} />
+                    <Textarea label="Task body" value={read(taskBody)} rows={4} maxLength={TASK_BODY_LIMIT} disabled={waiting || isDirty} onChange={value => { set(taskBody, value); set(plan, null) }} />
+                    <Text tone="warning" size="xs">Native nudges can trigger paid model calls and file edits. Do not include credentials. Check the saved request ID after a timeout instead of submitting duplicate work.</Text>
+                    {read(taskSummary) && read(taskBody) && taskProblem && <Text tone="warning" size="xs">{taskProblem}</Text>}
+                    <Button size="sm" disabled={waiting || isDirty || !read(workspaceId) || !snapshot.installed || !canQueueTask(taskTarget) || Boolean(taskProblem)} onPress={() => prepare('create-task', { seatKey: read(taskRecipient), summary: read(taskSummary), body: read(taskBody) })}>Review durable task</Button>
                   </Stack>
                 </Card>
                 <Card title="Launch a team" description="Review a frozen bundle, acknowledge unverified native settings, then type LAUNCH.">

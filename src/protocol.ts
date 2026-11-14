@@ -11,17 +11,21 @@ export interface Snapshot {
 export interface Workspace { id: string; name: string; project?: string | null; path: string; hostId: string | null }
 export interface Seat {
   key: string; rigId: string; rigName: string; logicalId: string; session: string
-  runtime: string; status: string; attention: boolean; activity: string
+  runtime: string; status: string; attention: boolean; activity: string; rigNameKnown?: boolean; lifecycle?: string; model?: string | null; cwd?: string | null
 }
 export interface ExampleRecord {
   id: string; kind: 'demo' | 'claude' | 'codex'; rigName: string; directory: string; specPath: string; configRoot: string
 }
+export interface Instruction { key: string; session: string; runtime: string; text: string }
+export interface QueueTask { id: string; destination: string; key: string; runtime: string; summary: string; body: string; bodyFile: string }
+export interface TaskStatus { id: string; destination: string; registration: 'unverified' | 'verified'; state: string; detail: string }
+export interface NoOpReceipt { noOp: true; detail: string }
 export interface Plan {
   id: string; expires: number; action: string; title: string; source: string
-  writes: string[]; warnings: string[]; command: string; workspaceId: string; example?: ExampleRecord; launchReview?: { display: Record<string, unknown> }
+  writes: string[]; warnings: string[]; command: string; workspaceId: string; instruction?: Instruction; seatLaunch?: Seat; queueTask?: QueueTask; example?: ExampleRecord; launchReview?: { display: Record<string, unknown> }
 }
 export interface TerminalReceipt {
-  terminalId: string; warning?: string; workspaceName?: string; workspaceId?: string; title?: string
+  terminalId: string; task?: TaskStatus; warning?: string; workspaceName?: string; workspaceId?: string; title?: string
   visibility?: 'shown' | 'unverified'; visibilityDetail?: string; recoveryCommand?: string
 }
 export interface State {
@@ -33,9 +37,10 @@ declare module 'orca' {
   interface PluginRequests {
     'environment.scan': { output: State }
     'config.save': { input: Config; output: State }
-    'setup.prepare': { input: { action: string; workspaceId: string; spec?: string; exampleId?: string }; output: Plan }
+    'setup.prepare': { input: { action: string; workspaceId: string; spec?: string; exampleId?: string; seatKey?: string; message?: string; summary?: string; body?: string }; output: Plan }
     'examples.list': { output: { examples: ExampleRecord[] } }
-    'setup.execute': { input: { planId: string; workspaceId: string }; output: TerminalReceipt }
+    'setup.execute': { input: { planId: string; workspaceId: string; acceptStartupRisk?: boolean }; output: TerminalReceipt | NoOpReceipt }
+    'task.check': { input: { id: string }; output: TaskStatus }
     'terminal.reveal': { input: { terminalId: string }; output: TerminalReceipt }
     'seats.list': { output: { seats: Seat[] } }
     'seat.attach': { input: { key: string; workspaceId: string; readOnly: boolean }; output: TerminalReceipt }

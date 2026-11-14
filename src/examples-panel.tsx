@@ -40,6 +40,7 @@ async function confirm() {
     if (!plan) return
     set(pending, null)
     const result = await plugin.request('setup.execute', { planId: plan.id, workspaceId: read(workspace) })
+    if ('noOp' in result) { set(notice, result.detail); return }
     set(receipt, result)
     try { set(records, (await plugin.request('examples.list')).examples) }
     catch { set(error, 'The terminal was already created, but refreshing examples failed. Do not repeat the action; inspect its terminal and recheck the environment.') }

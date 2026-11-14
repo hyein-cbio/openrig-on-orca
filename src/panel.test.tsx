@@ -155,6 +155,105 @@ test('failed recovery keeps the original receipt available instead of offering r
   assert.equal(panel.find({ text: 'Confirm and open in Orca terminal' }), null)
 })
 
+test('one idle Pi agent can receive a reviewed instruction without enabling agent installation', async () => {
+  const seat = { key: '["rig-1","dev.worker"]', rigId: 'rig-1', rigName: 'demo', logicalId: 'dev.worker', session: 'dev-worker@demo', runtime: 'pi', status: 'running', attention: false, activity: 'idle' }
+  const prepared: unknown[] = [], executed: unknown[] = []
+  panel = await mount(panelModule, { host: mockHost({ requests: {
+    'environment.scan': installed, 'seats.list': { seats: [seat] },
+    'setup.prepare': input => {
+      prepared.push(input)
+      return { ...installPlan, action: 'send-instruction', title: 'Send instruction', instruction: { key: seat.key, session: seat.session, runtime: seat.runtime, text: input.message! } }
+    },
+    'setup.execute': input => { executed.push(input); return { terminalId: 'instruction-result' } }
+  } }) })
+  await panel.select({ label: 'Destination Orca workspace' }, 'workspace')
+  await panel.select({ label: 'OpenRig sections' }, 'teams')
+  await assert.rejects(panel.press({ text: 'Review instruction' }))
+  await panel.press({ text: 'Refresh seats' })
+  await panel.select({ label: 'Instruction recipient' }, seat.key)
+  await panel.type({ label: 'Short instruction' }, 'Inspect the latest diff.')
+  await panel.press({ text: 'Review instruction' })
+  assert.deepEqual(prepared, [{ action: 'send-instruction', workspaceId: 'workspace', spec: '', seatKey: seat.key, message: 'Inspect the latest diff.' }])
+  assert.ok(panel.find({ label: 'Reviewed instruction' }))
+  assert.equal(executed.length, 0)
+  await panel.press({ text: 'Cancel plan' })
+  assert.equal(executed.length, 0)
+  await panel.type({ label: 'Short instruction' }, 'Explain the diff without edits.', { replace: true })
+  await panel.press({ text: 'Review instruction' })
+  await panel.press({ text: 'Confirm and open in Orca terminal' })
+  assert.deepEqual(executed, [{ planId: installPlan.id, workspaceId: 'workspace' }])
+  assert.equal(panel.valueOf({ label: 'Short instruction' }), '')
+  assert.deepEqual(panel.errors, []); assert.deepEqual(panel.warnings, []); assert.deepEqual(panel.refusals, [])
+})
+
+test('shell, busy and attention-requesting seats cannot be selected for instructions', async () => {
+  const base = { rigId: 'rig-1', rigName: 'demo', logicalId: 'worker', session: 'worker@demo', runtime: 'pi', status: 'running', attention: false, activity: 'idle' }
+  panel = await mount(panelModule, { host: mockHost({ requests: {
+    'environment.scan': installed,
+    'seats.list': { seats: [{ ...base, key: 'shell', runtime: 'terminal' }, { ...base, key: 'busy', activity: 'working' }, { ...base, key: 'attention', attention: true }] }
+  } }) })
+  await panel.select({ label: 'Destination Orca workspace' }, 'workspace')
+  await panel.select({ label: 'OpenRig sections' }, 'teams')
+  await panel.press({ text: 'Refresh seats' })
+  for (const key of ['shell', 'busy', 'attention']) await assert.rejects(panel.select({ label: 'Instruction recipient' }, key))
+  await panel.type({ label: 'Short instruction' }, 'Please inspect the diff.')
+  await assert.rejects(panel.press({ text: 'Review instruction' }))
+  assert.deepEqual(panel.errors, []); assert.deepEqual(panel.warnings, [])
+})
+
+test('a never-started seat has a single-start review with mandatory startup acknowledgment', async () => {
+  const seat = { key: '["rig-1","dev.worker"]', rigId: 'rig-1', rigName: 'demo', logicalId: 'dev.worker', session: '', runtime: 'pi', status: 'not-started', lifecycle: 'detached', activity: 'unknown', attention: false }
+  let accepted: unknown
+  panel = await mount(panelModule, { host: mockHost({ requests: {
+    'environment.scan': installed, 'seats.list': { seats: [seat] },
+    'setup.prepare': { ...installPlan, action: 'launch-seat', title: 'Start one seat', seatLaunch: seat },
+    'setup.execute': input => { accepted = input; return { noOp: true, detail: 'The seat is already running and was left unchanged.' } }
+  } }) })
+  await panel.select({ label: 'Destination Orca workspace' }, 'workspace')
+  await panel.select({ label: 'OpenRig sections' }, 'teams')
+  await panel.press({ text: 'Refresh seats' })
+  assert.ok(panel.find({ text: 'No session yet' }))
+  await panel.press({ testId: `start:${seat.key}` })
+  await assert.rejects(panel.press({ text: 'Confirm and open in Orca terminal' }))
+  assert.equal(accepted, undefined)
+  await panel.toggle({ label: 'I accept unverified native startup settings and possible model costs' })
+  await panel.press({ text: 'Confirm and open in Orca terminal' })
+  assert.deepEqual(accepted, { planId: installPlan.id, workspaceId: 'workspace', acceptStartupRisk: true })
+  assert.ok(panel.find({ text: /already running and was left unchanged/ }))
+  assert.deepEqual(panel.errors, []); assert.deepEqual(panel.warnings, [])
+})
+
+test('durable task GUI preserves the request ID and reads registration without resubmitting', async () => {
+  const seat = { key: '["rig-1","dev.worker"]', rigId: 'rig-1', rigName: 'demo', logicalId: 'dev.worker', session: 'dev-worker@demo', runtime: 'pi', status: 'running', activity: 'working', attention: false }
+  const id = 'qitem-orca-' + 'a'.repeat(32)
+  let creates = 0, checks: unknown[] = []
+  panel = await mount(panelModule, { host: mockHost({ requests: {
+    'environment.scan': installed, 'seats.list': { seats: [seat] },
+    'setup.prepare': input => ({ ...installPlan, action: 'create-task', title: 'Register task', queueTask: { id, destination: seat.session, key: seat.key, runtime: seat.runtime, summary: input.summary!, body: input.body!, bodyFile: '/sandbox/actions/body.txt' } }),
+    'setup.execute': () => { creates++; return { terminalId: 'task-result' } },
+    'task.check': input => { checks.push(input); return { id, destination: seat.session, registration: 'verified', state: 'done', detail: 'Matching durable row exists; not proof of correct results.' } }
+  } }) })
+  await panel.select({ label: 'Destination Orca workspace' }, 'workspace')
+  await panel.select({ label: 'OpenRig sections' }, 'teams')
+  await panel.press({ text: 'Refresh seats' })
+  await panel.select({ label: 'Task recipient' }, seat.key)
+  await panel.type({ label: 'Task title' }, 'Inspect the fixture')
+  await panel.type({ label: 'Task body' }, 'First line\nSecond line')
+  await panel.press({ text: 'Review durable task' })
+  assert.ok(panel.find({ label: 'Reviewed task body' }))
+  assert.equal(creates, 0)
+  await panel.press({ text: 'Confirm and open in Orca terminal' })
+  assert.equal(creates, 1)
+  assert.ok(panel.find({ text: id }))
+  assert.ok(panel.find({ text: /Registration: unverified/ }))
+  await panel.press({ text: 'Check task registration' })
+  assert.deepEqual(checks, [{ id }]); assert.equal(creates, 1)
+  assert.ok(panel.find({ text: /Registration: verified/ }))
+  assert.ok(panel.find({ text: /Recorded done is not proof/ }))
+  assert.equal(panel.valueOf({ label: 'Task body' }), '')
+  assert.deepEqual(panel.errors, []); assert.deepEqual(panel.warnings, []); assert.deepEqual(panel.refusals, [])
+})
+
 test('host failures show a retryable screen instead of triggering installation', async () => {
   panel = await mount(panelModule, { host: mockHost({ requests: { 'environment.scan': () => { throw hostError('unavailable', 'Offline host') } } }) })
   assert.ok(panel.find({ text: 'Offline host' }))
