@@ -3,7 +3,9 @@ import {
   EmptyState, Heading, Input, Link, plugin, read, Row, Select, set, Spinner, Stack,
   Tab, Tabs, Text, update, type PanelContext
 } from 'orca'
-import type { Config, Plan, Seat, State } from './protocol'
+import type { Config, Plan, Seat, State, TerminalReceipt } from './protocol'
+import { TerminalStatus } from './terminal-status'
+import { workspaceLabel, workspaceOptions } from './workspace-labels.mjs'
 
 const state = atom<State | null>(null)
 const draft = atom<Config | null>(null)
@@ -12,6 +14,7 @@ const workspaceId = atom('')
 const busy = atom(false)
 const error = atom('')
 const notice = atom('')
+const receipt = atom<TerminalReceipt | null>(null)
 const plan = atom<Plan | null>(null)
 const seats = atom<Seat[] | null>(null)
 const readOnly = atom(true)
@@ -71,7 +74,14 @@ async function execute() {
     if (!pending) return
     set(plan, null)
     const result = await plugin.request('setup.execute', { planId: pending.id, workspaceId: read(workspaceId) })
-    set(notice, `Opened Orca terminal ${result.terminalId}. Check its output, then Recheck environment. Opening a terminal is not proof that the command succeeded. ${result.warning || ''}`)
+    set(receipt, result)
+  })
+}
+
+async function reveal() {
+  await perform(async () => {
+    const current = read(receipt)
+    if (current) set(receipt, await plugin.request('terminal.reveal', { terminalId: current.terminalId }))
   })
 }
 
@@ -85,7 +95,8 @@ async function refreshSeats() {
 async function attach(key: string) {
   await perform(async () => {
     const result = await plugin.request('seat.attach', { key, workspaceId: read(workspaceId), readOnly: read(readOnly) })
-    set(notice, `Seat view opened in Orca terminal ${result.terminalId}. Closing the view only detaches; the seat stays running. Each press opens a separate view. ${result.warning || ''}`)
+    set(receipt, result)
+    set(notice, 'Closing the view only detaches; the seat stays running. Recover the existing terminal instead of opening another view.')
   })
 }
 
@@ -130,18 +141,35 @@ export default function Panel() {
       </Row>
       {read(error) && <Callout tone="danger" title="Action needs attention"><Text>{read(error)}</Text></Callout>}
       {read(notice) && <Callout tone="success" title="Request accepted"><Text>{read(notice)}</Text></Callout>}
+      {!pending && read(receipt) && <TerminalStatus receipt={read(receipt)!} busy={waiting} onReveal={reveal} />}
+      {!pending && snapshot?.installed && <Callout title="Daemon connection" tone={current?.daemon?.status === 'reachable' ? 'neutral' : 'warning'}>
+        <Text>Daemon: {current?.daemon?.status || 'unavailable'}. {current?.daemon?.detail || 'Recheck environment to verify this instance.'}</Text>
+      </Callout>}
       {waiting && <Spinner label="Checking environment or preparing your request" />}
       {!current || !config || !snapshot ? (
         <EmptyState icon="layers" title="Discovering your tools" description="Read-only checks. Nothing is installed, signed in or launched automatically."><Button disabled={waiting} onPress={scan}>Retry environment check</Button></EmptyState>
       ) : (
         <Stack gap="md">
           <Select label="Destination Orca workspace" value={read(workspaceId)} placeholder="Choose a local workspace" disabled={waiting}
-            options={current.workspaces.filter(w => !w.hostId || w.hostId === 'local').map(w => ({ value: w.id, label: `${w.name} — ${w.path}` }))}
+            options={workspaceOptions(current.workspaces)}
             onChange={value => { set(workspaceId, value); set(plan, null) }} />
           {!current.workspaces.length && <Callout tone="warning" title="No workspace available"><Text>Open a local project or folder in Orca first.</Text></Callout>}
-          <Tabs label="OpenRig sections" value={read(tab)} onChange={value => set(tab, value)}>
+          {!read(workspaceId) && <Callout title="Choose a destination first" tone="warning"><Text>Select a local workspace above to enable action previews. Previewing does not run the command.</Text></Callout>}
+          {pending && <Card title={`Review · ${pending.title}`} description="No installation or launch has run. Launch preparation may have created a private frozen bundle. This one-use plan expires in five minutes.">
+            <Stack gap="sm">
+              <Text>Destination: {workspaceLabel(current.workspaces.find(w => w.id === pending.workspaceId))} · {current.workspaces.find(w => w.id === pending.workspaceId)?.path}</Text>
+              <Link href={pending.source}>Official source / installation guide</Link>
+              <Heading level={3}>Writes and effects</Heading>
+              {pending.writes.map((value, index) => <Text key={`write-${index}`} size="xs">{value}</Text>)}
+              {pending.warnings.map((value, index) => <Text key={`warning-${index}`} size="xs" tone="warning">{value}</Text>)}
+              {pending.launchReview && <CodeView label="Frozen launch declarations and unverified settings" code={JSON.stringify(pending.launchReview.display, null, 2)} language="json" wrap />}
+              <CodeView label="Exact command" code={pending.command} language="shell" wrap />
+              <Row gap="xs" wrap><Button disabled={waiting || isDirty} onPress={execute}>Confirm and open in Orca terminal</Button><Button variant="ghost" disabled={waiting} onPress={() => set(plan, null)}>Cancel plan</Button></Row>
+            </Stack>
+          </Card>}
+          <Tabs label="OpenRig sections" value={read(tab)} onChange={value => { set(tab, value); set(plan, null) }}>
             <Tab value="setup" label="Setup" icon="wrench">
-              <Stack gap="md">
+              {!pending && <Stack gap="md">
                 <Card title="1 · Reuse your environment" description="No global install. No extra terminal app.">
                   <Stack gap="sm">
                     <Row justify="between" wrap><Text weight="semibold">{snapshot.stage.replaceAll('-', ' ')}</Text><Button size="sm" variant="ghost" disabled={waiting || isDirty} onPress={scan}>Recheck environment</Button></Row>
@@ -149,6 +177,7 @@ export default function Panel() {
                     <Text>OpenRig: {snapshot.rigVersion || 'Not installed'}</Text>
                     <Text>tmux: {snapshot.tmuxVersion || 'Required — not available'}</Text>
                     <Text>SQLite: {snapshot.sqlite.status}</Text><Text muted size="xs">{snapshot.sqlite.detail}</Text>
+                    <Text muted size="xs">Install buttons prepare a review above these sections. Only confirmation runs the command.</Text>
                     <Row wrap gap="xs">
                       <Action action="install-rig" disabled={!snapshot.tools.node || !snapshot.tools.npm}>Install managed OpenRig</Action>
                       <Action action="install-tmux">Install tmux</Action>
@@ -175,15 +204,21 @@ export default function Panel() {
                   </Stack>
                 </Card>
                 <Card title="3 · Connect OpenRig" description="Start only the daemon first. Kernel and agents remain separate choices.">
-                  <Row gap="xs" wrap>
-                    <Action action="start-daemon" disabled={!snapshot.installed}>Start daemon · no agents</Action>
-                    <Action action="console" disabled={!snapshot.installed}>Open dashboard</Action>
-                  </Row>
+                  <Stack gap="sm">
+                    <Text weight="semibold">Daemon: {current.daemon?.status || 'unavailable'}</Text>
+                    <Text size="xs">{current.daemon?.detail || 'Recheck environment to verify this instance.'}</Text>
+                    <Text muted size="xs">Order: verify installation → start daemon without agents → inspect its terminal → Recheck environment → open dashboard.</Text>
+                    <Row gap="xs" wrap>
+                      <Action action="start-daemon" disabled={!snapshot.installed}>Start daemon · no agents</Action>
+                      <Action action="console" disabled={!snapshot.installed || current.daemon?.status !== 'reachable'}>Open dashboard</Action>
+                    </Row>
+                    {snapshot.installed && current.daemon?.status !== 'reachable' && <Text tone="warning" size="xs">Dashboard is disabled until this instance responds. Starting or rechecking the daemon never starts agents automatically.</Text>}
+                  </Stack>
                 </Card>
-              </Stack>
+              </Stack>}
             </Tab>
             <Tab value="teams" label="Teams" icon="layers">
-              <Stack gap="md">
+              {!pending && <Stack gap="md">
                 <Card title="Live seats" description="OpenRig owns session lifecycle. Orca owns the view.">
                   <Stack gap="sm">
                     <Row gap="sm" wrap><Button size="sm" disabled={waiting || isDirty || !snapshot.installed} onPress={refreshSeats}>Refresh seats</Button><Checkbox label="Read-only seat view" checked={read(readOnly)} onChange={value => set(readOnly, value)} /></Row>
@@ -206,30 +241,19 @@ export default function Panel() {
                   </Stack>
                 </Card>
                 <Callout title="Closing a tab is not stopping a seat" icon="info"><Text>A seat view attaches to OpenRig’s tmux session. Close it to detach; use OpenRig for deliberate stop or recovery operations.</Text></Callout>
-              </Stack>
+              </Stack>}
             </Tab>
             <Tab value="paths" label="Paths" icon="folder">
-              <Stack gap="md">
+              {!pending && <Stack gap="md">
                 <Callout title="Reuse, don’t migrate" icon="link"><Text>Use absolute executable/configuration paths. An empty override uses discovery. The plugin never copies account tokens or edits your shell startup files.</Text></Callout>
                 {fieldLabels.map(([key, label, placeholder]) => <Input key={key} label={label} placeholder={placeholder} value={config[key]} maxLength={4096} disabled={waiting} onChange={value => change(key, value)} />)}
                 <Button disabled={waiting || !isDirty} onPress={save}>Save paths and recheck</Button>
                 <Collapsible title="Discovered executables"><Stack gap="xs">{Object.entries(snapshot.tools).map(([name, value]) => <Text key={name} size="xs">{name}: {value || 'not found'}</Text>)}</Stack></Collapsible>
                 <Text muted size="xs">Local macOS/Linux only in this version. Native Windows and remote workspace execution are intentionally refused.</Text>
-              </Stack>
+              </Stack>}
             </Tab>
           </Tabs>
           {isDirty && <Callout tone="warning" title="Unsaved configuration"><Text>Save before preparing commands. Editing paths or agents invalidates the current plan.</Text></Callout>}
-          {pending && <Card title={`Review · ${pending.title}`} description="No installation or launch has run. Launch preparation may have created a private frozen bundle. This one-use plan expires in five minutes.">
-            <Stack gap="sm">
-              <Link href={pending.source}>Official source / installation guide</Link>
-              <Heading level={3}>Writes and effects</Heading>
-              {pending.writes.map((value, index) => <Text key={`write-${index}`} size="xs">{value}</Text>)}
-              {pending.warnings.map((value, index) => <Text key={`warning-${index}`} size="xs" tone="warning">{value}</Text>)}
-              {pending.launchReview && <CodeView label="Frozen launch declarations and unverified settings" code={JSON.stringify(pending.launchReview.display, null, 2)} language="json" wrap />}
-              <CodeView label="Exact command" code={pending.command} language="shell" wrap />
-              <Row gap="xs" wrap><Button disabled={waiting || isDirty} onPress={execute}>Confirm and open in Orca terminal</Button><Button variant="ghost" disabled={waiting} onPress={() => set(plan, null)}>Cancel plan</Button></Row>
-            </Stack>
-          </Card>}
           <Text muted size="xs">Required: Orca · plugin · Node · OpenRig · tmux. Herdr, cmux and Ghostty are not required. gh and Docker stay optional.</Text>
         </Stack>
       )}

@@ -78,15 +78,21 @@ Orca 1.4.258's public plugin API does not create standalone OS windows, so Examp
 
 ## First use
 
-1. Explicitly select a local workspace in **Destination Orca workspace**.
+1. Explicitly select a local workspace in **Destination Orca workspace**. Both destination selectors show **project name / worktree name**, with a path suffix for duplicate names. Selection still uses Orca's exact workspace ID; changing a label never changes the target.
 2. Use **Setup -> Recheck environment** to inspect Node/npm, OpenRig, tmux, and SQLite.
 3. Select an installation action for missing OpenRig or tmux. **Review the exact command, source, write scope, and warnings** before running it in an Orca terminal. Opening a terminal does not prove installation succeeded.
 4. Inspect the terminal result and recheck the environment.
 5. Choose a coding agent and select **Save configuration**. Reuse an available CLI login or open its official sign-in command in an Orca terminal. Choosing `Later` is also valid.
-6. Select **Start daemon · no agents** to start only this instance. No kernel or agent starts automatically.
+6. Select **Start daemon · no agents** to start only this instance. No kernel or agent starts automatically. Inspect its terminal, then **Recheck environment**. Setup shows whether this instance is reachable; **Open dashboard** stays disabled until it responds. The worker rechecks the connection both before preparing and before executing a dashboard plan. The dashboard runs standalone `rig tui`: `--shared` requires a kernel-owned terminal and is incompatible with the initial no-kernel setup.
 7. Refresh the seat list in **Teams**, then select **Open seat view**. Connections default to read-only; disable read-only and open a new view to provide input.
 
+Action buttons prepare a **Review card above the Setup/Teams/Paths sections**, not an installation or launch. The long setup form is temporarily replaced so the review is not hidden below it. The card identifies the destination workspace and requires explicit confirmation. Cancel the review or select a settings tab to return to editing; changing tabs invalidates the pending plan. Example Window likewise replaces its walkthrough/actions with the pending review until you cancel, confirm, or change destination.
+
 Immediately before execution, confirmed commands are stored as private scripts with mode `0600` under `<data>/actions/`. This accommodates Orca's terminal-command length limit without accepting a command different from the reviewed plan. These scripts contain explicit environment paths and the reviewed command, not secret values.
+
+Orca's `terminal.create` receipt does not prove that a tab is visible. After creation the trusted worker uses the same host/profile's Orca CLI to inspect **only that terminal handle**, resolve the host API's identity selector to the CLI's workspace ID, switch to its destination workspace/tab, and verify that it is connected to the renderer. Identity resolution checks the exact instance and local host, never just a matching project path. This may change the workspace you are viewing. It never resends the action or creates another terminal as a visibility fallback. The CLI's terminal metadata can include an output preview; that preview is neither returned to panels nor saved by this check. No additional manifest capability is requested.
+
+The panel distinguishes **Terminal tab connected** from **Terminal created · tab not verified**; neither means the command succeeded. **Show / recover existing terminal** retries only the view connection. A copyable recovery command is provided when the CLI/profile is unavailable; it preserves an explicit `ORCA_USER_DATA_PATH` when present. Recover the existing terminal rather than repeating an installation or launch. Recovery receipts contain only terminal/workspace identity and action title, never terminal output, and are saved in plugin storage. A storage failure keeps the accepted receipt visible but may prevent button-based recovery after a worker restart.
 
 Each Open seat view click creates a separate view. **Closing a tab detaches from tmux; it does not stop the seat.** Stop or recover teams through the OpenRig dashboard or explicit lifecycle operations.
 

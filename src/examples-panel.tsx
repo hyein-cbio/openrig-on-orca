@@ -1,6 +1,8 @@
 import { atom, Badge, Box, Button, Callout, Card, Code, CodeView, Heading, plugin, read, Row, Select, set, Stack, Text, type PanelContext } from 'orca'
 import { EXAMPLE_STEPS } from './example-story.mjs'
-import type { ExampleRecord, Plan, Seat, State } from './protocol'
+import type { ExampleRecord, Plan, Seat, State, TerminalReceipt } from './protocol'
+import { TerminalStatus } from './terminal-status'
+import { workspaceLabel, workspaceOptions } from './workspace-labels.mjs'
 
 const step = atom(0)
 const state = atom<State | null>(null)
@@ -11,6 +13,7 @@ const pending = atom<Plan | null>(null)
 const busy = atom(false)
 const error = atom('')
 const notice = atom('')
+const receipt = atom<TerminalReceipt | null>(null)
 
 async function perform(fn: () => Promise<void>) {
   if (read(busy)) return
@@ -37,9 +40,15 @@ async function confirm() {
     if (!plan) return
     set(pending, null)
     const result = await plugin.request('setup.execute', { planId: plan.id, workspaceId: read(workspace) })
-    set(notice, `Opened terminal ${result.terminalId}. Inspect its result, then refresh. A created terminal is not proof of a running team. ${result.warning || ''}`)
+    set(receipt, result)
     try { set(records, (await plugin.request('examples.list')).examples) }
-    catch { set(error, 'The terminal was already opened, but refreshing examples failed. Do not repeat the action; inspect its terminal and recheck the environment.') }
+    catch { set(error, 'The terminal was already created, but refreshing examples failed. Do not repeat the action; inspect its terminal and recheck the environment.') }
+  })
+}
+async function reveal() {
+  await perform(async () => {
+    const current = read(receipt)
+    if (current) set(receipt, await plugin.request('terminal.reveal', { terminalId: current.terminalId }))
   })
 }
 async function refresh() {
@@ -48,7 +57,8 @@ async function refresh() {
 async function attach(key: string) {
   await perform(async () => {
     const result = await plugin.request('seat.attach', { key, workspaceId: read(workspace), readOnly: true })
-    set(notice, `Opened a read-only seat view. Closing the tab only detaches; it does not stop the team. ${result.warning || ''}`)
+    set(receipt, result)
+    set(notice, 'Created a read-only seat view. Closing the tab only detaches; it does not stop the team.')
   })
 }
 export function setup(ctx: PanelContext) {
@@ -64,6 +74,23 @@ export default function ExampleWindow() {
   const plan = read(pending)
   return <Box padding="md" gap="md">
     <Row justify="between" wrap><Heading>Example Window</Heading><Badge tone="accent">Build & Review</Badge></Row>
+    {read(error) && <Callout tone="danger" title="Example action needs attention"><Text>{read(error)}</Text></Callout>}
+    {read(notice) && <Callout title="Request accepted"><Text>{read(notice)}</Text></Callout>}
+    {!plan && read(receipt) && <TerminalStatus receipt={read(receipt)!} busy={read(busy)} onReveal={reveal} />}
+    <Select label="Example destination workspace" value={read(workspace)} placeholder="Choose a local Orca workspace" disabled={read(busy)}
+      options={workspaceOptions(env?.workspaces || [])}
+      onChange={value => { set(workspace, value); set(pending, null) }} />
+    {plan && <Card title={`Review · ${plan.title}`} description="No installation or launch has run. Launch preparation may have created a private frozen bundle. This plan expires after five minutes.">
+      <Stack gap="sm">
+        <Text>Destination: {workspaceLabel(env?.workspaces.find(w => w.id === plan.workspaceId))} · {env?.workspaces.find(w => w.id === plan.workspaceId)?.path}</Text>
+        {plan.writes.map((text, i) => <Text key={`write-${i}`} size="xs">Writes: {text}</Text>)}
+        {plan.warnings.map((text, i) => <Text key={`warn-${i}`} size="xs" tone="warning">{text}</Text>)}
+        {plan.launchReview && <CodeView label="Frozen launch declarations and unverified settings" code={JSON.stringify(plan.launchReview.display, null, 2)} language="json" wrap />}
+        <CodeView label="Exact example command" code={plan.command} language="shell" wrap />
+        <Row gap="xs" wrap><Button disabled={read(busy)} onPress={confirm}>Confirm example action</Button><Button variant="ghost" disabled={read(busy)} onPress={() => set(pending, null)}>Cancel example action</Button></Row>
+      </Stack>
+    </Card>}
+    {!plan && <Stack gap="md">
     <Text>One bounded task, two distinct roles. Learn the topology before starting agents.</Text>
     <Card title="Topology" description="The arrows describe intended work handoffs, not proof that a task was executed.">
       <Stack gap="sm">
@@ -83,11 +110,6 @@ export default function ExampleWindow() {
         </Row>
       </Stack>
     </Card>
-    {read(error) && <Callout tone="danger" title="Example action needs attention"><Text>{read(error)}</Text></Callout>}
-    {read(notice) && <Callout tone="success" title="Request accepted"><Text>{read(notice)}</Text></Callout>}
-    <Select label="Example destination workspace" value={read(workspace)} placeholder="Choose a local Orca workspace" disabled={read(busy)}
-      options={(env?.workspaces || []).filter(w => !w.hostId || w.hostId === 'local').map(w => ({ value: w.id, label: w.name }))}
-      onChange={value => { set(workspace, value); set(pending, null) }} />
     <Button size="sm" variant="ghost" disabled={read(busy)} onPress={reload}>Recheck example environment</Button>
     <Card title="Try real terminals, without AI" description="Creates two actual tmux terminal seats showing prerecorded Builder and Reviewer descriptions. It performs no work handoff.">
       <Stack gap="sm"><Badge tone="warning">Terminal simulation · no login</Badge>
@@ -104,15 +126,6 @@ export default function ExampleWindow() {
         </Row>
       </Stack>
     </Card>
-    {plan && <Card title={`Review · ${plan.title}`} description="No installation or launch has run. Launch preparation may have created a private frozen bundle. This plan expires after five minutes.">
-      <Stack gap="sm">
-        {plan.writes.map((text, i) => <Text key={`write-${i}`} size="xs">Writes: {text}</Text>)}
-        {plan.warnings.map((text, i) => <Text key={`warn-${i}`} size="xs" tone="warning">{text}</Text>)}
-        {plan.launchReview && <CodeView label="Frozen launch declarations and unverified settings" code={JSON.stringify(plan.launchReview.display, null, 2)} language="json" wrap />}
-        <CodeView label="Exact example command" code={plan.command} language="shell" wrap />
-        <Row gap="xs" wrap><Button disabled={read(busy)} onPress={confirm}>Confirm example action</Button><Button variant="ghost" onPress={() => set(pending, null)}>Cancel example action</Button></Row>
-      </Stack>
-    </Card>}
     <Card title="Your examples" description="Records mean a command was issued. Refresh to read actual seat state; unknown or absent is not success.">
       <Stack gap="sm">
         <Button size="sm" disabled={read(busy) || !env?.snapshot.installed} onPress={refresh}>Refresh example seats</Button>
@@ -130,5 +143,6 @@ export default function ExampleWindow() {
       </Stack>
     </Card>
     <Callout title="View lifetime is not team lifetime"><Text>Orca owns the view. OpenRig owns the team. tmux stays required. Closing this example panel, or a seat tab, never means stopping a team.</Text></Callout>
+    </Stack>}
   </Box>
 }

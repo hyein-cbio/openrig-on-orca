@@ -54,7 +54,7 @@ test('metadata failures cannot discard an accepted terminal receipt', async () =
   ]) {
     const result = await persistTerminalReceipt(storage, 'example:fixture', {}, { terminalId: 'accepted-terminal' })
     assert.equal(result.terminalId, 'accepted-terminal')
-    assert.match(result.warning, /terminal was opened/)
+    assert.match(result.warning, /terminal was created/)
     assert.doesNotMatch(result.warning, /not exported/)
   }
   const source = await readFile(new URL('../src/terminal-receipt.mjs', import.meta.url), 'utf8')

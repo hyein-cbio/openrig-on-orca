@@ -17,6 +17,32 @@ test('walkthrough explains two roles without executing or preparing any command'
   assert.equal(prepared, 0)
   assert.deepEqual(panel.errors, []); assert.deepEqual(panel.warnings, []); assert.deepEqual(panel.refusals, [])
 })
+test('destination options distinguish main worktrees by project without changing the action target', async () => {
+  let prepared: unknown
+  const state = { ...installed, workspaces: [
+    { id: 'alpha', project: 'Alpha', name: 'main', path: '/alpha', hostId: 'local' },
+    { id: 'beta', project: 'Beta', name: 'main', path: '/beta', hostId: 'local' },
+    { id: 'remote', project: 'Remote', name: 'main', path: '/remote', hostId: 'ssh:other' }
+  ] }
+  panel = await mount(module, { host: mockHost({ requests: {
+    'environment.scan': state, 'examples.list': { examples: [] },
+    'setup.prepare': input => {
+      prepared = input
+      return { id: 'p', expires: 9999999999999, action: 'example-demo', title: 'Demo', source: 'https://github.com/mvschwarz/openrig', writes: [], warnings: [], command: 'safe', workspaceId: input.workspaceId }
+    }
+  } }) })
+  const tree = JSON.stringify(panel.tree())
+  assert.match(tree, /Alpha \/ main/)
+  assert.match(tree, /Beta \/ main/)
+  assert.equal(tree.includes('Remote / main'), false)
+  await panel.select({ label: 'Example destination workspace' }, 'beta')
+  assert.equal(panel.valueOf({ label: 'Example destination workspace' }), 'beta')
+  await panel.press({ text: 'Prepare terminal demo' })
+  assert.deepEqual(prepared, { action: 'example-demo', workspaceId: 'beta' })
+  assert.ok(panel.find({ text: /Destination: Beta \/ main/ }))
+  assert.deepEqual(panel.errors, []); assert.deepEqual(panel.warnings, []); assert.deepEqual(panel.refusals, [])
+})
+
 test('demo has a separate confirmation and sends only an immutable plan ID', async () => {
   let executed: unknown
   const example = { id: 'abcdef123456', kind: 'demo' as const, rigName: 'orca-example-demo-abcdef123456', directory: '/example', specPath: '/example/rig.yaml', configRoot: '/sandbox/openrig' }
@@ -44,8 +70,8 @@ test('accepted terminal receipt remains visible when the example list refresh fa
   await panel.press({ text: 'Prepare terminal demo' })
   await panel.press({ text: 'Confirm example action' })
   assert.equal(executions, 1)
-  assert.ok(panel.find({ text: /Opened terminal accepted-terminal/ }))
-  assert.ok(panel.find({ text: /terminal was already opened/ }))
+  assert.ok(panel.find({ text: /Created terminal accepted-terminal/ }))
+  assert.ok(panel.find({ text: /terminal was already created/ }))
   assert.equal(panel.find({ text: 'Confirm example action' }), null)
 })
 

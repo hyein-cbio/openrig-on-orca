@@ -93,6 +93,68 @@ test('launch review displays declarations and native uncertainties before termin
   assert.deepEqual(panel.warnings, [])
 })
 
+test('review replaces the long setup form until cancelled or another tab is selected', async () => {
+  panel = await mount(panelModule, { host: mockHost({ requests: { 'environment.scan': missing, 'setup.prepare': installPlan } }) })
+  assert.ok(panel.summary().some(line => line.includes('Choose a destination first')))
+  await panel.select({ label: 'Destination Orca workspace' }, 'workspace')
+  await panel.press({ text: 'Install managed OpenRig' })
+  assert.ok(panel.find({ text: /Review · Install OpenRig/ }))
+  assert.equal(panel.find({ text: 'Install managed OpenRig' }), null)
+  assert.ok(panel.find({ text: /Destination: project \/ Plugin sandbox/ }))
+  await panel.select({ label: 'OpenRig sections' }, 'paths')
+  assert.equal(panel.find({ text: 'Confirm and open in Orca terminal' }), null)
+  assert.ok(panel.find({ label: 'Node executable' }))
+})
+
+test('dashboard is blocked until daemon responds and enabled after explicit recheck', async () => {
+  let scans = 0, prepared = 0
+  panel = await mount(panelModule, { host: mockHost({ requests: {
+    'environment.scan': () => ++scans === 1 ? installed : { ...installed, daemon: { status: 'reachable', detail: 'Responded without starting agents.' } },
+    'setup.prepare': () => { prepared++; return { ...installPlan, action: 'console' } }
+  } }) })
+  await panel.select({ label: 'Destination Orca workspace' }, 'workspace')
+  await assert.rejects(panel.press({ text: 'Open dashboard' }))
+  assert.equal(prepared, 0)
+  assert.ok(panel.find({ text: /Dashboard is disabled until this instance responds/ }))
+  await panel.press({ text: 'Recheck environment' })
+  await panel.press({ text: 'Open dashboard' })
+  assert.equal(prepared, 1)
+})
+
+test('hidden terminal recovery reveals only the accepted terminal, never re-executes the plan', async () => {
+  let executions = 0, reveals: unknown[] = []
+  panel = await mount(panelModule, { host: mockHost({ requests: {
+    'environment.scan': missing, 'setup.prepare': installPlan,
+    'setup.execute': () => { executions++; return { terminalId: 'term-owned', visibility: 'unverified', recoveryCommand: 'orca terminal switch --terminal term-owned --json' } },
+    'terminal.reveal': input => { reveals.push(input); return { terminalId: 'term-owned', visibility: 'shown' } }
+  } }) })
+  await panel.select({ label: 'Destination Orca workspace' }, 'workspace')
+  await panel.press({ text: 'Install managed OpenRig' })
+  await panel.press({ text: 'Confirm and open in Orca terminal' })
+  assert.ok(panel.summary().some(line => line.includes('Terminal created · tab not verified')))
+  assert.ok(panel.find({ label: 'Manual terminal recovery · does not rerun the action' }))
+  await panel.press({ text: 'Show / recover existing terminal' })
+  assert.deepEqual(reveals, [{ terminalId: 'term-owned' }])
+  assert.equal(executions, 1)
+  assert.ok(panel.summary().some(line => line.includes('Terminal tab connected')))
+  assert.deepEqual(panel.errors, []); assert.deepEqual(panel.warnings, []); assert.deepEqual(panel.refusals, [])
+})
+
+test('failed recovery keeps the original receipt available instead of offering re-execution', async () => {
+  panel = await mount(panelModule, { host: mockHost({ requests: {
+    'environment.scan': missing, 'setup.prepare': installPlan,
+    'setup.execute': { terminalId: 'term-owned', visibility: 'unverified' },
+    'terminal.reveal': () => { throw new Error('No saved receipt') }
+  } }) })
+  await panel.select({ label: 'Destination Orca workspace' }, 'workspace')
+  await panel.press({ text: 'Install managed OpenRig' })
+  await panel.press({ text: 'Confirm and open in Orca terminal' })
+  await panel.press({ text: 'Show / recover existing terminal' })
+  assert.ok(panel.find({ text: /Created terminal term-owned/ }))
+  assert.ok(panel.find({ text: 'No saved receipt' }))
+  assert.equal(panel.find({ text: 'Confirm and open in Orca terminal' }), null)
+})
+
 test('host failures show a retryable screen instead of triggering installation', async () => {
   panel = await mount(panelModule, { host: mockHost({ requests: { 'environment.scan': () => { throw hostError('unavailable', 'Offline host') } } }) })
   assert.ok(panel.find({ text: 'Offline host' }))

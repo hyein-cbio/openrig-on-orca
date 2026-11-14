@@ -139,7 +139,8 @@ export async function buildPlan(action, config, snapshot, workspace, input = {},
       warnings.push('Starts no kernel or agent team. No agent login is required. Closing this terminal does not stop the daemon.')
     } else if (action === 'console') {
       title = 'Open OpenRig dashboard in Orca'
-      command = rigCmd(['tui', '--shared'])
+      // --shared attaches a kernel-owned terminal, which a no-kernel daemon lacks.
+      command = rigCmd(['tui'])
       warnings.push('Use the dashboard to inspect and manage OpenRig. Any kernel/agent launch remains a separate user choice inside OpenRig.')
     } else {
       if (!snapshot.ready || config.provider === 'none') throw fail('agent_setup_required', 'Select and authenticate your provider before launching a team')

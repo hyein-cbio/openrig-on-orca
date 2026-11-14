@@ -1,7 +1,7 @@
 .DS_Store
 .orca/
 .sandbox/
-node_modules/
+node_modules
 coverage/
 ci-results/
 test-reports/
@@ -24,3 +24,46 @@ credentials.json
 *.sqlite
 *.sqlite3
 *.rigbundle
+
+# Developer/test scratch, captures and disposable profiles (not shipping source).
+/.cache/
+/.tmp/
+/tmp/
+/temp/
+/profiles/
+/.profiles/
+/browser-profiles/
+/artifacts/
+/screenshots/
+/recordings/
+src/.visualizer-build-*/
+
+# Private OpenRig installations, instance state and reviewed action files.
+/runtime/
+/providers/
+/instance/
+/actions/
+/launches/
+
+# Process/log files and SQLite sidecars can contain local paths or private content.
+*.log
+*.log.*
+*.pid
+*.pid.lock
+*.sock
+*.socket
+*.db-*
+*.sqlite-*
+*.sqlite3-*
+*.dmp
+
+# Browser/CLI session exports are never application fixtures by default.
+token.json
+tokens.json
+cookies.json
+storage-state*.json
+storageState*.json
+*.auth.json
+*.credentials.json
+
+# src/visualizer/ and docs/images/ are intentional, integrity-checked shipping assets.

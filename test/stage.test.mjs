@@ -11,7 +11,7 @@ test('shipping stage allowlists runtime files and excludes development/local sta
     await stagePlugin(destination)
     const files = await readdir(destination)
     assert.deepEqual(files.sort(), ['README.md', 'SPEC.md', 'docs', 'orca-plugin.json', 'src'])
-    assert.deepEqual((await readdir(path.join(destination, 'src'))).sort(), ['action-files.mjs', 'example-story.mjs', 'examples-panel.tsx', 'examples.mjs', 'launch-review.mjs', 'panel.tsx', 'plans.mjs', 'protocol.ts', 'runtime.mjs', 'terminal-receipt.mjs', 'worker.ts'])
+    assert.deepEqual((await readdir(path.join(destination, 'src'))).sort(), ['action-files.mjs', 'example-story.mjs', 'examples-panel.tsx', 'examples.mjs', 'launch-review.mjs', 'panel.tsx', 'plans.mjs', 'protocol.ts', 'runtime.mjs', 'terminal-receipt.mjs', 'terminal-status.tsx', 'worker.ts', 'workspace-labels.mjs'])
     const manifest = JSON.parse(await readFile(path.join(destination, 'orca-plugin.json'), 'utf8'))
     assert.equal(manifest.main, 'src/worker.ts')
   } finally { await rm(destination, { recursive: true, force: true }) }

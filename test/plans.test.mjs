@@ -39,6 +39,10 @@ test('no agent is required to start a daemon but no kernel or team starts with i
     const plan = await buildPlan('start-daemon', config, { ...snapshot, tools: { ...snapshot.tools, rig } }, workspace)
     assert.match(plan.command, /--no-kernel/)
     assert.ok(plan.warnings.some(w => w.includes('OPENRIG_HOME alone')))
+    const dashboard = await buildPlan('console', config, { ...snapshot, tools: { ...snapshot.tools, rig } }, workspace)
+    assert.match(dashboard.command, /'tui'/)
+    assert.doesNotMatch(dashboard.command, /--shared|terminal.*open.*saved:kernel/)
+    assert.doesNotMatch(dashboard.command, /daemon.*start|rig.*up/)
     await assert.rejects(buildPlan('launch-team', config, { ...snapshot, tools: { ...snapshot.tools, rig } }, workspace, { spec: 'starter' }), { code: 'agent_setup_required' })
   } finally { await rm(dir, { recursive: true, force: true }) }
 })

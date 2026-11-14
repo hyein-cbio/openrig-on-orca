@@ -217,6 +217,17 @@ export function seatsFrom(payload) {
     }))
 }
 
+/** @returns {Promise<import('./protocol').State['daemon']>} */
+export async function daemonState(config, snapshot) {
+  if (!snapshot.installed) return { status: 'not-installed', detail: 'Install and verify OpenRig, tmux and SQLite first.' }
+  try {
+    await listSeats(config, snapshot)
+    return { status: 'reachable', detail: 'This instance responded. No agents were started by this check.' }
+  } catch {
+    return { status: 'unavailable', detail: 'Cannot reach or verify this instance. Start daemon · no agents, inspect its terminal, then Recheck environment.' }
+  }
+}
+
 export async function listSeats(config, snapshot, execute = run, base = process.env) {
   if (!snapshot.tools.rig || !snapshot.tools.node || !snapshot.tools.tmux) throw fail('dependencies_missing', 'Node, OpenRig and tmux are required')
   try { await access(path.join(config.root, 'instance', 'daemon.json')) } catch {

@@ -8,7 +8,7 @@ Run with Node and Git for publication-policy fixtures, without CircleCI, Orca, t
 node --test test/*.test.mjs
 ```
 
-The core suite has **73 tests** covering environment/version/path handling, plan confirmation and expiration, frozen launch inputs and uncertainty acknowledgment, shell quoting, example generation, private action scripts, secret detection/redaction, bootstrap integrity and cleanup, CI failure reporting, onboarding seeds, and the English-only repository text policy.
+The core suite has **86 tests** covering environment/version/path handling, plan confirmation and expiration, frozen launch inputs and uncertainty acknowledgment, shell quoting, example generation, private action scripts, secret detection/redaction, bootstrap integrity and cleanup, CI failure reporting, onboarding seeds, and the English-only repository text policy.
 
 With Orca installed in a development environment:
 
@@ -21,7 +21,7 @@ orca plugin check . --json
 
 Current automated results:
 
-- **88 core, native-panel, and worker tests passed**, with no failures or skips.
+- **108 core, native-panel, and worker tests passed**, with no failures or skips.
 - TypeScript strict checking passed.
 - **Eight panel scenarios passed:** three Example Window scenarios and five existing Setup/Teams/Paths scenarios.
 - No rendering errors, dropped-prop warnings, or refused host calls.
@@ -67,6 +67,15 @@ The following real-app checks passed:
 
 `--output` receives only `report.json`, `examples-light.png`, and `examples-dark.png`. Temporary profiles and HOME directories are not uploaded as artifacts. Reports include stable check IDs and versions; missing or duplicate checks, failures, and incomplete cleanup are not treated as passes.
 
+## Live onboarding regression verification
+
+An additional check against the existing local Orca 1.4.258 / OpenRig 0.7.13 instance found two gaps that the original mocks missed:
+
+- The host API returns `identity:wt2:...` workspace selectors, while CLI terminal metadata returns legacy `repo::path` IDs. Direct equality prevented tab recovery. New fixtures use both real wire formats and require exact identity/host/runtime resolution before navigation.
+- `rig tui --shared` requires a kernel-owned terminal, but the initial daemon deliberately has no kernel. Dashboard plans now use standalone `rig tui`.
+
+After the fixes, the **actual plugin worker** recovered a previously orphaned terminal and returned `visibility: shown`. One newly prepared/confirmed dashboard plan opened an Orca terminal with a verified tab connection. A rendered-screen read showed the live `EXPLORER` / `TOPOLOGY` dashboard with `no rigs served` (the expected empty instance), rather than a shell error. The existing daemon was not restarted, and no agents or teams were launched. This was a targeted check in the user's current profile, **not a rerun of the disposable full integration suite**.
+
 ## Onboarding resolution
 
 A fresh profile's onboarding modal previously obscured captures. The test now follows **Orca's own E2E fixture approach**, seeding `orca-data.json` in a new empty profile before its first launch. It sets `onboarding.closedAt`, records `outcome: dismissed`, and disables telemetry. Existing or nonempty profiles are refused.
@@ -95,6 +104,7 @@ The managed macOS four-job matrix (secret gate, two core jobs, and one live job)
 - `LAUNCH` alone cannot acknowledge unknown native settings. Declarations and uncertainties are visible before terminal execution.
 - An accepted terminal receipt survives metadata-save and post-execution list-refresh failures, without silently retrying.
 - Tilde entries in extraPath are stored expanded.
+- Workspace selectors preserve the host's project name, show project/worktree labels, distinguish duplicate names by path (and exact ID for duplicate paths), exclude remote hosts, and submit the original workspace ID rather than display text.
 - Runner-level exceptions generate failed JUnit cases; owned application downloads are removed after success or failure, while external installations are untouched.
 - Secret-policy fixtures cover ignored versus force-staged credentials, redacted output, and scanner failure paths.
 - Ten offline tmux-preflight regressions cover reuse, explicit installation, Homebrew exit 1 with working/broken tmux, missing binaries, verify-only mode, private-session failures, interrupted installs, cleanup failures and CI-only installation. These tests mock commands and do not require tmux or Homebrew. A separate real local tmux 3.8 private-socket probe passed without installing software or touching a personal server.
