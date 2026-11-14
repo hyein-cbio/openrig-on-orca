@@ -9,7 +9,7 @@ export const DEFAULT_ROOT = path.join(homedir(), '.local', 'share', 'openrig-for
 export const PROVIDERS = ['none', 'claude', 'codex', 'both']
 export const DEFAULT_CONFIG = {
   provider: 'none', root: DEFAULT_ROOT, daemonPort: '43811', nodePath: '', npmPath: '', rigPath: '',
-  tmuxPath: '', extraPath: '', homePath: '', codexHome: '', claudeConfigDir: ''
+  tmuxPath: '', extraPath: '', homePath: '', codexHome: '', claudeConfigDir: '', instanceHome: ''
 }
 
 export function fail(code, message) {
@@ -34,7 +34,7 @@ export function configFrom(input = {}) {
   }
   if (!/^\d+$/.test(result.daemonPort) || Number(result.daemonPort) < 1024 || Number(result.daemonPort) > 65534) throw fail('invalid_config', 'daemonPort must be between 1024 and 65534')
   if (!PROVIDERS.includes(result.provider)) throw fail('invalid_config', 'Choose none, claude, codex or both')
-  for (const key of ['root', 'nodePath', 'npmPath', 'rigPath', 'tmuxPath', 'homePath', 'codexHome', 'claudeConfigDir']) {
+  for (const key of ['root', 'nodePath', 'npmPath', 'rigPath', 'tmuxPath', 'homePath', 'codexHome', 'claudeConfigDir', 'instanceHome']) {
     if (result[key]) result[key] = absolute(result[key], key)
   }
   if (!result.root || result.root === path.parse(result.root).root) throw fail('invalid_config', 'Choose a private, non-root data directory')
@@ -46,18 +46,22 @@ export function configFrom(input = {}) {
 export const quote = value => `'${String(value).replaceAll("'", "'\\''")}'`
 export const shellCommand = (file, args = []) => [file, ...args].map(quote).join(' ')
 
+export const instanceDirectory = config => config.instanceHome || path.join(config.root, 'instance')
+
 export function environment(config, base = process.env) {
   const home = config.homePath || base.HOME || homedir()
   const bins = [config.nodePath && path.dirname(config.nodePath), config.tmuxPath && path.dirname(config.tmuxPath),
     config.npmPath && path.dirname(config.npmPath), path.join(config.root, 'runtime', 'node_modules', '.bin'),
     path.join(config.root, 'providers', 'node_modules', '.bin'), config.extraPath, base.PATH,
     path.join(home, '.local', 'bin'), path.join(home, '.npm-global', 'bin'), '/opt/homebrew/bin', '/usr/local/bin', '/usr/bin', '/bin']
-  const env = { ...base, HOME: home, OPENRIG_HOME: path.join(config.root, 'instance'), PATH: bins.filter(Boolean).join(path.delimiter) }
+  const env = { ...base, HOME: home, OPENRIG_HOME: instanceDirectory(config), PATH: bins.filter(Boolean).join(path.delimiter) }
   // Never inherit another seat's identity, instance endpoint, or tmux client context.
   for (const key of Object.keys(env)) if (key.startsWith('OPENRIG_') && key !== 'OPENRIG_HOME') delete env[key]
   env.OPENRIG_PORT = config.daemonPort
   env.OPENRIG_HOST = '127.0.0.1'
   env.OPENRIG_BIND_HOST = '127.0.0.1'
+  env.OPENRIG_URL = `http://127.0.0.1:${config.daemonPort}`
+  env.OPENRIG_HOST_SELECTED = 'local'
   delete env.TMUX
   delete env.TMUX_PANE
   delete env.NODE_OPTIONS
@@ -191,7 +195,7 @@ async function verifySqlite(rig, node, env, execute) {
 
 export function commandEnvironment(config, snapshot, base = process.env) {
   const env = environment({ ...config, nodePath: snapshot.tools.node || config.nodePath, tmuxPath: snapshot.tools.tmux || config.tmuxPath }, base)
-  const assignments = ['HOME', 'OPENRIG_HOME', 'OPENRIG_PORT', 'OPENRIG_HOST', 'OPENRIG_BIND_HOST', 'PATH', 'CODEX_HOME', 'CLAUDE_CONFIG_DIR'].filter(k => env[k]).map(k => `${k}=${quote(env[k])}`)
+  const assignments = ['HOME', 'OPENRIG_HOME', 'OPENRIG_PORT', 'OPENRIG_HOST', 'OPENRIG_BIND_HOST', 'OPENRIG_URL', 'OPENRIG_HOST_SELECTED', 'PATH', 'CODEX_HOME', 'CLAUDE_CONFIG_DIR'].filter(k => env[k]).map(k => `${k}=${quote(env[k])}`)
   // Explicitly remove inherited identities/endpoints in the receiving Orca shell, too.
   const cleared = [...new Set(['TMUX', 'TMUX_PANE', 'NODE_OPTIONS', 'NODE_REPL_EXTERNAL_MODULE', 'CODEX_HOME', 'CLAUDE_CONFIG_DIR',
     ...Object.keys(base).filter(k => /^OPENRIG_[A-Z0-9_]+$/.test(k))])]
@@ -211,6 +215,7 @@ export function seatsFrom(payload) {
   return rowsFrom(payload).filter(row => row && typeof row.rigId === 'string' && typeof row.logicalId === 'string' && (typeof row.canonicalSessionName === 'string' || row.canonicalSessionName === null))
     .map(row => ({
       key: JSON.stringify([row.rigId, row.logicalId]), rigId: row.rigId, rigName: String(row.rigName || row.rigId), rigNameKnown: typeof row.rigName === 'string' && Boolean(row.rigName.trim()),
+      podId: typeof row.podId === 'string' || row.podId === null ? row.podId : undefined, podNamespace: typeof row.podNamespace === 'string' ? row.podNamespace : null,
       logicalId: row.logicalId, session: typeof row.canonicalSessionName === 'string' ? row.canonicalSessionName : '', runtime: String(row.runtime || 'unknown'),
       status: row.canonicalSessionName === null && row.sessionStatus === null && row.lifecycleState === 'detached' ? 'not-started' : String(row.sessionStatus || row.lifecycleState || 'unknown'),
       lifecycle: typeof row.lifecycleState === 'string' ? row.lifecycleState : 'unknown',
@@ -231,23 +236,30 @@ export async function daemonState(config, snapshot) {
 }
 
 // Messaging must not inherit a persisted remote-host selection or a legacy URL alias.
-export async function listInstructionSeats(config, snapshot, execute = run, base = process.env) {
+export async function listInstructionSeats(config, snapshot, execute = run, base = process.env, requirePods = false) {
   return listSeats(config, snapshot, (file, args, options) => execute(file, args, { ...options,
     env: { ...options.env, OPENRIG_URL: `http://127.0.0.1:${config.daemonPort}`, OPENRIG_HOST_SELECTED: 'local' }
-  }), base)
+  }), base, requirePods)
 }
 
-export async function listSeats(config, snapshot, execute = run, base = process.env) {
+export async function listSeats(config, snapshot, execute = run, base = process.env, requirePods = false) {
   if (!snapshot.tools.rig || !snapshot.tools.node || !snapshot.tools.tmux) throw fail('dependencies_missing', 'Node, OpenRig and tmux are required')
-  try { await access(path.join(config.root, 'instance', 'daemon.json')) } catch {
+  try { await access(path.join(instanceDirectory(config), 'daemon.json')) } catch {
     throw fail('daemon_unavailable', 'This instance has no daemon state. Start its daemon first; no fallback to another instance was attempted.')
   }
   const command = await rigInvocation(snapshot.tools.rig, snapshot.tools.node)
   // Native 0.7.12/0.7.13 do not project cwd. Keep it unverified instead of making every seat query fail.
   const result = await execute(command.file, [...command.args, 'ps', '--nodes', '-A', '--json', '--no-cleanup', '--fields',
-    'rigId,rigName,logicalId,canonicalSessionName,runtime,model,sessionStatus,lifecycleState,needsAttention,arbitratedNeedsInput,agentActivity'], { env: environment({ ...config, nodePath: snapshot.tools.node }, base) })
+    'rigId,rigName,logicalId,podId,podNamespace,canonicalSessionName,runtime,model,sessionStatus,lifecycleState,needsAttention,arbitratedNeedsInput,agentActivity'], { env: environment({ ...config, nodePath: snapshot.tools.node }, base) })
   if (!result.ok) throw fail('daemon_unavailable', 'Cannot read OpenRig seats. Start this instance’s daemon or check its terminal/logs; it was not started automatically.')
-  try { return seatsFrom(JSON.parse(result.stdout)) } catch (error) {
+  try {
+    const payload = JSON.parse(result.stdout)
+    const rows = rowsFrom(payload)
+    if (requirePods && rows.some(row => !row || typeof row.rigName !== 'string' || !row.rigName.trim() || !(typeof row.podId === 'string' || row.podId === null) || !(typeof row.podNamespace === 'string' || row.podNamespace === null))) throw fail('invalid_inventory', 'Native pod fields are missing. No incomplete pod list was displayed.')
+    const seats = seatsFrom(payload)
+    if (requirePods && seats.length !== rows.length) throw fail('invalid_inventory', 'Some native seat identities could not be decoded. No pod list was guessed.')
+    return seats
+  } catch (error) {
     if (error.code) throw error
     throw fail('invalid_rig_output', 'OpenRig did not return valid seat JSON')
   }

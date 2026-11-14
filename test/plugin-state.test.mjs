@@ -1,20 +1,22 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { createPluginSession } from '../src/plugin-state.mjs'
+import { podsFromSeats, operationInstance } from '../src/pods.mjs'
 
 const env = { config: { provider: 'none', root: '/fixture/data', daemonPort: '43811' },
   workspaces: [{ id: 'work', name: 'Fixture', path: '/fixture/project', hostId: 'local' }],
   snapshot: { installed: true, ready: true, stage: 'ready', tools: { node: '/fixture/node', npm: '/fixture/npm', rig: '/fixture/rig', tmux: '/fixture/tmux', claude: '/fixture/claude', codex: '/fixture/codex' }, providers: [], sqlite: { status: 'verified', detail: 'Fixture' } },
   daemon: { status: 'reachable', detail: 'Fixture endpoint' } }
-const seat = { key: '["rig-1","dev.worker"]', rigId: 'rig-1', rigName: 'demo', logicalId: 'dev.worker', session: 'dev-worker@demo', runtime: 'pi', status: 'running', activity: 'idle', attention: false }
+const seat = { key: '["rig-1","dev.worker"]', rigId: 'rig-1', rigName: 'demo', logicalId: 'dev.worker', podId: 'pod-1', podNamespace: 'dev', session: 'dev-worker@demo', runtime: 'pi', status: 'running', activity: 'idle', attention: false }
 function fixture(overrides = {}) {
   const calls = []
   const handlers = { 'environment.scan': () => structuredClone(env), 'examples.list': () => ({ examples: [] }), 'seats.list': () => ({ seats: [structuredClone(seat)] }), ...overrides }
+  handlers['pods.list'] ||= async () => { const seats = (await handlers['seats.list']()).seats; return { connection: { source: 'tui', key: 'a'.repeat(64), home: '/fixture/native', port: '7433', endpoint: 'http://127.0.0.1:7433', matchesConfigured: true }, observedAt: Date.now(), pods: podsFromSeats(seats), seats } }
   const session = createPluginSession(async (name, input, options) => { calls.push({ name, input, options }); if (!handlers[name]) throw new Error(`Unexpected request: ${name}`); return handlers[name](input) })
   return { session, state: session.state, calls }
 }
 const plan = extra => ({ id: 'plan-fixture', workspaceId: 'work', expires: Date.now() + 60000, title: 'Fixture', command: 'never executed here', source: 'https://example.invalid', writes: [], warnings: [], ...extra })
-async function ready(f) { await f.session.scan(); f.session.selectWorkspace('work') }
+async function ready(f) { await f.session.scan(); f.session.selectWorkspace('work'); f.session.selectPod(JSON.stringify([seat.rigId, seat.podId])) }
 
 test('one session has exactly preparation/dashboard navigation with no execution or extra requests', async () => {
   const f = fixture(); await ready(f)
@@ -26,7 +28,7 @@ test('one session has exactly preparation/dashboard navigation with no execution
   f.session.switchView('preparation')
   assert.equal(f.state.input.instruction, 'Keep this draft')
   assert.equal(f.calls.length, count)
-  assert.deepEqual(f.calls.map(c => c.name), ['environment.scan', 'examples.list'])
+  assert.deepEqual(f.calls.map(c => c.name), ['environment.scan', 'examples.list', 'pods.list'])
 })
 test('read-only environment discovery never blocks access to the dashboard', async () => {
   let finish
@@ -35,7 +37,7 @@ test('read-only environment discovery never blocks access to the dashboard', asy
   assert.equal(f.state.busyKind, 'read'); assert.equal(f.session.switchView('dashboard'), true)
   finish(structuredClone(env)); await scan
   assert.equal(f.state.view, 'dashboard'); assert.equal(f.state.busy, false)
-  assert.deepEqual(f.calls.map(c => c.name), ['environment.scan', 'examples.list'])
+  assert.deepEqual(f.calls.map(c => c.name), ['environment.scan', 'examples.list', 'pods.list'])
 })
 test('standalone preview cannot call a worker or enable mutations', async () => {
   const session = createPluginSession(null)
@@ -93,10 +95,55 @@ test('accepted example receipts survive a failed example refresh and do not dupl
 })
 test('seat view defaults to read-only and recovery uses its existing terminal receipt', async () => {
   const f = fixture({ 'seat.attach': () => ({ terminalId: 'term-seat' }), 'terminal.reveal': input => ({ terminalId: input.terminalId, visibility: 'shown' }) })
-  await ready(f); await f.session.refreshSeats(); await f.session.attach(seat.key); await f.session.reveal()
-  assert.deepEqual(f.calls.find(c => c.name === 'seat.attach').input, { key: seat.key, workspaceId: 'work', readOnly: true })
+  await ready(f); await f.session.refreshSeats(); f.session.switchView('dashboard'); await f.session.attach(seat.key); await f.session.reveal()
+  assert.deepEqual(f.calls.find(c => c.name === 'seat.attach').input, { key: seat.key, workspaceId: 'work', readOnly: true, podKey: JSON.stringify([seat.rigId, seat.podId]), instanceKey: 'a'.repeat(64) })
   assert.deepEqual(f.calls.find(c => c.name === 'terminal.reveal').input, { terminalId: 'term-seat' })
   assert.equal(f.state.receipt.visibility, 'shown')
+})
+test('pod selection is independent of terminal destination and filters identical namespaces by rig', async () => {
+  const other = { ...seat, rigId: 'rig-2', rigName: 'other', key: '["rig-2","dev.worker"]' }
+  const f = fixture({ 'seats.list': () => ({ seats: [seat, other] }), 'setup.prepare': input => plan({ action: input.action, instruction: { session: seat.session } }) })
+  await f.session.scan(); assert.equal(f.state.podKey, '')
+  f.session.selectPod(JSON.stringify([seat.rigId, seat.podId])); assert.equal(f.session.podSeats().length, 1)
+  assert.equal(f.state.workspaceId, ''); f.session.selectWorkspace('work'); assert.equal(f.session.selectedPod().rigId, 'rig-1')
+  f.session.editInput('instructionSeat', seat.key); f.session.editInput('instruction', 'Inspect fixture'); await f.session.prepare('send-instruction')
+  assert.equal(f.calls.find(c => c.name === 'setup.prepare').input.podKey, JSON.stringify([seat.rigId, seat.podId]))
+  f.session.selectPod(JSON.stringify([other.rigId, other.podId])); assert.equal(f.state.plan, null); assert.equal(f.state.input.instructionSeat, '')
+  assert.equal(f.state.input.instruction, 'Inspect fixture'); assert.equal(f.session.podSeats()[0].rigId, 'rig-2')
+  assert.equal(f.session.canPrepare('launch-seat', { seatKey: seat.key }), false)
+})
+test('observing another instance cannot silently enable operations or persist a connection', async () => {
+  let connected = false
+  const connection = { source: 'tui', key: 'a'.repeat(64), home: '/fixture/native', port: '7433', endpoint: 'http://127.0.0.1:7433' }
+  const f = fixture({ 'pods.list': () => ({ connection: { ...connection, matchesConfigured: connected }, observedAt: Date.now(), pods: podsFromSeats([seat]), seats: [seat] }), 'pods.connect': input => { assert.equal(input.expectedKey, connection.key); connected = true; return { ...structuredClone(env), config: { ...env.config, instanceHome: connection.home, daemonPort: connection.port } } } })
+  await ready(f); f.session.editInput('instructionSeat', seat.key); f.session.editInput('instruction', 'Inspect fixture')
+  assert.equal(f.session.canPrepare('send-instruction'), false); assert.equal(f.calls.some(c => c.name === 'pods.connect'), false)
+  await f.session.connectInventory(); assert.equal(f.state.env.config.instanceHome, '/fixture/native'); assert.equal(f.session.selectedPod().key, JSON.stringify([seat.rigId, seat.podId]))
+  f.session.editInput('instructionSeat', seat.key); assert.equal(f.session.canPrepare('send-instruction'), true)
+  assert.equal(f.session.canPrepare('start-daemon'), false)
+  assert.equal(f.calls.some(c => c.name === 'setup.execute'), false)
+})
+test('recorded demo stop is scoped to the operation instance, not only the private data root', async () => {
+  const record = { id: 'demo', kind: 'demo', instance: operationInstance(env.config) }
+  const f = fixture({ 'examples.list': () => ({ examples: [record] }) }); await ready(f)
+  assert.equal(f.session.canPrepare('stop-example', { exampleId: record.id }), true)
+  f.state.env.config = { ...f.state.env.config, daemonPort: '17459' }; f.state.draft = { ...f.state.env.config }
+  assert.equal(f.session.canPrepare('stop-example', { exampleId: record.id }), false)
+  f.state.examples = [{ ...record, instance: undefined }]; assert.equal(f.session.canPrepare('stop-example', { exampleId: record.id }), false)
+})
+test('optional YAML preview invalidates review and locks pod actions without changing native selection', async () => {
+  const f = fixture({ 'setup.prepare': () => plan({ action: 'send-instruction' }) }); await ready(f)
+  f.session.editInput('instructionSeat', seat.key); f.session.editInput('instruction', 'Inspect fixture'); await f.session.prepare('send-instruction')
+  assert.ok(f.state.plan); const podKey = f.state.podKey, calls = f.calls.length
+  f.session.setDiagramSource('yaml'); assert.equal(f.state.plan, null); assert.equal(f.session.canPrepare('send-instruction'), false); assert.equal(f.state.podKey, podKey)
+  f.session.setDiagramSource('inventory'); assert.equal(f.session.canPrepare('send-instruction'), true); assert.equal(f.calls.length, calls)
+})
+test('an unavailable pod inventory stays unknown and clears a prior selection without example fallback', async () => {
+  let failing = false
+  const f = fixture({ 'pods.list': () => { if (failing) throw new Error('Native observation unavailable'); return { connection: { matchesConfigured: true, key: 'a'.repeat(64) }, pods: podsFromSeats([seat]), seats: [seat] } } })
+  await ready(f); assert.ok(f.session.selectedPod()); failing = true; await f.session.refreshPods()
+  assert.equal(f.state.inventory, null); assert.equal(f.state.podKey, ''); assert.match(f.state.podError, /unavailable/)
+  assert.equal(f.session.selectPod('made-up'), false); assert.deepEqual(f.session.podSeats(), [])
 })
 test('unsaved configuration and busy work block review, navigation and accidental rechecks', async () => {
   let finish

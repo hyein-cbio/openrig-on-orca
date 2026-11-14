@@ -17,7 +17,7 @@ export async function buildVisualizer() {
   } catch (error) { if (error.code !== 'ENOENT' || error.path !== output) throw error }
   const temporary = await mkdtemp(path.join(root, 'src', '.visualizer-build-'))
   try {
-    await build({ absWorkingDir: root, entryPoints: { app: 'src/topology-client.mjs', topology: 'src/topology.mjs', workspace: 'src/plugin-client.mjs' }, bundle: true, platform: 'browser', format: 'esm', target: 'es2022', minify: true, charset: 'ascii', legalComments: 'linked', outdir: temporary, outExtension: { '.js': '.mjs' }, external: ['./mermaid/mermaid.esm.min.mjs', './topology.mjs'] })
+    await build({ absWorkingDir: root, entryPoints: { app: 'src/topology-client.mjs', topology: 'src/topology.mjs', workspace: 'src/plugin-client.mjs' }, bundle: true, splitting: true, platform: 'browser', format: 'esm', target: 'es2022', minify: true, charset: 'ascii', legalComments: 'linked', outdir: temporary, outExtension: { '.js': '.mjs' }, external: ['./mermaid/mermaid.esm.min.mjs', './topology.mjs'] })
     const shell = await readFile(path.join(root, 'src', 'plugin.html'), 'utf8')
     const topology = await readFile(path.join(root, 'src', 'topology.html'), 'utf8')
     const body = /<body>([\s\S]*?)<\/body>/.exec(topology)?.[1]?.replace('<main class="studio">', '<section class="studio">').replace('</main>', '</section>')

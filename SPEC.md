@@ -65,7 +65,7 @@ Verify daemon readiness and actual seat execution separately. Unknown, failed, o
 ## 6. Teams and seat views
 
 - Read only supported observation fields through `rig ps --nodes -A --json --no-cleanup --fields ...`. Native 0.7.12/0.7.13 do not support a cwd projection: leave it unverified, never request an unsupported field that prevents all seat reads. Do not request resume-token or credential payloads.
-- The logical connection key is `(workspaceId, rigId, logicalId)`. An occupant's tmux session name is not a permanent identity.
+- Native seat identity is `(instance key, rigId, logicalId)` and pod grouping is `(instance key, rigId, podId)`. Orca view/recovery identity also includes the destination workspace ID; that workspace never becomes the managed rig/pod identity. An occupant's tmux session name is not a permanent identity.
 - Refresh the list before opening a view and use the current canonical session. Do not automatically restart a seat that is not running.
 - Run `rig terminal attach [--read-only] -- <canonical-session>` in a new Orca terminal. Let OpenRig select its own tmux server.
 - Do not execute arbitrary shell strings such as a `tmuxAttachCommand` supplied in JSON.
@@ -104,13 +104,17 @@ Actual billable Claude/Codex execution, Linux package-manager installation, Orca
 
 ## 9. One panel, preparation and dashboard
 
-Contribute exactly one sidebar panel, `openrig`, titled **OpenRig for Orca**. Its HTML document has exactly two internal tabs: **OpenRig Preparation** and **OpenRig Dashboard**. There are no separate topology/example panels, nested frames or new browser tabs for plugin navigation. Keep drafts and the YAML viewer mounted across view changes. Navigation invalidates pending reviews, never executes a command and remains available during read-only discovery; an in-flight operation locks navigation.
+Contribute exactly one sidebar panel, `openrig`, titled **OpenRig for Orca**. Its HTML document has exactly two internal tabs: **OpenRig Preparation** and **OpenRig Dashboard**. There are no separate topology/example panels, nested frames or new browser tabs for plugin navigation. Keep operation drafts and the pod viewer mounted across view changes. Navigation invalidates pending reviews, never executes a command and remains available during read-only discovery; an in-flight operation locks navigation.
 
-Preparation contains environment/provider/daemon setup, path configuration, and the built-in examples below. Dashboard embeds the bounded YAML/Mermaid viewer and explicit seat/task/message operations. A declared graph is not live seat status. The advanced terminal TUI is labelled separately and is not the GUI dashboard. Result and seat terminals remain deliberate Orca terminal views.
+Preparation contains environment/provider/daemon setup, paths, examples, new-team launch and the separately labelled advanced terminal console. Dashboard selects native rig/pod identities and displays the selected pod's observed membership and explicit single-seat/task/message operations. Orca workspaces are secondary result-terminal destinations, never rig/pod identities. Result and seat terminals remain deliberate Orca terminal views.
+
+Read projected native inventory without cleanup, transcript/resume payloads or inferred namespace prefixes. Default observation uses the effective HOME's local TUI daemon record; plugin-configured/custom instances remain explicit alternatives. Never silently retarget writes: a different observation keeps operations locked until the user explicitly changes plugin-owned routing. Recheck the observation key before that setting change and bind scoped reviews/views to both instance and rig/pod identity. Existing-home connections must not expose managed daemon start.
+
+Unavailable, malformed, truncated and oversized observations are unknown, never an empty list or example fallback. Do not automatically select a pod. Refreshing/changing pods invalidates pending reviews and recipients; fresh native membership is checked again before execution. Show a timestamp and distinct status/activity/attention; do not infer working/healthy/completed from running. Diagrams show observed membership without inventing unqueried edges, roles, cwd or effective permission settings. Keep optional local YAML inspection explicitly labelled and collapsed by default; entering it invalidates reviews and locks pod operations/views until native inventory is restored. The separate static YAML development page is not a registered panel or the default Dashboard data source.
 
 ### Built-in examples
 
-- The default topology is `You -> Builder -> Reviewer -> Builder -> You`.
+- The example walkthrough topology is `You -> Builder -> Reviewer -> Builder -> You`; it is never substituted for native pod inventory.
 - The walkthrough explains the steps without sign-in, commands, or model calls.
 - The terminal demo prints prerecorded role descriptions in two real tmux terminal seats. Label it **SIMULATION ONLY**, not actual AI work or message exchange.
 - Creating and starting a demo requires an existing daemon and a confirmed plan. It starts no kernel or model.

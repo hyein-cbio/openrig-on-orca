@@ -1,6 +1,6 @@
 import { assert, mockHost, mountWorker, test } from 'orca/testing'
 import * as workerModule from './worker'
-import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises'
+import { mkdtemp, mkdir, writeFile, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { configFrom, quote } from './runtime.mjs'
@@ -20,7 +20,7 @@ async function daemonFixture(nodes: unknown[] = []) {
   await writeFile(rig, `#!/bin/sh\nif [ "$1" = "--version" ]; then printf '0.7.13'; exit 0; fi\nif [ "$1" = "ps" ] && [ -f ${quote(path.join(root, 'online'))} ]; then cat ${quote(nodeFile)}; exit 0; fi\nexit 1\n`, { mode: 0o700 })
   return { root, config: configFrom({ root, homePath: root, nodePath: node, rigPath: rig, tmuxPath: tmux }), setNodes: (rows: unknown[]) => writeFile(nodeFile, JSON.stringify(rows)), online: async () => {
     await mkdir(path.join(root, 'instance'), { recursive: true })
-    await writeFile(path.join(root, 'instance', 'daemon.json'), '{}')
+    await writeFile(path.join(root, 'instance', 'daemon.json'), JSON.stringify({ host: '127.0.0.1', port: 43811 }))
     await writeFile(path.join(root, 'online'), '')
   } }
 }
@@ -154,6 +154,46 @@ test('task preparation does not register work and stopped recipients are refused
     await assert.rejects(worker.request('task.check', { id: plan.queueTask!.id }), /No saved request/)
     assert.equal(host.callsOf('terminal.create').length, 0)
     assert.equal(host.callsOf('terminal.sendText').length, 0)
+  } finally { await worker.deactivate(); await rm(fixture.root, { recursive: true, force: true }) }
+})
+
+test('native pod observation and explicit connection affect only plugin-owned routing', async () => {
+  const row = { rigId: 'rig-1', rigName: 'demo', logicalId: 'dev.worker', podId: 'pod-1', podNamespace: 'dev', canonicalSessionName: 'dev-worker@demo', runtime: 'pi', sessionStatus: 'running', agentActivity: { state: 'idle' } }
+  const fixture = await daemonFixture([row])
+  const host = mockHost({ results: { 'workspace.list': { workspaces: [workspace], truncated: false } }, storage: { 'config.v1': fixture.config } })
+  const worker = await mountWorker(workerModule, { host })
+  try {
+    await fixture.online()
+    await mkdir(path.join(fixture.root, '.openrig'))
+    const file = path.join(fixture.root, '.openrig', 'daemon.json'), original = JSON.stringify({ host: '127.0.0.1', port: 17459 })
+    await writeFile(file, original)
+    const inventory = await worker.request('pods.list', { source: 'tui' })
+    assert.equal(inventory.pods[0].label, 'demo / dev'); assert.equal(inventory.connection.matchesConfigured, false)
+    assert.equal((host.data().storage['config.v1'] as any).daemonPort, '43811')
+    const connected = await worker.request('pods.connect', { source: 'tui', expectedKey: inventory.connection.key })
+    assert.equal(connected.config.daemonPort, '17459'); assert.ok(connected.config.instanceHome.endsWith('/.openrig'))
+    assert.equal(await readFile(file, 'utf8'), original)
+    assert.equal(host.callsOf('terminal.create').length, 0); assert.equal(host.callsOf('terminal.sendText').length, 0)
+  } finally { await worker.deactivate(); await rm(fixture.root, { recursive: true, force: true }) }
+})
+
+test('pod-scoped review and attach reject foreign or reassigned seats before creating a terminal', async () => {
+  const row = { rigId: 'rig-1', rigName: 'demo', logicalId: 'dev.worker', podId: 'pod-1', podNamespace: 'dev', canonicalSessionName: 'dev-worker@demo', runtime: 'pi', sessionStatus: 'running', agentActivity: { state: 'idle' } }
+  const fixture = await daemonFixture([row])
+  const host = mockHost({ results: { 'workspace.list': { workspaces: [workspace], truncated: false } }, storage: { 'config.v1': fixture.config } })
+  const worker = await mountWorker(workerModule, { host })
+  try {
+    await fixture.online()
+    const inventory = await worker.request('pods.list', { source: 'configured' })
+    const input = { action: 'send-instruction', workspaceId: workspace.id, seatKey: JSON.stringify([row.rigId, row.logicalId]), message: 'Inspect fixture', podKey: JSON.stringify([row.rigId, row.podId]), instanceKey: inventory.connection.key }
+    await assert.rejects(worker.request('setup.prepare', { ...input, instanceKey: 'f'.repeat(64) }), /different or changed instance/)
+    await assert.rejects(worker.request('setup.prepare', { ...input, podKey: '["other","pod-1"]' }), /reviewed pod/)
+    const plan = await worker.request('setup.prepare', input)
+    assert.equal(plan.pod?.key, input.podKey)
+    await fixture.setNodes([{ ...row, podId: 'pod-2', podNamespace: 'other' }])
+    await assert.rejects(worker.request('setup.execute', { planId: plan.id, workspaceId: workspace.id }), /no longer available/)
+    await assert.rejects(worker.request('seat.attach', { key: input.seatKey, workspaceId: workspace.id, readOnly: true, podKey: input.podKey, instanceKey: input.instanceKey }), /selected pod/)
+    assert.equal(host.callsOf('terminal.create').length, 0)
   } finally { await worker.deactivate(); await rm(fixture.root, { recursive: true, force: true }) }
 })
 

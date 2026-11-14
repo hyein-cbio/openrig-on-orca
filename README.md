@@ -51,13 +51,11 @@ orca plugin open local.openrig-for-orca --panel openrig --environment local --js
 Inside that one panel are exactly two views:
 
 - **OpenRig Preparation**: tool/daemon checks, installation and account setup, paths, the walkthrough and recorded examples.
-- **OpenRig Dashboard**: the inline YAML topology viewer, manual live-seat observations, reviewed seat starts, instructions, durable tasks and team launch.
+- **OpenRig Dashboard**: native rig/pod selection, a selected-pod inventory diagram and seat snapshot, reviewed single-seat starts, instructions and durable tasks. Team creation/launch and the advanced terminal console live in Preparation.
 
-![One panel with its internal dashboard view](docs/images/openrig-dashboard.png)
+[Earlier dashboard design capture](docs/images/openrig-dashboard.png) · [Preparation capture](docs/images/openrig-preparation.png). These historical, read-only declared-example previews predate native pod selection; they are not current live-inventory evidence.
 
-[Preparation view](docs/images/openrig-preparation.png). These read-only preview captures use the built-in declared example; they do not claim a running team or verified installation.
-
-Topology and examples have no independent Orca panel/tab. Switching the two internal views never starts a daemon, agent or command, retains form/YAML drafts, and invalidates an unconfirmed operation review. Read-only discovery does not block access to the dashboard. The HTML, styles, renderer/parser/sanitizer and notices are bundled; the declared topology viewer needs no server, npm installation or OpenRig daemon. Live operations retain their existing explicit worker review/confirmation boundary.
+Topology and examples have no independent Orca panel/tab. Switching the two internal views never starts a daemon, agent or command, retains operation drafts and the selected pod, and invalidates an unconfirmed operation review. Read-only discovery does not block access to the dashboard. The HTML, styles, renderer/parser/sanitizer and notices are bundled; rendering needs no CDN or npm installation, but actual pod observations require an explicitly identified running local OpenRig daemon. Live operations retain their existing explicit worker review/confirmation boundary.
 
 Local-folder installation is also available. Its installed copy is separate from the development folder and requires the same code-execution approval.
 
@@ -79,17 +77,19 @@ Within **OpenRig Preparation**, expand **Learn with the built-in example**. The 
 - **Claude/Codex templates:** Create two agents using the same provider, their RigSpec and AgentSpecs, role guidance, and a small clamp() example project. Existing project files are not overwritten, and creation does not launch agents.
 - **Preview real team launch:** After authenticating the selected provider, review a private frozen bundle. The terminal shows declared settings and explicitly unverified native/model/host settings. Acknowledge those with `ACCEPT UNVERIFIED SETTINGS`, then type `LAUNCH`. Model usage may incur charges.
 
+Demo-stop records are bound to the explicit operation home/port as well as the private data root. A record from a different or unknown/legacy instance cannot authorize stopping a team after switching connections; inspect it natively instead of guessing or backfilling ownership.
+
 Example operations use the same shared destination and review card. Their result/seat terminals remain Orca terminal views; they are not additional plugin panels.
 
 ## First use
 
-1. Explicitly select a local workspace in the shared **Destination Orca workspace** selector. It uses project/worktree names and Orca's exact workspace ID; labels never change the target.
+1. Reading pods needs no Orca destination. Before an operation, explicitly select a local workspace under **Result terminal destination** (in Preparation, or the secondary expandable Dashboard section). It uses project/worktree names and Orca's exact workspace ID; labels never change the target.
 2. Use **OpenRig Preparation -> Recheck environment** to inspect Node/npm, OpenRig, tmux, and SQLite.
 3. Select an installation action for missing OpenRig or tmux. **Review the exact command, source, write scope, and warnings** before running it in an Orca terminal. Opening a terminal does not prove installation succeeded.
 4. Inspect the terminal result and recheck the environment.
 5. Choose a coding agent and select **Save configuration**. Reuse an available CLI login or open its official sign-in command in an Orca terminal. Choosing `Later` is also valid.
-6. Select **Start daemon · no agents** to start only this instance. No kernel or agent starts automatically. Inspect its terminal, then **Recheck environment**. **Go to OpenRig Dashboard** is internal GUI navigation and never runs `rig tui`. The separate **Advanced · terminal console** operation retains the reviewed standalone terminal TUI path and is disabled until this instance responds.
-7. In **OpenRig Dashboard**, use **Refresh seats**, then **Open seat view**. Views default to read-only; disable the checkbox and open a new view if writable input is intended.
+6. For a **new managed instance only**, select **Start daemon · no agents**. Skip this when connecting to an already running TUI instance; managed start is disabled for an existing-home override. No kernel or agent starts automatically. Inspect its terminal, then **Recheck environment**. **Go to OpenRig Dashboard** is internal GUI navigation and never runs `rig tui`. The separate **Advanced · terminal console** operation retains the reviewed standalone terminal TUI path and is disabled until this instance responds.
+7. In **OpenRig Dashboard**, use **Refresh pods**, choose an actual rig/pod, and inspect the timestamped snapshot. The default observation source is the default local TUI instance; choose the plugin-configured source for step 6's separate managed instance. If routing differs, explicitly use the observed instance for operations before **Open seat view**. Views default to read-only; disable the checkbox and open a new view if writable input is intended.
 
 Operation buttons prepare a shared **Review operation** card, not an installation or launch. It identifies destination, source, writes, warnings and exact command and requires explicit confirmation. Operation forms are hidden while reviewing. Cancel or change the internal view to invalidate the review. Executing an operation locks navigation until its response; read-only checks do not.
 
@@ -101,31 +101,41 @@ The panel distinguishes **Terminal tab connected** from **Terminal created · ta
 
 Each Open seat view click creates a separate view. **Closing a tab detaches from tmux; it does not stop the seat.** Stop or recover teams through the OpenRig dashboard or explicit lifecycle operations.
 
-### Dashboard topology: local YAML to Mermaid/SVG
+### Dashboard: native rig / pod inventory
 
-In **OpenRig Dashboard**, choose **Open YAML** or expand **YAML source** to paste a RigSpec and **Render diagram**. The built-in example works without installing OpenRig or starting any agent. Pods form groups; members become selectable nodes; explicit `from`/`to` edges are drawn with their declared kind. Select a node to inspect its role, runtime, model and AgentSpec reference. Zoom, fit, left-to-right/top-to-bottom layouts and **Save SVG** are available. Narrow views default to a vertical layout unless you choose another direction.
+The primary **OpenRig pod** selector comes from the native projected seat inventory, not Orca workspaces or the built-in example. Choose a real `rig / pod`; its diagram, seat rows, instruction recipients and durable-task recipients use that exact rig/pod identity. An Orca workspace appears only in the secondary **Result terminal destination** section, and is unnecessary for reading/selecting pods.
 
-This is a **declared topology, not live status or native spec validation**. Referenced AgentSpecs, environment/model defaults, startup hooks, cwd and permission settings are not loaded or executed. Missing runtime/model values stay **Not declared here**. Unresolved/ambiguous edges are omitted with a note, not guessed; root-level cross-pod edges should use `pod.member` references. Sequence and ID-keyed mapping forms of pods/members are supported. Diagram captions normalize markup/math punctuation; the inspector shows bounded declared metadata.
+Inventory is a manual snapshot from `rig ps --nodes -A --json --no-cleanup --fields …`, with explicit loopback routing and pod ID/namespace fields. No transcript, resume token, full graph payload, credential file or arbitrary YAML reference is requested. The list represents registered seat groups, as in the TUI's node-backed pod groups; empty declarations without seats are not synthesized. Unassigned seats are labelled as such. Invalid, incomplete, unavailable or oversized observations stay unavailable, not an empty list or an example fallback. Bounds: 512 seats and 128 groups; diagrams cap at 80 seats without truncating the complete selected-pod list.
 
-The viewer is embedded directly in the dashboard document, without a nested frame or another panel. The built-in sample is not a running team.
+**Observed OpenRig instance** defaults to the local TUI's `~/.openrig/daemon.json` under the effective HOME. The metadata's local port is pinned; this is not a search of arbitrary hosts. Choose **Plugin-configured instance** for a separate managed/custom instance. If observation and operation routing differ, operations stay locked. **Use this observed instance for operations** rechecks that observation and changes only plugin-owned OpenRig-home/port settings. It does not modify native configuration, start a daemon/kernel/agent or change authentication. Existing-home connections disable the managed daemon-start action. Custom existing homes/ports can also be set explicitly in Preparation.
 
-YAML parsing/rendering stays in the HTML frame's memory and never calls the worker/daemon, uploads, CDN assets, telemetry or automatic saves. Separately, the containing plugin performs read-only environment discovery and offers explicitly confirmed operations. Aliases, duplicate keys, custom tags and multiple YAML documents are refused. Limits: 256 KiB input, 16 pods, 80 agents and 160 edges. An invalid source clears the previous diagram; editing disables export until the new source is rendered. Explicit SVG exports contain the displayed topology and may be sensitive.
+No pod is selected automatically. Changing pods, refreshing inventory, switching views or changing configuration invalidates an unconfirmed review. Native identity is the rig ID plus pod ID, not a namespace guessed from a logical ID. Reviewed starts/messages/tasks and seat views validate that the target still belongs to the selected pod; fresh-target and one-use consent checks remain in place.
 
-The dependency-backed renderer uses pinned **Mermaid 12.3.0**, **yaml 2.9.1** and **DOMPurify 3.4.17**. Only generated flowcharts with the Dagre layout enter Mermaid; strict mode and a second SVG sanitization pass are enabled. Local prebuilt ESM assets, integrity/source hashes and third-party notices are shipped in `src/visualizer/`; plugin users do not need npm or a network connection for the viewer. Normal plugin use stops here; the following commands are **development-only**. Update/rebuild the bundled assets after changing the client, projection or lockfile:
+The diagram displays observed membership, runtime/model and separate normalized status, activity and attention scalars with a timestamp. Running does not imply working, healthy or complete. Relationship edges are not queried by this bounded projection: no delegation arrows, effective roles/AgentSpecs, cwd or permission guarantees are invented. Zoom, fit, LR/TB layout, node inspection and explicit **Save SVG** remain local. Narrow views favor readable vertical scrolling. Exports may contain sensitive topology metadata.
+
+### Renderer and optional declared-YAML preview
+
+The dependency-backed renderer uses pinned **Mermaid 12.3.0**, **yaml 2.9.1** and **DOMPurify 3.4.17**. Generated strict-mode Dagre flowcharts receive an additional SVG sanitization pass. Local prebuilt split ESM assets, integrity/source hashes and third-party notices ship in `src/visualizer/`; rendering needs no npm installation, CDN or online converter. The dashboard never auto-loads a sample or YAML declaration in place of native inventory.
+
+**Optional YAML declaration preview** in the Dashboard is collapsed by default. Explicitly open it to load/paste YAML or a labelled example. Entering that mode invalidates a pending review and locks pod operations/views; **Return to selected pod inventory** restores the native snapshot without changing the selected pod or executing anything. YAML drafts remain in memory across navigation.
+
+A separate **development-only** static YAML inspection page also remains at the preview server's `/topology.html`; it is not another registered Orca panel or a live daemon view. It supports local files/text, declared edges and a labelled example without resolving references or calling a daemon. YAML stays in frame memory; aliases, duplicate keys, custom tags and multiple documents are refused. Limits remain 256 KiB, 16 pods, 80 agents and 160 edges. Invalid source clears the previous declaration; dirty source disables export.
+
+Rebuild after changing authored client/projection/build inputs or the lockfile:
 
 ```sh
-# Development dependency installation follows the project's 1Password npm policy.
 op plugin run -- npm ci --ignore-scripts
 node scripts/build-visualizer.mjs
 node scripts/preview-topology.mjs
-# Open the printed loopback URL in Orca's browser; Ctrl-C stops this static preview.
+# / shows the unified panel; /topology.html is the standalone YAML development page.
+# Ctrl-C stops this allowlisted, loopback-only static preview.
 ```
 
-The standalone preview serves only allowlisted static assets and rejects uploads. It does not install or replace your existing Orca plugin. The SVG save dialog in an installed HTML panel uses Orca's explicit user-gesture save API; the standalone browser uses a normal SVG download.
+The preview does not install or replace an Orca plugin. Installed HTML panels use Orca's explicit user-gesture SVG save API; a standalone browser uses a normal SVG download. Native OS dialog writes are not inferred from bridge-payload tests.
 
 ### Send one instruction to an existing agent
 
-In **OpenRig Dashboard**, use **Refresh seats**, choose an **Instruction recipient**, enter a **Short instruction**, and press **Review instruction**. Review the exact target/text and side effects, then **Confirm and open in Orca terminal**. The existing single-use, five-minute plan runs `rig send --wait-for-idle 1 --json -- <session> <text>` in an Orca result terminal; no TUI typing is needed.
+In **OpenRig Dashboard**, select a native pod and use **Refresh selected pod snapshot**, choose an **Instruction recipient**, enter a **Short instruction**, and press **Review instruction**. Review the exact target/text and side effects, then **Confirm and open in Orca terminal**. The existing single-use, five-minute plan runs `rig send --wait-for-idle 1 --json -- <session> <text>` in an Orca result terminal; no TUI typing is needed.
 
 This deliberately small feature accepts one running, explicitly idle Claude Code, Codex or Pi seat without an attention request. An existing Pi seat does not require selecting a new installer/provider or changing its model. Shell/unknown runtimes, stopped/busy/unknown-activity seats, control characters and host-qualified targets are refused. Text is a single line of at most 2000 characters. The worker refreshes the target at confirmation and refuses a changed session/runtime; the native CLI retains its idle and prompt/permission guards. The configured loopback instance is explicit, overriding persisted remote-host selection and legacy URL aliases, without changing global settings.
 
@@ -133,7 +143,7 @@ This is a **terminal message**, not a durable queue item, ownership handoff, ack
 
 ### Start one registered seat
 
-After **OpenRig Dashboard -> Refresh seats**, use **Review seat start** on one stopped/exited/detached or never-started agent row. Registrations with no conversation remain visible as **No session yet**; no session address is invented. The review shows the registered rig ID/logical ID and declared runtime/model/cwd. Acknowledge **I accept unverified native startup settings and possible model costs**, then confirm. This runs only `rig launch --json -- <rigId> <logicalId>` in the result terminal, not an all-seat launch or the separate `--seats` snapshot-restore path.
+After **OpenRig Dashboard -> Refresh pods -> Select a native pod**, use **Review seat start** on one stopped/exited/detached or never-started agent row. Registrations with no conversation remain visible as **No session yet**; no session address is invented. The review shows the registered rig ID/logical ID and declared runtime/model/cwd. Acknowledge **I accept unverified native startup settings and possible model costs**, then confirm. This runs only `rig launch --json -- <rigId> <logicalId>` in the result terminal, not an all-seat launch or the separate `--seats` snapshot-restore path.
 
 Running seats are disabled. If another actor starts the seat after review, confirmation returns a no-op and creates no launch terminal. Changes to observable session/runtime/model definitions require another review. Native 0.7.12/0.7.13 cannot project cwd through `ps --fields`; cwd therefore remains explicitly UNVERIFIED rather than breaking all seat queries. Shell, unknown and reserved `kernel` targets are excluded. No fresh occupant, stop, model override, permission bypass or kernel recovery is requested. The review is not a complete first-start preflight: native `--plan` cannot preview a never-started materialized seat. Provider settings, permissions and hooks remain unverified, and startup may incur model costs or edit files. Refresh actual seat status after inspecting the result; opening the terminal is not proof of startup.
 
@@ -145,7 +155,7 @@ The server fixes a random request ID before execution, stores the body in an exc
 
 **Check task registration** is a manual read-only snapshot. It queries the same configured instance, correlates the saved ID/destination/title/body, and shows verified registration and the recorded workflow state only for a matching row. Changed content requires native-history reconciliation. A missing row, timeout, changed instance or unreadable result remains **unverified**, not definitely absent; the check never creates, nudges or retries. A recorded `done` state is the assignee's workflow record, not independent proof of correct results. Do not create another ID for the same work after an unknown outcome.
 
-### Launch a team
+### Launch a team (Preparation)
 
 - The shipped `starter` uses both Claude and Codex. For a single provider, use an Example Window template or an adapted local YAML spec.
 - Verified launches require an **absolute local YAML spec**. Export library specs locally first. Unresolved library names and remote URLs are not accepted by this path.
@@ -162,7 +172,7 @@ Use **OpenRig Preparation -> Paths and existing configuration** to set absolute 
 - Default data directory: `~/.local/share/openrig-for-orca/`
 - Managed CLI: `<data>/runtime/node_modules/.bin/rig`
 - Optionally installed agent CLIs: `<data>/providers/node_modules/.bin/`
-- OpenRig state: `<data>/instance/`
+- Managed OpenRig state: `<data>/instance/`; an explicit **Existing OpenRig home override** can connect operations to an existing instance without copying it.
 - Private frozen reviews and materialization targets: `<data>/launches/`. Treat these as potentially sensitive and never upload or commit them.
 - Daemon: loopback `127.0.0.1` only; the default port is `43811`, configurable in Paths.
 

@@ -20,6 +20,18 @@ test('YAML projects declared pods, agent metadata and directed relationships wit
   assert.match(topologyMermaid(result, 'TB'), /direction TB/)
   assert.throws(() => topologyMermaid(result, 'invalid'), /direction/)
 })
+test('edgeless rosters use invisible layout ranks without inventing relationship edges', () => {
+  const topology = parseTopology(SAMPLE_TOPOLOGY)
+  assert.equal(topologyMermaid(topology).includes('~~~'), false, 'Do not alter declared relationship flow')
+  topology.edges = []
+  for (const direction of ['LR', 'TB']) {
+    const source = topologyMermaid(topology, direction)
+    assert.ok(source.startsWith(`flowchart ${direction}\n`))
+    assert.match(source, /agent_0 ~~~ agent_1\nagent_1 ~~~ agent_2/)
+    assert.equal(source.includes('-->'), false)
+    assert.equal(topology.edges.length, 0)
+  }
+})
 test('Mermaid-prefixed node IDs resolve only to generated agent identities', () => {
   assert.equal(topologyNodeId('rig_diagram_1-flowchart-agent_0-0'), 'agent_0')
   assert.equal(topologyNodeId('flowchart-agent_12-40'), 'agent_12')

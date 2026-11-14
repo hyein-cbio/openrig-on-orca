@@ -10,11 +10,13 @@ export interface Snapshot {
 }
 export interface Workspace { id: string; name: string; project?: string | null; path: string; hostId: string | null }
 export interface Seat {
-  key: string; rigId: string; rigName: string; logicalId: string; session: string
+  key: string; rigId: string; rigName: string; logicalId: string; session: string; podId?: string | null; podNamespace?: string | null
   runtime: string; status: string; attention: boolean; activity: string; rigNameKnown?: boolean; lifecycle?: string; model?: string | null; cwd?: string | null
 }
+export interface Pod { key: string; rigId: string; rigName: string; podId: string | null; namespace: string | null; label: string; seatCount: number }
+export interface PodInventory { connection: { source: 'tui' | 'configured'; key: string; home: string; port: string; endpoint: string; matchesConfigured: boolean }; observedAt: number; pods: Pod[]; seats: Seat[] }
 export interface ExampleRecord {
-  id: string; kind: 'demo' | 'claude' | 'codex'; rigName: string; directory: string; specPath: string; configRoot: string
+  id: string; kind: 'demo' | 'claude' | 'codex'; rigName: string; directory: string; specPath: string; configRoot: string; instance?: string
 }
 export interface Instruction { key: string; session: string; runtime: string; text: string }
 export interface QueueTask { id: string; destination: string; key: string; runtime: string; summary: string; body: string; bodyFile: string }
@@ -22,7 +24,7 @@ export interface TaskStatus { id: string; destination: string; registration: 'un
 export interface NoOpReceipt { noOp: true; detail: string }
 export interface Plan {
   id: string; expires: number; action: string; title: string; source: string
-  writes: string[]; warnings: string[]; command: string; workspaceId: string; instruction?: Instruction; seatLaunch?: Seat; queueTask?: QueueTask; example?: ExampleRecord; launchReview?: { display: Record<string, unknown> }
+  writes: string[]; warnings: string[]; command: string; workspaceId: string; pod?: { key: string; rigId: string; podId: string | null; namespace: string | null; instanceKey: string; endpoint: string }; instruction?: Instruction; seatLaunch?: Seat; queueTask?: QueueTask; example?: ExampleRecord; launchReview?: { display: Record<string, unknown> }
 }
 export interface TerminalReceipt {
   terminalId: string; task?: TaskStatus; warning?: string; workspaceName?: string; workspaceId?: string; title?: string
@@ -37,12 +39,14 @@ declare module 'orca' {
   interface PluginRequests {
     'environment.scan': { output: State }
     'config.save': { input: Config; output: State }
-    'setup.prepare': { input: { action: string; workspaceId: string; spec?: string; exampleId?: string; seatKey?: string; message?: string; summary?: string; body?: string }; output: Plan }
+    'setup.prepare': { input: { action: string; workspaceId: string; spec?: string; exampleId?: string; seatKey?: string; message?: string; summary?: string; body?: string; podKey?: string; instanceKey?: string }; output: Plan }
     'examples.list': { output: { examples: ExampleRecord[] } }
     'setup.execute': { input: { planId: string; workspaceId: string; acceptStartupRisk?: boolean }; output: TerminalReceipt | NoOpReceipt }
     'task.check': { input: { id: string }; output: TaskStatus }
     'terminal.reveal': { input: { terminalId: string }; output: TerminalReceipt }
+    'pods.list': { input: { source: 'tui' | 'configured' } | undefined; output: PodInventory }
+    'pods.connect': { input: { source: 'tui' | 'configured'; expectedKey: string }; output: State }
     'seats.list': { output: { seats: Seat[] } }
-    'seat.attach': { input: { key: string; workspaceId: string; readOnly: boolean }; output: TerminalReceipt }
+    'seat.attach': { input: { key: string; workspaceId: string; readOnly: boolean; podKey?: string; instanceKey?: string }; output: TerminalReceipt }
   }
 }

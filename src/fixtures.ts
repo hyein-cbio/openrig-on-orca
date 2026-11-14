@@ -1,7 +1,7 @@
 import type { State, Plan } from './protocol'
 
 export const missing: State = {
-  config: { provider: 'none', root: '/sandbox/openrig', daemonPort: '43811', nodePath: '', npmPath: '', rigPath: '', tmuxPath: '', extraPath: '', homePath: '', codexHome: '', claudeConfigDir: '' },
+  config: { provider: 'none', root: '/sandbox/openrig', daemonPort: '43811', nodePath: '', npmPath: '', rigPath: '', tmuxPath: '', extraPath: '', homePath: '', codexHome: '', claudeConfigDir: '', instanceHome: '' },
   snapshot: {
     platform: 'darwin', arch: 'arm64', config: {} as State['config'],
     nodes: [{ path: '/tools/node', version: 'v22.23.1', compatible: true }],

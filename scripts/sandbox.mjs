@@ -36,7 +36,7 @@ const check = (id, detail) => report.checks.push({ id, detail })
 let fixtureStarted = false, daemonStarted = false, loaded = false, runtimePid, terminalId, rig, rigEnv
 let ownedWorkspacePaths = [project]
 let rigName
-let frozenFixture, previewServer, previewPage
+let frozenFixture, previewServer, previewPage, observedPodFixture
 
 async function invoke(command, argv, options = {}) {
   return exec(command, argv, { cwd: source, env, timeout: 45000, maxBuffer: 4 * 1024 * 1024, ...options })
@@ -148,6 +148,11 @@ try {
     return found
   })
   check('two-seats', 'Plugin-created Builder and Reviewer terminal seats are running')
+  const inventory = await request('pods.list', { source: 'configured' })
+  const observedPod = inventory.pods.find(p => p.rigId === demoSeats[0].rigId && p.namespace === 'dev')
+  assert.ok(observedPod); assert.equal(observedPod.seatCount, 2); assert.equal(inventory.connection.matchesConfigured, true)
+  observedPodFixture = { pod: observedPod, seats: inventory.seats.filter(s => s.rigId === observedPod.rigId && s.podId === observedPod.podId), observedAt: inventory.observedAt }
+  check('pod-inventory', 'Real CLI projected rig/pod identities for both terminal-only seats from the explicitly configured private instance')
   for (const seat of demoSeats) {
     const attached = await request('seat.attach', { key: seat.key, workspaceId: workspace.id, readOnly: true })
     terminalId = attached.terminalId
@@ -212,17 +217,34 @@ try {
   await orca(['viewport', '--page', previewPage, '--width', '1200', '--height', '1200'])
   await until(async () => assert.equal(await evaluate('JSON.stringify(document.querySelectorAll(\'[role="tab"]\').length)'), 2))
   await evaluate('JSON.stringify(document.getElementById("view-dashboard").click() || true)')
-  await until(async () => assert.equal(await evaluate('JSON.stringify(document.querySelectorAll("#diagram g.node[role=button]").length)'), 3))
+  assert.equal(await evaluate('JSON.stringify(document.querySelectorAll("#diagram svg").length)'), 0)
+  assert.equal(await evaluate('JSON.stringify(document.getElementById("workspace-destination-control").parentElement.id)'), 'dashboard-destination')
+  await evaluate(`(async()=>{const m=await import('/visualizer/app.mjs');m.displayPodSnapshot(${JSON.stringify(observedPodFixture.pod)},${JSON.stringify(observedPodFixture.seats)},${observedPodFixture.observedAt});return JSON.stringify(true)})()`)
+  await until(async () => assert.equal(await evaluate('JSON.stringify(document.querySelectorAll("#diagram g.node[role=button]").length)'), 2))
   assert.equal(await evaluate('JSON.stringify(!document.getElementById("dashboard-view").hidden && document.getElementById("preparation-view").hidden)'), true)
   await until(async () => assert.ok(await evaluate('JSON.stringify(document.querySelector("#diagram svg").getBoundingClientRect().width > 100)')))
-  await evaluate('JSON.stringify(document.querySelector(\'#diagram [aria-label="Inspect reviewer"]\').dispatchEvent(new MouseEvent("click",{bubbles:true})))')
-  assert.equal(await evaluate('JSON.stringify(document.getElementById("agent-name").textContent)'), 'reviewer')
+  const nodeCenters = async () => evaluate('JSON.stringify([...document.querySelectorAll("#diagram g.node[role=button]")].map(n=>{const r=n.getBoundingClientRect();return {id:n.id,x:r.x+r.width/2,y:r.y+r.height/2}}).sort((a,b)=>Number(a.id.match(/agent_(\\d+)/)[1])-Number(b.id.match(/agent_(\\d+)/)[1])))')
+  for (const direction of ['LR', 'TB']) {
+    await evaluate(`(()=>{const d=document.getElementById('direction');d.value=${JSON.stringify(direction)};d.dispatchEvent(new Event('change',{bubbles:true}));return JSON.stringify(true)})()`)
+    await until(async () => {
+      assert.equal(await evaluate(`JSON.stringify(document.getElementById('mermaid-source').value.startsWith('flowchart ${direction}'))`), true)
+      const centers = await nodeCenters(); assert.equal(centers.length, 2)
+      const dx = centers[1].x - centers[0].x, dy = centers[1].y - centers[0].y
+      assert.ok(direction === 'LR' ? dx > 20 && Math.abs(dy) < 2 : dy > 20 && Math.abs(dx) < 2, `Expected ${direction} node order; observed dx=${dx.toFixed(1)}, dy=${dy.toFixed(1)}`)
+    })
+  }
+  check('topology-layout', 'Disconnected inventory seats render in actual left-to-right and top-to-bottom coordinate order, not merely matching dropdown values')
+  const inspected = observedPodFixture.seats[1].logicalId
+  await evaluate(`JSON.stringify([...document.querySelectorAll('#diagram [role=button]')].find(e=>e.getAttribute('aria-label')===${JSON.stringify('Inspect ' + observedPodFixture.seats[1].logicalId)}).dispatchEvent(new MouseEvent('click',{bubbles:true})))`)
+  assert.equal(await evaluate('JSON.stringify(document.getElementById("agent-name").textContent)'), inspected)
   const dashboardShot = await orca(['screenshot', '--page', previewPage])
   await copyFile(dashboardShot.result.path, path.join(root, 'dashboard-preview.png'))
-  await evaluate('(()=>{const source=document.getElementById("yaml-source");source.value+="\\n# retained across internal views";source.dispatchEvent(new Event("input",{bubbles:true}));return JSON.stringify(true)})()')
+  await evaluate('(()=>{document.getElementById("yaml-tools").open=true;const source=document.getElementById("yaml-source");source.value+="\\n# retained across internal views";source.dispatchEvent(new Event("input",{bubbles:true}));return JSON.stringify(true)})()')
+  assert.equal(await evaluate('JSON.stringify(document.getElementById("declaration-mode-note").hidden)'), false)
   await evaluate('JSON.stringify(document.getElementById("view-preparation").click() || true)')
   await evaluate('(()=>{const button=document.getElementById("example-next");button.closest("details").open=true;button.click();return JSON.stringify(true)})()')
   assert.match(await evaluate('JSON.stringify(document.getElementById("example-step-count").textContent)'), /^Step 2 /)
+  assert.equal(await evaluate('JSON.stringify(document.getElementById("workspace-destination-control").parentElement.id)'), 'preparation-destination')
   assert.equal(await evaluate('JSON.stringify(document.getElementById("yaml-source").value.endsWith("# retained across internal views"))'), true)
   assert.equal(await evaluate('JSON.stringify([...document.querySelectorAll("[data-operation]")].every(button=>button.disabled))'), true)
   const preparationShot = await orca(['screenshot', '--page', previewPage])

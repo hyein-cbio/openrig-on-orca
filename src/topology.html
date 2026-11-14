@@ -10,6 +10,7 @@
 </head>
 <body>
   <main class="studio">
+    <details id="yaml-tools" class="yaml-tools" open><summary>Optional YAML declaration preview · not native pod inventory</summary>
     <header class="hero">
       <div class="eyebrow"><span class="brand-mark" aria-hidden="true">↗</span> OPENRIG FOR ORCA <span class="privacy-pill">LOCAL · READ ONLY</span></div>
       <h1>Your team, connected.</h1>
@@ -29,22 +30,23 @@
         <div class="source-footer"><small>256 KiB · 16 pods · 80 agents · 160 edges. No referenced files are opened.</small><button id="render" type="button" class="primary">Render diagram</button></div>
       </div>
     </details>
+    </details>
     <div id="notice" role="status" aria-live="polite">Loading the local renderer…</div>
     <div id="error" role="alert" hidden></div>
-    <section class="workspace" aria-label="Declared topology">
+    <section id="topology-stage" class="workspace" aria-label="Declared topology">
       <section class="map-card">
-        <div class="map-heading"><div><span class="eyebrow">DECLARED TOPOLOGY</span><h2 id="rig-name">Build & Review</h2></div><span class="declaration-badge">Not live status</span></div>
+        <div class="map-heading"><div><span id="topology-eyebrow" class="eyebrow">DECLARED TOPOLOGY</span><h2 id="rig-name">Build & Review</h2></div><span id="topology-origin" class="declaration-badge">Not live status</span></div>
         <div class="map-toolbar">
-          <div class="counts"><span><b id="pod-count">—</b> <span id="pod-noun">pods</span></span><span><b id="agent-count">—</b> agents</span><span><b id="edge-count">—</b> edges</span></div>
+          <div class="counts"><span><b id="pod-count">—</b> <span id="pod-noun">pods</span></span><span><b id="agent-count">—</b> <span id="agent-noun">agents</span></span><span><b id="edge-count">—</b> edges</span></div>
           <div class="view-tools"><label class="sr-only" for="direction">Layout direction</label><select id="direction"><option value="LR">Left to right</option><option value="TB">Top to bottom</option></select><button id="zoom-out" type="button" aria-label="Zoom out">−</button><button id="zoom-in" type="button" aria-label="Zoom in">+</button><button id="fit" type="button">Fit</button></div>
         </div>
         <div id="viewport" tabindex="0" aria-label="Topology diagram; scroll to pan, use the zoom controls to resize"><div id="diagram"></div><div id="empty" hidden>No diagram to display. Check the YAML and render again.</div></div>
-        <div class="map-footer"><span><i class="solid-line"></i> delegates to <i class="dashed-line"></i> other relationship</span><button id="export" type="button" disabled>Save SVG</button></div>
+        <div class="map-footer"><span id="declaration-legend"><i class="solid-line"></i> delegates to <i class="dashed-line"></i> other relationship</span><span id="inventory-legend" hidden>Membership only · relationships not queried</span><button id="export" type="button" disabled>Save SVG</button></div>
       </section>
       <aside class="inspector" aria-label="Selected agent details">
-        <span class="eyebrow">AGENT DETAILS</span><h2 id="agent-name">Select an agent</h2><p id="agent-hint">Select a node in the diagram to inspect its declared settings.</p>
-        <dl><dt>Pod</dt><dd id="detail-pod">—</dd><dt>Role</dt><dd id="detail-role">—</dd><dt>Runtime</dt><dd id="detail-runtime">—</dd><dt>Model</dt><dd id="detail-model">—</dd><dt>Agent reference</dt><dd id="detail-reference">—</dd></dl>
-        <div class="inspector-note"><b>Declarations, not guarantees.</b><p>AgentSpecs, model defaults, startup hooks and permissions are not resolved. This diagram does not start, message or stop an agent.</p></div>
+        <span id="entity-details" class="eyebrow">AGENT DETAILS</span><h2 id="agent-name">Select an agent</h2><p id="agent-hint">Select a node in the diagram to inspect its declared settings.</p>
+        <dl><dt>Pod</dt><dd id="detail-pod">—</dd><dt>Role</dt><dd id="detail-role">—</dd><dt>Runtime</dt><dd id="detail-runtime">—</dd><dt>Model</dt><dd id="detail-model">—</dd><dt>Agent reference</dt><dd id="detail-reference">—</dd><dt>Status summary</dt><dd id="detail-lifecycle">—</dd><dt>Activity</dt><dd id="detail-activity">—</dd><dt>Attention flag</dt><dd id="detail-attention">—</dd></dl>
+        <div class="inspector-note"><b id="topology-inspector-note">Declarations, not guarantees.</b><p>AgentSpecs, model defaults, startup hooks and permissions are not resolved. This diagram does not start, message or stop an agent.</p></div>
       </aside>
     </section>
     <ul id="warnings" aria-label="Projection notes"></ul>

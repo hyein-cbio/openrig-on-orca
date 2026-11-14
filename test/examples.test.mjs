@@ -54,7 +54,7 @@ test('template plan creates files but cannot start agents', async () => {
 })
 test('stopping arbitrary or cross-instance teams is refused', async () => {
   const config = configFrom({ root: '/private/plugin' })
-  for (const example of [undefined, { kind: 'codex' }, { kind: 'demo', configRoot: '/different', rigName: `orca-example-demo-${id}` }, { kind: 'demo', configRoot: config.root, rigName: 'important-production-team' }]) {
+  for (const example of [undefined, { kind: 'codex' }, { kind: 'demo', configRoot: '/different', rigName: `orca-example-demo-${id}` }, { kind: 'demo', configRoot: config.root, rigName: 'important-production-team' }, { kind: 'demo', configRoot: config.root, rigName: `orca-example-demo-${id}` }, { kind: 'demo', configRoot: config.root, rigName: `orca-example-demo-${id}`, instance: JSON.stringify(['/different/native-home', config.daemonPort]) }, { kind: 'demo', configRoot: config.root, rigName: `orca-example-demo-${id}`, instance: JSON.stringify([`${config.root}/instance`, '17459']) }]) {
     await assert.rejects(buildPlan('stop-example', config, { tools: {} }, { id: 'workspace', hostId: null }, { example }), { code: 'example_unowned' })
   }
 })

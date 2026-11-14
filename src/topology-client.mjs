@@ -1,10 +1,14 @@
 import mermaid from './mermaid/mermaid.esm.min.mjs'
 import DOMPurify from 'dompurify'
+import { topologyForPod } from './pods.mjs'
 import { parseTopology, topologyMermaid, topologyNodeId, SAMPLE_TOPOLOGY, TOPOLOGY_LIMITS } from './topology.mjs'
 
 const $ = id => document.getElementById(id)
+const sourceObservers = new Set()
+const sourceChanged = kind => { for (const listener of sourceObservers) listener(kind) }
+export function observeTopologySource(listener) { sourceObservers.add(listener); return () => sourceObservers.delete(listener) }
 const source = $('yaml-source'), viewport = $('viewport'), diagram = $('diagram')
-let model = null, selected = '', svg = null, svgText = '', natural = { width: 1, height: 1 }, scale = 1
+let model = null, selected = '', selectedKey = '', svg = null, svgText = '', natural = { width: 1, height: 1 }, scale = 1
 let epoch = 0, loadEpoch = 0, renderQueue = Promise.resolve(), dirty = false, directionChosen = false
 function adoptNativeTheme() {
   const styles = getComputedStyle(document.documentElement)
@@ -16,13 +20,23 @@ function adoptNativeTheme() {
 }
 const dark = () => document.documentElement.classList.contains('dark') || (!document.documentElement.classList.contains('light') && matchMedia('(prefers-color-scheme: dark)').matches)
 const notice = message => { $('notice').textContent = message }
+function origin(kind) {
+  const inventory = kind === 'inventory'
+  $('topology-origin').textContent = inventory ? 'Observed snapshot' : 'Not live status'
+  $('topology-inspector-note').textContent = inventory ? 'Observations, not guarantees.' : 'Declarations, not guarantees.'
+  $('topology-eyebrow').textContent = inventory ? 'NATIVE POD INVENTORY' : 'DECLARED TOPOLOGY'
+  $('agent-noun').textContent = inventory ? 'seats' : 'agents'; $('entity-details').textContent = inventory ? 'SEAT DETAILS' : 'AGENT DETAILS'
+  $('topology-stage').setAttribute('aria-label', inventory ? 'Native pod inventory' : 'Declared topology')
+  $('inventory-legend').hidden = !inventory; $('declaration-legend').hidden = inventory
+}
 const selectable = () => [...diagram.querySelectorAll('g.node')]
 const nodeId = node => topologyNodeId(node.id)
 function details(node) {
-  selected = node?.uid || ''
+  selected = node?.uid || ''; selectedKey = node?.key || ''
   $('agent-name').textContent = node?.id || 'Select an agent'
-  $('agent-hint').textContent = node ? 'Declared in the rendered YAML snapshot. Effective native settings may differ.' : 'Select a node in the diagram to inspect its declared settings.'
-  for (const [element, field] of [['detail-pod', 'podId'], ['detail-role', 'role'], ['detail-runtime', 'runtime'], ['detail-model', 'model'], ['detail-reference', 'agentRef']]) $(element).textContent = node?.[field] || '—'
+  $('agent-hint').textContent = node ? (model?.source === 'inventory' ? 'Observed in the selected native pod snapshot. This is not continuous live polling.' : 'Declared in the rendered YAML snapshot. Effective native settings may differ.') : 'Select a node in the diagram to inspect its declared settings.'
+  const shown = node && model?.source === 'inventory' ? { ...node, podId: node.podNamespace } : node
+  for (const [element, field] of [['detail-pod', 'podId'], ['detail-role', 'role'], ['detail-runtime', 'runtime'], ['detail-model', 'model'], ['detail-reference', 'agentRef'], ['detail-lifecycle', 'status'], ['detail-activity', 'activity'], ['detail-attention', 'attention']]) $(element).textContent = shown?.[field] ?? '—'
   for (const item of selectable()) item.classList.toggle('selected', nodeId(item) === selected)
 }
 function resize(next) {
@@ -32,7 +46,7 @@ function resize(next) {
 }
 function fit() {
   if (!svg) return
-  resize(Math.min((viewport.clientWidth - 48) / natural.width, (viewport.clientHeight - 48) / natural.height, 1.4))
+  resize(Math.min((viewport.clientWidth - 48) / natural.width, innerWidth < 700 ? 1.4 : (viewport.clientHeight - 48) / natural.height, 1.4))
   viewport.scrollTo({ left: 0, top: 0 })
 }
 function clearGraph() {
@@ -42,6 +56,7 @@ function clearGraph() {
   for (const id of ['pod-count', 'agent-count', 'edge-count']) $(id).textContent = '—'
 }
 function markDirty() {
+  sourceChanged('yaml')
   loadEpoch++; epoch++; dirty = true; $('export').disabled = true
   notice('Source changed · Render diagram to apply it. The map below is the previous snapshot.')
 }
@@ -78,12 +93,13 @@ function scheduleRender() {
         element.addEventListener('click', () => details(node))
         element.addEventListener('keydown', event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); details(node) } })
       }
-      details(current.nodes.find(n => n.uid === selected) || current.nodes[0]); fit()
+      details(current.nodes.find(n => n.key === selectedKey) || current.nodes[0]); fit()
       $('rig-name').textContent = current.name
       $('pod-count').textContent = current.pods.length; $('pod-noun').textContent = current.pods.length === 1 ? 'pod' : 'pods'; $('agent-count').textContent = current.nodes.length; $('edge-count').textContent = current.edges.length
       $('empty').hidden = true; $('error').hidden = true; $('mermaid-source').value = code
       $('warnings').replaceChildren(...current.warnings.map(message => { const li = document.createElement('li'); li.textContent = message; return li }))
-      $('export').disabled = dirty; notice(dirty ? 'Source changed · The map is the previous snapshot. Render to apply the source.' : 'Ready · Declared topology only. Select an agent to inspect its settings.')
+      origin(current.source)
+      $('export').disabled = dirty; notice(dirty ? 'Source changed · The map is the previous snapshot. Render to apply the source.' : current.source === 'inventory' ? `Native pod snapshot · ${new Date(current.observedAt).toLocaleString()}. No relationship edges were inferred.` : 'Ready · Declared topology only. Select an agent to inspect its settings.')
     } catch {
       if (revision !== epoch) return
       clearGraph(); $('error').textContent = 'The local renderer could not draw this projection. Simplify the diagram or shorten its labels; no agent operation was requested.'; $('error').hidden = false
@@ -93,6 +109,7 @@ function scheduleRender() {
   return renderQueue
 }
 function renderSource() {
+  sourceChanged('yaml'); origin('yaml')
   loadEpoch++
   try { model = parseTopology(source.value); dirty = false; $('error').hidden = true; return scheduleRender() }
   catch (error) { clearGraph(); $('error').textContent = error.message; $('error').hidden = false; notice('Source needs attention · The previous map was cleared.'); return Promise.resolve() }
@@ -103,6 +120,7 @@ $('sample').addEventListener('click', () => { source.value = SAMPLE_TOPOLOGY; $(
 $('yaml-file').addEventListener('change', async event => {
   const file = event.target.files?.[0], revision = ++loadEpoch
   if (!file) return
+  sourceChanged('yaml')
   try {
     if (file.size > TOPOLOGY_LIMITS.bytes) throw new Error('YAML exceeds the 256 KiB local input limit.')
     const value = await file.text()
@@ -139,7 +157,15 @@ new ResizeObserver(() => {
   if (!directionChosen && $('direction').value !== preferred) { $('direction').value = preferred; if (model) scheduleRender() }
   else if (svg) fit()
 }).observe(document.querySelector('.map-card'))
+export function displayPodSnapshot(pod, seats = [], observedAt = Date.now()) {
+  loadEpoch++; sourceChanged('inventory'); origin('inventory')
+  if (!pod) {
+    clearGraph(); $('error').hidden = true; $('rig-name').textContent = 'Select an OpenRig pod'; $('topology-origin').textContent = 'Native inventory'; $('empty').textContent = 'Refresh and select an actual rig / pod above. No example is substituted.'; notice('No pod selected. This dashboard does not auto-load an example.'); return
+  }
+  try { model = topologyForPod(pod, seats, observedAt); dirty = false; $('error').hidden = true; scheduleRender() }
+  catch (error) { clearGraph(); $('rig-name').textContent = pod.label; $('topology-origin').textContent = 'Native inventory'; $('error').textContent = error.message; $('error').hidden = false; notice('The complete seat list remains below; no partial diagram was substituted.') }
+}
 adoptNativeTheme()
-source.value = SAMPLE_TOPOLOGY
 if (innerWidth < 700) $('direction').value = 'TB'
-renderSource()
+if (document.getElementById('dashboard-pod')) { $('yaml-tools').open = false; $('source-name').textContent = 'No YAML loaded'; displayPodSnapshot(null) }
+else { source.value = SAMPLE_TOPOLOGY; renderSource() }

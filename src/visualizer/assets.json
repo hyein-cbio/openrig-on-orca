@@ -16,29 +16,35 @@
   },
   "inputs": {
     "package-lock.json": "fae8fbcf9275ebe0014740e2a63d6e895ae7342b5bd65808ac4a1555b4773887",
-    "scripts/build-visualizer.mjs": "860bb02e5f6a987d493f4b0e9fbc57c5f5f18c0ebbb84b808eb7b1dde1c92621",
-    "scripts/visualizer-inputs.mjs": "0a23cff086d97d3f09fb21c3943b593ab1bc81bfaed500f0eb2af46a9cb84ad3",
+    "scripts/build-visualizer.mjs": "d84cd4919a2f453e8ba46062ef03cb51eccea42514e82af97d806c03e7d3afa2",
+    "scripts/visualizer-inputs.mjs": "560f29350cb4b398fbf874b7d9b4a2a9488b6c7765ffd065f15740504e11296e",
     "src/example-story.mjs": "a384d642674d6becf1df0a7054038fdb43c5d5c37ed669f224e1f06a161d5f2f",
-    "src/plugin-client.mjs": "a516c13e403453c1d351caf3df0409399f33c289c01ef5e414421f341159f1a0",
-    "src/plugin-state.mjs": "fbc0727dc24fff7eeee9e7d163e31139f9d4a16905aadd8122a05ff9e6c42e95",
-    "src/plugin.css": "3c1038af503e0aa7322971ca27f48d4dd0b76406af7d1df15c27e10a1ff6fb9b",
-    "src/plugin.html": "43caf119c2ce5591fd969918486520a77b5e3a62992e99f321c9dfda2aac842d",
+    "src/plugin-client.mjs": "cd671e4c9835a4a9a5b599a087c4559a74f8aa9af6dc265eb23885a9820c1d63",
+    "src/plugin-state.mjs": "dbce710c9c0ef3cbaf4687e05b0a0e477a44f7a591173af9d4c50977e38f4ffc",
+    "src/plugin.css": "1b330bb86d8dbc21fb80913501eb305a460c1d9f0fcd389d6039371747c49e66",
+    "src/plugin.html": "3d66bd669bb105234ae774c13811b05cca18ae224c05dea4d2b86f153275f318",
+    "src/pods.mjs": "24165f7de6e1902f70ac1fb05c193281f77bd60af89fa13081fe3c27f43d532a",
     "src/seat-instructions.mjs": "670a3ba69e39b9d1c88401c3d0190118c31359ad4e3e47e7b6bd6da6d598454b",
     "src/seat-tasks.mjs": "9133d1c2aa3b7e3f4ad24c745e94e2ec590a4bc7a96aee0a8629f2bbf3b1860f",
-    "src/topology-client.mjs": "ec3b533a0d9f8b5ac7fe83225ef08e7d0b6276e6f8731898f19173327e246798",
+    "src/topology-client.mjs": "1078ff54619b5c2fd31fb658dbf505ccdc07f5f8004e36ead748e9d97ab4910a",
     "src/topology.css": "3ac0aaa9bae3134d645d4d666da7cd476bd1cd1aca4e1367b64d600c26fa2378",
-    "src/topology.html": "abe9f439caa8e9b2377febf54d7dbc8399a68f4c71b391e6fecdeb78c60f5399",
-    "src/topology.mjs": "0b5c672b2155d2acae8939fe5b137b6cdc10ca9b21aee41cd529db8e96759163",
+    "src/topology.html": "39a4385de5c0e7264751879ed0bad38ffd889d8e0f5d4f1aebec979af00902d2",
+    "src/topology.mjs": "99e9609cb018f5a7a7961a01f5c9b486ed62bb948876952674faef1969113e65",
     "src/workspace-labels.mjs": "8328b2fbb4c79221bfdbcdbba524e2c2f53ca48974cf5b548edaa943658ef6ec"
   },
   "files": [
     {
       "path": "app.mjs",
-      "bytes": 37925,
-      "sha256": "2dc4e8ac5eeeac5d06c79226f79af7a84b17e5a0ac1cb98f00a1468d152208b1"
+      "bytes": 108,
+      "sha256": "976523df43eed8d6a476d44ea289e125d9195a376c6a77ab872f928b6f80d6d7"
     },
     {
-      "path": "app.mjs.LEGAL.txt",
+      "path": "chunk-EBWXJU6E.mjs",
+      "bytes": 41057,
+      "sha256": "072acecd441705b8dd12cd76889f68a16409ccf9a8da3b87d7800150671bb8e5"
+    },
+    {
+      "path": "chunk-EBWXJU6E.mjs.LEGAL.txt",
       "bytes": 417,
       "sha256": "4245c420f535f6b11e3f590606105d70565d76e4ba670d1f1497c1f39c57800a"
     },
@@ -1174,18 +1180,18 @@
     },
     {
       "path": "plugin.html",
-      "bytes": 16022,
-      "sha256": "24e9768096dbef3f8125c3f37bf7d770ee6224309157c8a78ece4e983a9bc6df"
+      "bytes": 18581,
+      "sha256": "7d70dbc8f3bc10eca574532b43eeb07262e9d9c2db1f08d81ecf113c5196ee79"
     },
     {
       "path": "topology.mjs",
-      "bytes": 102981,
-      "sha256": "b5de776e46e03a04d05724357ae1a1765bf24f86ecf91a72445d5e0dac8ab38c"
+      "bytes": 103284,
+      "sha256": "8f94a9508eeb9a54ca79dc5092211149a10b66c88712609c373691a600a55262"
     },
     {
       "path": "workspace.mjs",
-      "bytes": 19302,
-      "sha256": "00d05ea56867c0be2d5b5d37b3b1ea57f51ef5491657ff7607a4f1b26c775ffb"
+      "bytes": 24794,
+      "sha256": "7c2504c7ea7a2d79013728278ac29edacaed007049a46aab5f8ee7c604373bdf"
     }
   ]
 }

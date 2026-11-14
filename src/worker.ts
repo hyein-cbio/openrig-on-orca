@@ -7,6 +7,8 @@ import { commandEnvironment, configFrom, daemonState, discover, fail, listInstru
 import { canInstruct, instructionTextError } from './seat-instructions.mjs'
 import { canStartSeat, canQueueTask, taskTextError, sameSeatDefinition } from './seat-tasks.mjs'
 import { stageTaskBody, taskHash, validTaskId, checkTask } from './task-files.mjs'
+import { readPodInventory, connectedPodConfig, assertPodInstance } from './pod-inventory.mjs'
+import { podKeyOf } from './pods.mjs'
 import type { Config, ExampleRecord, Seat, Workspace } from './protocol'
 
 const CONFIG = 'config.v1'
@@ -36,9 +38,20 @@ export default function activate(orca: OrcaWorkerApi): void {
     await orca.storage.set(CONFIG, config)
     return state()
   })
+  orca.panels.handle('pods.list', async input => {
+    const config = await getConfig()
+    return readPodInventory(config, await discover({ ...config, provider: 'none' }), input?.source || 'tui')
+  })
+  orca.panels.handle('pods.connect', async input => {
+    if (typeof input.expectedKey !== 'string' || !/^[a-f0-9]{64}$/.test(input.expectedKey)) throw fail('invalid_instance', 'Refresh the observed instance before connecting')
+    const config = await connectedPodConfig(await getConfig(), input.source, input.expectedKey)
+    await orca.storage.set(CONFIG, config) // Plugin-owned routing only; no native config, daemon or seat is changed.
+    return state()
+  })
   orca.panels.handle('setup.prepare', async (input, { signal }) => {
     const config = await getConfig()
     const target = await workspace(input.workspaceId)
+    if (input.podKey !== undefined) await assertPodInstance(config, input.instanceKey)
     const snapshot = await discover(config)
     let example, instructionSeat
     if (input.action === 'send-instruction') {
@@ -60,23 +73,27 @@ export default function activate(orca: OrcaWorkerApi): void {
       if (!/^[a-f0-9]{12}$/.test(input.exampleId || '')) throw fail('example_unowned', 'Choose a recorded demo')
       example = await orca.storage.get(`example:${input.exampleId}`)
     }
+    if (input.podKey !== undefined && (typeof input.podKey !== 'string' || input.podKey.length > 1000 || !instructionSeat || podKeyOf(instructionSeat) !== input.podKey)) throw fail('pod_changed', 'The selected seat is not in the reviewed pod of this configured instance. Refresh pods; no operation was prepared.')
     const plan = await buildPlan(input.action, config, snapshot, target, { spec: input.spec, example, seat: instructionSeat, message: input.message, summary: input.summary, body: input.body }, { signal })
-    return plans.add(plan, fingerprint(config, target))
+    const scoped = input.podKey ? { ...plan, pod: { key: input.podKey, rigId: instructionSeat.rigId, podId: instructionSeat.podId, namespace: instructionSeat.podNamespace, instanceKey: input.instanceKey!, endpoint: `http://127.0.0.1:${config.daemonPort}` } } : plan
+    return plans.add(scoped, fingerprint(config, target))
   })
   orca.panels.handle('setup.execute', async input => {
     const config = await getConfig()
     const target = await workspace(input.workspaceId)
     // Never accept a shell command supplied by the panel: consume the exact server-side plan.
     const plan = plans.consume(input.planId, fingerprint(config, target))
+    if (plan.pod) await assertPodInstance(config, plan.pod.instanceKey)
     if (plan.action === 'console') await listSeats(config, await discover(config))
     if (plan.action === 'send-instruction') {
       const target = plan.instruction
       const current = target && (await listInstructionSeats(config, await discover(config))).find((seat: Seat) => seat.key === target.key)
-      if (!canInstruct(current) || current.session !== target?.session || current.runtime !== target?.runtime) throw fail('seat_unavailable', 'The reviewed agent is no longer available and idle. No result terminal was created; refresh before preparing another instruction.')
+      if (!canInstruct(current) || current.session !== target?.session || current.runtime !== target?.runtime || (plan.pod && podKeyOf(current) !== plan.pod.key)) throw fail('seat_unavailable', 'The reviewed agent is no longer available and idle. No result terminal was created; refresh before preparing another instruction.')
     }
     if (plan.seatLaunch || plan.queueTask) {
       const reviewed = plan.seatLaunch || plan.queueTask
       const current = (await listInstructionSeats(config, await discover(config))).find((seat: Seat) => seat.key === reviewed.key)
+      if (plan.pod && podKeyOf(current) !== plan.pod.key) throw fail('pod_changed', 'The selected seat changed pods or is unavailable. Refresh before another review; no terminal was created.')
       if (plan.seatLaunch) {
         if (current?.status === 'running') return { noOp: true as const, detail: 'OpenRig reports the seat is already running and was left unchanged. No launch command or result terminal was created.' }
         if (input.acceptStartupRisk !== true) throw fail('startup_consent_required', 'Acknowledge the unverified native startup settings before starting a seat')
@@ -124,8 +141,10 @@ export default function activate(orca: OrcaWorkerApi): void {
   orca.panels.handle('seat.attach', async input => {
     const target = await workspace(input.workspaceId)
     const config = await getConfig()
+    if (input.podKey !== undefined) await assertPodInstance(config, input.instanceKey)
     const snapshot = await discover(config)
     const seat = (await listSeats(config, snapshot)).find((s: Seat) => s.key === input.key)
+    if (input.podKey !== undefined && (typeof input.podKey !== 'string' || podKeyOf(seat) !== input.podKey)) throw fail('pod_changed', 'The seat is not in the selected pod. No view was opened.')
     if (!seat || seat.status !== 'running') throw fail('seat_unavailable', 'Seat is no longer running. Refresh and recover it in OpenRig; it was not relaunched automatically.')
     const rig = await rigInvocation(snapshot.tools.rig!, snapshot.tools.node!)
     // Ask OpenRig to resolve its own tmux server. Never execute tmuxAttachCommand from JSON.

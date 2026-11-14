@@ -92,10 +92,16 @@ export function topologyMermaid(topology, direction = 'LR') {
   for (const pod of topology.pods) {
     lines.push(`subgraph ${pod.uid}["${mermaidLabel(pod.label)}"]`, `direction ${direction}`)
     for (const node of topology.nodes.filter(n => n.podId === pod.id)) {
-      const label = [text(node.id, '', 40), text(node.runtime, '', 24), ...(node.model !== 'Not declared here' ? [text(node.model, '', 40)] : [])].map(mermaidLabel).join('<br/>')
+      const label = [text(node.id, '', 40), text(node.runtime, '', 24), ...(node.model !== 'Not declared here' ? [text(node.model, '', 40)] : []), ...(topology.source === 'inventory' ? [text(`${node.status} · ${node.activity}${node.attention ? ' · attention' : ''}`, '', 60)] : [])].map(mermaidLabel).join('<br/>')
       lines.push(`${node.uid}["${label}"]`)
     }
     lines.push('end')
+  }
+  // Dagre stacks disconnected nodes on the cross axis. Rank an edgeless roster
+  // with invisible layout links; these are not observed or declared relationships.
+  if (!topology.edges.length && topology.nodes.length > 1) {
+    lines.push('%% Invisible layout links only; no relationship edges are implied.')
+    for (let i = 1; i < topology.nodes.length; i++) lines.push(`${topology.nodes[i - 1].uid} ~~~ ${topology.nodes[i].uid}`)
   }
   for (const edge of topology.edges) lines.push(`${edge.from} ${edge.kind === 'delegates_to' ? '-->' : '-.->'}|"${mermaidLabel(edge.kind.replaceAll('_', ' '))}"| ${edge.to}`)
   const source = lines.join('\n')

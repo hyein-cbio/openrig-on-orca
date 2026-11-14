@@ -1,7 +1,8 @@
 import { randomUUID } from 'node:crypto'
 import { realpath } from 'node:fs/promises'
 import path from 'node:path'
-import { commandEnvironment, environment, fail, findExecutable, OPENRIG_VERSION, quote, rigInvocation, shellCommand } from './runtime.mjs'
+import { commandEnvironment, environment, fail, findExecutable, instanceDirectory, OPENRIG_VERSION, quote, rigInvocation, shellCommand } from './runtime.mjs'
+import { operationInstance } from './pods.mjs'
 import { prepareLaunchReview } from './launch-review.mjs'
 import { exampleBundle, writeExampleCommand } from './examples.mjs'
 import { canInstruct, instructionEndpoint, instructionTextError } from './seat-instructions.mjs'
@@ -71,10 +72,10 @@ export async function buildPlan(action, config, snapshot, workspace, input = {},
     if (kind === 'demo' && !snapshot.installed) throw fail('dependencies_missing', 'Install OpenRig and tmux, then start the no-agent daemon in Setup')
     const id = randomUUID().replaceAll('-', '').slice(0, 12)
     const bundle = exampleBundle(kind, id, path.join(root, 'examples', id))
-    example = { id, kind, rigName: bundle.rigName, directory: bundle.directory, specPath: bundle.specPath, configRoot: root }
+    example = { id, kind, rigName: bundle.rigName, directory: bundle.directory, specPath: bundle.specPath, configRoot: root, ...(kind === 'demo' ? { instance: operationInstance(config) } : {}) }
     title = kind === 'demo' ? 'Create and start a terminal-only topology demo' : `Create ${kind} Build & Review template (do not launch)`
     source = SOURCES.rig
-    writes = [bundle.directory, ...(kind === 'demo' ? [path.join(root, 'instance')] : [])]
+    writes = [bundle.directory, ...(kind === 'demo' ? [instanceDirectory(config)] : [])]
     command = writeExampleCommand(snapshot.tools.node, bundle)
     warnings = [kind === 'demo' ? 'SIMULATION ONLY: two real tmux terminal seats print prerecorded role descriptions. They are not AI agents and do not perform or exchange work. No model credentials are required.' : 'Creates an example project, role guidance and a two-agent local RigSpec. No agent, login, or model call is started. Launch this spec separately from Teams after reviewing runtime, model and permissions.', 'Creates a new private directory exclusively; existing project files are not overwritten.']
     if (kind === 'demo') {
@@ -84,12 +85,12 @@ export async function buildPlan(action, config, snapshot, workspace, input = {},
     }
   } else if (action === 'stop-example') {
     example = input.example
-    if (!example || example.kind !== 'demo' || example.configRoot !== root || !/^orca-example-demo-[a-f0-9]{12}$/.test(example.rigName)) throw fail('example_unowned', 'Only a demo created by this plugin in this instance can be stopped')
+    if (!example || example.kind !== 'demo' || example.configRoot !== root || example.instance !== operationInstance(config) || !/^orca-example-demo-[a-f0-9]{12}$/.test(example.rigName)) throw fail('example_unowned', 'Only a demo created by this plugin in this instance can be stopped')
     if (!snapshot.installed) throw fail('dependencies_missing', 'OpenRig and tmux are required')
     const rig = await rigInvocation(snapshot.tools.rig, snapshot.tools.node)
     title = 'Stop this terminal-only demo'
     source = SOURCES.rig
-    writes = [path.join(root, 'instance')]
+    writes = [instanceDirectory(config)]
     warnings = ['Explicitly stops only this recorded demo team, including its two tmux seats. Example files are kept. Other teams and views are not targeted.']
     command = shellCommand(rig.file, [...rig.args, 'down', example.rigName])
   } else if (action === 'launch-seat' || action === 'create-task') {
@@ -107,14 +108,14 @@ export async function buildPlan(action, config, snapshot, workspace, input = {},
     if (action === 'launch-seat') {
       seatLaunch = { ...seat }
       title = `Start one seat: ${seat.logicalId}`
-      writes = [path.join(root, 'instance'), 'The selected native seat cwd, provider files, hooks, logs and tmux session']
+      writes = [instanceDirectory(config), 'The selected native seat cwd, provider files, hooks, logs and tmux session']
       warnings = ['Starts only this registered rig ID and logical ID. No --seats, fresh occupant, stop, model override or kernel recovery is requested. Other running seats remain unchanged.', 'This is a command review, not a complete native startup plan. First-start --plan is not supported for never-started materialized seats. Model defaults, permissions, provider configuration and hooks remain unverified; explicit startup-risk acknowledgment is required.', 'May start paid model calls and edit files. A declared cwd, role or read-only terminal view is not an OS sandbox. Inspect the CLI result and refresh; a result terminal is not proof that the seat is running.']
       command = `${local} ${shellCommand(rig.file, [...rig.args, 'launch', '--json', '--', seat.rigId, seat.logicalId])}`
     } else {
       const id = `qitem-orca-${randomUUID().replaceAll('-', '')}`
       queueTask = { id, destination: seat.session, key: seat.key, runtime: seat.runtime, summary: input.summary, body: input.body, bodyFile: taskBodyPath(root, id) }
       title = `Register task for ${seat.session}`
-      writes = [path.join(root, 'instance'), queueTask.bodyFile, 'One durable queue row and the native destination nudge/message history']
+      writes = [instanceDirectory(config), queueTask.bodyFile, 'One durable queue row and the native destination nudge/message history']
       warnings = ['This registers work with the selected destination; it does not claim that the agent accepted, completed or independently verified the work. Native nudges may invoke a paid model.', 'The source orca-gui@external is a declared external source, not an authenticated human or a forged seat identity. No guaranteed human reply route is created.', 'The preassigned task ID is not proof of persistence. After confirmation, use Check task registration to read the matching row without creating or nudging again. A missing row or timeout is not permission to create another ID for the same work.', 'The title/body are saved in private action files and native queue history. Do not include credentials. The destination workspace only hosts the result terminal and does not change the agent cwd.']
       command = `${local} ${shellCommand(rig.file, [...rig.args, 'queue', 'create', '--id', id, '--source', 'orca-gui@external', '--destination', seat.session, `--summary=${input.summary}`, '--body-file', queueTask.bodyFile, '--json'])}`
     }
@@ -173,9 +174,10 @@ export async function buildPlan(action, config, snapshot, workspace, input = {},
     const rig = await rigInvocation(snapshot.tools.rig, snapshot.tools.node)
     const rigCmd = args => shellCommand(rig.file, [...rig.args, ...args])
     source = SOURCES.rig
-    writes = [path.join(root, 'instance'), 'OpenRig-managed discovery skills under the effective HOME/.claude/skills and HOME/.agents/skills']
+    writes = [instanceDirectory(config), 'OpenRig-managed discovery skills under the effective HOME/.claude/skills and HOME/.agents/skills']
     warnings = ['OpenRig is third-party executable code. Startup can seed discovery skills; team/seat startup may also modify provider trust, hooks, plugins and project guidance. OPENRIG_HOME alone does not isolate those files.', 'No permission bypass, automatic approval, Herdr, cmux, Ghostty, or rig setup is requested by this plugin.']
     if (action === 'start-daemon') {
+      if (config.instanceHome) throw fail('existing_instance_start_refused', 'This connection uses an existing OpenRig home. Starting its daemon/kernel is not part of managed setup; inspect it separately.')
       title = 'Start this OpenRig instance (no agents)'
       command = rigCmd(['daemon', 'start', '--no-kernel', '--host', '127.0.0.1', '--port', config.daemonPort])
       warnings.push('Starts no kernel or agent team. No agent login is required. Closing this terminal does not stop the daemon.')
