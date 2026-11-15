@@ -22,6 +22,12 @@ OpenRig daemon + team / seat
 - **Optional:** Homebrew, nvm, curl, jq, git, gh, and Docker. Individual features or projects may need them, but they are not universal installation gates.
 - OpenRig installation is pinned to **`0.7.13`**. Node 22 and 24 are checked; Apple Silicon Macs require Node 22 under the current OpenRig compatibility guidance.
 
+## Additional Intel Mac entry
+
+The original Apple Silicon implementation and default installation/CI paths remain unchanged. Intel support is an **opt-in additive package**: run `node scripts/stage-intel.mjs` and inspect/install the printed directory. Only that output manifest selects the additional Intel worker; loading this repository root still uses the original worker.
+
+See [Intel installation, preservation contract and verification boundaries](docs/INTEL-MAC.md). Intel-only validation uses `node ci/intel/run-ci.mjs`; it does not replace the existing ARM64 runner. The additional [manual GitHub CI](docs/INTEL-CI.md) targets `intel-mac-lab` and fails with bounded cancellation if the lab does not accept work.
+
 ## Load into Orca
 
 On the host running Orca:

@@ -1,0 +1,319 @@
+{
+  "implementation": "additive-intel-opt-in",
+  "preservation": {
+    "baseCommit": "dbf7191db3cde37c2e3aee8ff20aa019025c9988",
+    "protectedOriginalFiles": 195,
+    "hashInventory": "test/fixtures/apple-silicon-baseline.json",
+    "originalFilesChanged": 0,
+    "originalManifestEntry": "src/worker.ts",
+    "intelStagedEntry": "src/intel/worker.ts"
+  },
+  "source": {
+    "localValidationSnapshot": "42579b0c3f18ec2545f7958ac195089b75e81dc6",
+    "published": false,
+    "note": "Disposable committed snapshot used to verify the PR lifecycle fixes; not a published Git commit"
+  },
+  "host": {
+    "platform": "darwin",
+    "arch": "x64",
+    "release": "25.6.0",
+    "cpu": "Intel(R) Core(TM) i9-9880H CPU @ 2.30GHz",
+    "macOS": "26.7.3",
+    "unameMachine": "x86_64"
+  },
+  "versions": {
+    "node": "v22.23.4",
+    "orca": "1.4.258",
+    "openrig": "0.7.13 (b69cc929)",
+    "tmux": "tmux 3.8"
+  },
+  "runtime": {
+    "worker": {
+      "platform": "darwin",
+      "arch": "x64"
+    },
+    "nodeArch": "x64",
+    "sqlite": "ready"
+  },
+  "bootstrap": {
+    "version": "1.4.258",
+    "arch": "x64",
+    "sha256": "e28a685c42a62e0d9b35f3be3b41bde3db654342521d7194490b5ae37931cb3d",
+    "teamId": "6CX3WHS9HZ"
+  },
+  "tests": {
+    "core": {
+      "passed": 184,
+      "failed": 0,
+      "skipped": 0
+    },
+    "orca": {
+      "passed": 217,
+      "failed": 0,
+      "skipped": 0,
+      "includesCore": true
+    }
+  },
+  "worker": {
+    "exitCode": 0,
+    "steps": [
+      {
+        "suite": "orca",
+        "name": "source-secrets",
+        "seconds": 0.23,
+        "ok": true
+      },
+      {
+        "suite": "orca",
+        "name": "tmux-preflight",
+        "seconds": 0.145,
+        "ok": true
+      },
+      {
+        "suite": "orca",
+        "name": "dependencies",
+        "seconds": 2.953,
+        "ok": true
+      },
+      {
+        "suite": "orca",
+        "name": "core-tests",
+        "seconds": 3.216,
+        "ok": true
+      },
+      {
+        "suite": "orca",
+        "name": "orca-version",
+        "seconds": 0.304,
+        "ok": true
+      },
+      {
+        "suite": "orca",
+        "name": "orca-types",
+        "seconds": 0.461,
+        "ok": true
+      },
+      {
+        "suite": "orca",
+        "name": "typecheck",
+        "seconds": 5.832,
+        "ok": true
+      },
+      {
+        "suite": "orca",
+        "name": "plugin-tests",
+        "seconds": 8.316,
+        "ok": true
+      },
+      {
+        "suite": "orca",
+        "name": "plugin-check",
+        "seconds": 0.471,
+        "ok": true
+      },
+      {
+        "suite": "orca",
+        "name": "stage",
+        "seconds": 0.236,
+        "ok": true
+      },
+      {
+        "suite": "orca",
+        "name": "inspect",
+        "seconds": 0.825,
+        "ok": true
+      },
+      {
+        "suite": "orca",
+        "name": "sandbox",
+        "seconds": 121.138,
+        "ok": true
+      },
+      {
+        "suite": "orca",
+        "name": "tracked-clean",
+        "seconds": 0.045,
+        "ok": true
+      },
+      {
+        "suite": "orca",
+        "name": "staging-cleanup",
+        "seconds": 0.027,
+        "ok": true
+      }
+    ],
+    "stagingCleanup": "complete"
+  },
+  "live": {
+    "exitCode": 0,
+    "checks": [
+      {
+        "id": "install-opened",
+        "detail": "Confirmed install-rig opens an Orca terminal"
+      },
+      {
+        "id": "first-install",
+        "detail": "First-run installer downloaded OpenRig 0.7.13 in an actual Orca terminal"
+      },
+      {
+        "id": "runtime-verified",
+        "detail": "Node + tmux + real SQLite verified; installation completes without agent/auth"
+      },
+      {
+        "id": "daemon-opened",
+        "detail": "Confirmed start-daemon opens an Orca terminal"
+      },
+      {
+        "id": "daemon-no-agents",
+        "detail": "Isolated loopback daemon starts with no kernel or agents"
+      },
+      {
+        "id": "example-opened",
+        "detail": "Confirmed example-demo opens an Orca terminal"
+      },
+      {
+        "id": "two-seats",
+        "detail": "Plugin-created Builder and Reviewer terminal seats are running"
+      },
+      {
+        "id": "native-relationships",
+        "detail": "Compact read-only native whoami observations resolve the terminal demo relationship without full graph, token or transcript requests"
+      },
+      {
+        "id": "pod-inventory",
+        "detail": "Real CLI projected rig/pod identities for both terminal-only seats from the explicitly configured private instance"
+      },
+      {
+        "id": "seat-attached",
+        "detail": "Both example roles rendered prerecorded simulation output in actual Orca PTYs"
+      },
+      {
+        "id": "detach-preserves-seat",
+        "detail": "Closing Orca views leaves both tmux seats running"
+      },
+      {
+        "id": "example-stopped",
+        "detail": "Explicit plugin stop action stops only the recorded terminal demo"
+      },
+      {
+        "id": "example-claude-opened",
+        "detail": "Confirmed example-claude opens an Orca terminal"
+      },
+      {
+        "id": "example-codex-opened",
+        "detail": "Confirmed example-codex opens an Orca terminal"
+      },
+      {
+        "id": "frozen-launch-review",
+        "detail": "Real OpenRig froze both provider templates and displayed declarations/unknowns independently of mutable source files"
+      },
+      {
+        "id": "templates-validated",
+        "detail": "Both single-provider RigSpecs and all AgentSpecs validated by real OpenRig; no real agent seats launched"
+      },
+      {
+        "id": "frozen-terminal-launch",
+        "detail": "The frozen-bundle confirmation program previewed and launched two real terminal-only seats; no model runtime was used"
+      },
+      {
+        "id": "topology-layout",
+        "detail": "Disconnected inventory seats render in actual left-to-right and top-to-bottom coordinate order, not merely matching dropdown values"
+      },
+      {
+        "id": "refresh-render-stability",
+        "detail": "An unchanged observation preserves SVG/node identity, zoom, selection and an open tooltip; stale markers update without redrawing"
+      },
+      {
+        "id": "report-tooltip",
+        "detail": "Native UTF-8 hover/focus previews remain inert and outside SVG; click/Enter/Space and mouseleave (even while focused) dismiss immediately, and late reads cannot reopen them"
+      },
+      {
+        "id": "refresh-visibility",
+        "detail": "The HTML visibility gate conservatively pauses a same-origin frame hidden with display:none or visibility:hidden; no private Orca event is assumed"
+      },
+      {
+        "id": "unified-panel",
+        "detail": "One native HTML panel captured in light/dark; its two-view navigation, inline diagram selection and internal walkthrough exercised in the isolated browser without a worker bridge"
+      },
+      {
+        "id": "cleanup-complete",
+        "detail": "Fixture, daemon, plugin, terminals and profile-owned desktop/terminal-host processes cleaned up"
+      }
+    ],
+    "visual": "captured-seeded-profile",
+    "warnings": [],
+    "cleanup": {
+      "completed": true
+    }
+  },
+  "unverified": [
+    "Actual provider authentication, paid-agent startup and model work",
+    "Real-agent instruction delivery and durable-task processing",
+    "Native OS SVG save-dialog interaction",
+    "Real package-manager installation",
+    "Other OS/runtime versions and ARM64 hardware rerun",
+    "Hosted Intel GitHub Actions execution"
+  ],
+  "githubActions": {
+    "entry": ".github/workflows/intel-mac-test.yml",
+    "worker": ".github/workflows/intel-mac-worker.yml",
+    "mode": "manual-only, hosted controller supervising an owned self-hosted worker run",
+    "labels": [
+      "self-hosted",
+      "macOS",
+      "X64",
+      "intel-mac-lab"
+    ],
+    "queueDeadlineSeconds": 120,
+    "workerTimeoutMinutes": 30,
+    "offlinePolicy": "cancel owned child and fail controller; no fallback or redispatch",
+    "localValidation": {
+      "controllerRegressionTests": 11,
+      "coreTests": 184,
+      "orcaTests": 217,
+      "failed": 0,
+      "skipped": 0,
+      "typecheck": "passed",
+      "yamlParse": "passed",
+      "actionlint": {
+        "version": "1.7.12",
+        "result": "passed",
+        "shellcheck": false
+      }
+    },
+    "runnerRegistrationObservation": {
+      "matchingOnlineIdle": 3,
+      "notJobExecutionProof": true
+    },
+    "hostedExecution": "Attempted workflow_dispatch on published hyein-cbio/escolar; GitHub returned HTTP 404 because the new workflow is not registered on main. No self-hosted job started."
+  },
+  "upstreamRefresh": {
+    "commit": "dbf7191db3cde37c2e3aee8ff20aa019025c9988",
+    "protectedFiles": 195,
+    "coreTests": 176,
+    "orcaTests": 209,
+    "failed": 0,
+    "skipped": 0,
+    "typecheck": "passed",
+    "workflowLint": "passed",
+    "hostedAttempt": {
+      "branch": "hyein-cbio/escolar",
+      "attemptedCommit": "6fd7d0d",
+      "workflow": "intel-mac-test.yml",
+      "httpStatus": 404,
+      "runnerJobStarted": false,
+      "requiredNextAction": "Register both workflows on the default branch through reviewed merge, then dispatch again"
+    }
+  },
+  "reviewFixes": {
+    "findings": [
+      "P1 live harness timeout cancellation",
+      "P2 runner-owned staging cleanup"
+    ],
+    "lifecycleRegressionTests": 8,
+    "realTimeoutFixture": "passed with signal-resistant command and grandchild; no later work; cleanup precedes wrapper return",
+    "stagingDirectoryRemovedAfterRealRun": true,
+    "localPipelineSteps": 14,
+    "liveChecks": 23
+  }
+}
