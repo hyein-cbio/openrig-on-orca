@@ -1,6 +1,7 @@
 import { canInstruct, instructionTextError } from './seat-instructions.mjs'
 import { canStartSeat, canQueueTask, taskTextError } from './seat-tasks.mjs'
 import { EXAMPLE_STEPS } from './example-story.mjs'
+import { reportPrefix } from './report-preview.mjs'
 import { seatInPod, operationInstance } from './pods.mjs'
 
 export const CONFIG_FIELDS = [
@@ -14,8 +15,9 @@ export const EMPTY_INPUT = { instructionSeat: '', instruction: '', taskSeat: '',
 /** One panel session. Navigation changes only local state; every write still uses the existing worker review contract. */
 export function createPluginSession(request, changed = () => {}) {
   const state = { view: 'preparation', host: typeof request === 'function', env: null, draft: null, workspaceId: '',
-    seats: null, inventory: null, inventorySource: 'tui', diagramSource: 'inventory', podKey: '', podError: '', examples: [], input: { ...EMPTY_INPUT }, plan: null, startupRisk: false, receipt: null,
+    seats: null, inventory: null, relations: null, inventorySource: 'tui', diagramSource: 'inventory', podKey: '', podError: '', examples: [], input: { ...EMPTY_INPUT }, plan: null, startupRisk: false, receipt: null,
     task: null, readOnly: true, busy: false, busyKind: null, error: '', notice: '', warning: '', step: 0 }
+  const reportCache = new Map(); let reportReads = 0
   const emit = () => changed(state)
   const dirty = () => JSON.stringify(state.draft) !== JSON.stringify(state.env?.config || null)
   function requireHost() { if (!state.host) throw new Error('Open this page inside the OpenRig for Orca plugin to use operations. The standalone preview is read-only.') }
@@ -27,8 +29,9 @@ export function createPluginSession(request, changed = () => {}) {
   }
   function invalidate() { state.plan = null; state.startupRisk = false }
   function apply(env) {
+    reportCache.clear()
     if (state.task && JSON.stringify(state.env?.config) !== JSON.stringify(env.config)) state.task = { ...state.task, registration: 'unverified', state: 'unknown', detail: 'Instance configuration changed. Reconcile at the original endpoint before retrying.' }
-    state.env = env; state.draft = { ...env.config }; state.seats = null; state.examples = []; state.inventory = null; state.diagramSource = 'inventory'; state.podKey = ''; state.podError = ''
+    state.env = env; state.draft = { ...env.config }; state.seats = null; state.examples = []; state.inventory = null; state.relations = null; state.diagramSource = 'inventory'; state.podKey = ''; state.podError = ''
     state.input.instructionSeat = ''; state.input.taskSeat = ''
     if (!env.workspaces.some(w => w.id === state.workspaceId)) state.workspaceId = ''
     invalidate()
@@ -38,13 +41,30 @@ export function createPluginSession(request, changed = () => {}) {
   const podConnected = () => Boolean(selectedPod() && state.inventory?.connection.matchesConfigured && state.diagramSource === 'inventory')
   const findSeat = key => podSeats().find(seat => seat.key === key)
   async function loadPods(keepKey = '') {
-    state.inventory = null; state.diagramSource = 'inventory'; state.podError = ''; state.podKey = ''; state.input.instructionSeat = ''; state.input.taskSeat = ''; invalidate(); emit()
+    reportCache.clear()
+    state.inventory = null; state.relations = null; state.diagramSource = 'inventory'; state.podError = ''; state.podKey = ''; state.input.instructionSeat = ''; state.input.taskSeat = ''; invalidate(); emit()
     try {
       const inventory = await request('pods.list', { source: state.inventorySource }, { timeoutMs: 120000 })
       if (!Array.isArray(inventory?.pods) || !Array.isArray(inventory.seats) || typeof inventory.connection?.key !== 'string' || !/^[a-f0-9]{64}$/.test(inventory.connection.key)) throw new Error('Native pod observation is incomplete; no target was guessed.')
       state.inventory = inventory
-      if (state.inventory.pods.some(pod => pod.key === keepKey)) state.podKey = keepKey
+      if (state.inventory.pods.some(pod => pod.key === keepKey)) { state.podKey = keepKey; await loadRelations() }
     } catch (error) { state.inventory = null; state.podError = error instanceof Error ? error.message : String(error) }
+  }
+  async function loadRelations() {
+    const pod = selectedPod(), inventory = state.inventory
+    if (!pod || !inventory) { state.relations = null; return }
+    const { key: instanceKey, source } = inventory.connection, podKey = pod.key, memberKeys = podSeats().map(s => s.key)
+    const same = () => state.inventory === inventory && state.podKey === podKey
+    state.relations = { instanceKey, podKey, memberKeys, observedAt: 0, status: 'loading', edges: [], notes: ['Reading native compact relationship metadata…'] }; emit()
+    try {
+      const result = await request('pods.edges', { source: source || state.inventorySource, instanceKey, podKey }, { timeoutMs: 120000 })
+      if (!same()) return
+      if (result?.instanceKey !== instanceKey || result.podKey !== podKey || !['complete', 'partial', 'unavailable'].includes(result.status) || !Array.isArray(result.memberKeys) || !Array.isArray(result.edges) || result.edges.length > 160 || !Array.isArray(result.notes)) throw new Error('Invalid relationship observation')
+      const changed = JSON.stringify([...result.memberKeys].sort()) !== JSON.stringify([...memberKeys].sort())
+      state.relations = changed ? { ...result, status: 'partial', notes: [...result.notes, 'Membership changed while loading relationships. Refresh the pod snapshot; unmatched endpoints are not drawn.'] } : result
+    } catch {
+      if (same()) state.relations = { instanceKey, podKey, memberKeys, observedAt: 0, status: 'unavailable', edges: [], notes: ['Relationship observation unavailable. Missing lines are unverified, not proof that no connection exists. Refresh the selected pod.'] }
+    }
   }
   function canPrepare(action, extra = {}) {
     if (!state.host || state.busy || dirty() || !state.workspaceId || !state.env) return false
@@ -75,7 +95,42 @@ export function createPluginSession(request, changed = () => {}) {
     },
     selectPod(key) {
       if (state.busy || (key && !state.inventory?.pods.some(pod => pod.key === key))) return false
-      state.podKey = key; state.diagramSource = 'inventory'; state.input.instructionSeat = ''; state.input.taskSeat = ''; invalidate(); emit(); return true
+      reportCache.clear(); state.podKey = key; state.relations = null; state.diagramSource = 'inventory'; state.input.instructionSeat = ''; state.input.taskSeat = ''; invalidate(); emit(); return true
+    },
+    async readReport(seatKey) {
+      const inventory = state.inventory, pod = selectedPod(), seat = podSeats().find(s => s.key === seatKey)
+      const base = { instanceKey: inventory?.connection.key || '', podKey: pod?.key || '', seatKey, observedAt: Date.now() }
+      const unknown = detail => ({ ...base, status: 'unverified', detail })
+      if (!state.host || !inventory || !pod || !seat || dirty() || state.diagramSource !== 'inventory') return unknown('Preview unavailable for this saved native pod. No YAML or terminal output was used.')
+      const cached = reportCache.get(seatKey)
+      if (cached && Date.now() < cached.expires) return cached.promise
+      if (reportReads >= 2) return unknown('Other report previews are loading. Hover or focus this seat again shortly.')
+      const promise = (async () => {
+        reportReads++
+        try {
+          const result = await request('seat.report', { source: inventory.connection.source || state.inventorySource, instanceKey: base.instanceKey, podKey: base.podKey, seatKey }, { timeoutMs: 45000 })
+          if (state.inventory !== inventory || state.podKey !== pod.key || dirty() || state.diagramSource !== 'inventory') return unknown('Pod context changed; hover again after refreshing.')
+          if (result?.instanceKey !== base.instanceKey || result.podKey !== base.podKey || result.seatKey !== seatKey || !['recorded', 'none', 'unverified'].includes(result.status)) throw new Error('Invalid report preview')
+          const metadata = { ...base, observedAt: result.observedAt, status: result.status, detail: String(result.detail || '').slice(0, 700) }
+          if (result.status !== 'recorded') return metadata
+          const prefix = reportPrefix(result.preview)
+          if (prefix.truncated || !Number.isSafeInteger(result.totalBytes) || result.totalBytes < prefix.previewBytes) throw new Error('Invalid preview byte budget')
+          return { ...metadata, preview: prefix.preview, previewBytes: prefix.previewBytes, totalBytes: result.totalBytes, truncated: result.truncated === true,
+            recordId: String(result.recordId || '').slice(0, 200), recordedAt: String(result.recordedAt || '').slice(0, 80), recipient: String(result.recipient || '').slice(0, 300), delivery: String(result.delivery || 'unknown').slice(0, 40), kind: String(result.kind || 'Recorded outbound message').slice(0, 80) }
+        } catch { return unknown('Native outbox preview unavailable. No report was inferred from terminal output or a task title.') }
+        finally { reportReads-- }
+      })()
+      const entry = { promise, expires: Infinity }; reportCache.set(seatKey, entry)
+      promise.then(result => {
+        if (reportCache.get(seatKey) !== entry) return
+        const ttl = result.status === 'recorded' ? 30000 : 5000; entry.expires = Date.now() + ttl
+        const timer = setTimeout(() => { if (reportCache.get(seatKey) === entry) reportCache.delete(seatKey) }, ttl)
+        timer.unref?.() // Node tests need not stay alive; browsers return a numeric timer handle.
+      })
+      return promise
+    },
+    async refreshRelations() {
+      await work(async () => { if (dirty()) throw new Error('Save configuration before reading relationships.'); await loadRelations() }, 'read')
     },
     async selectInventorySource(source) {
       if (!['tui', 'configured'].includes(source) || state.busy) return

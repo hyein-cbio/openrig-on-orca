@@ -1,12 +1,42 @@
 import mermaid from './mermaid/mermaid.esm.min.mjs'
 import DOMPurify from 'dompurify'
+import { reportPrefix } from './report-preview.mjs'
 import { topologyForPod } from './pods.mjs'
 import { parseTopology, topologyMermaid, topologyNodeId, SAMPLE_TOPOLOGY, TOPOLOGY_LIMITS } from './topology.mjs'
 
 const $ = id => document.getElementById(id)
 const sourceObservers = new Set()
-const sourceChanged = kind => { for (const listener of sourceObservers) listener(kind) }
+const sourceChanged = kind => { hideReport(); for (const listener of sourceObservers) listener(kind) }
 export function observeTopologySource(listener) { sourceObservers.add(listener); return () => sourceObservers.delete(listener) }
+let reportReader = null, reportEpoch = 0, reportAnchor = null
+export function setReportReader(reader) { reportReader = typeof reader === 'function' ? reader : null; hideReport() }
+function hideReport() {
+  reportEpoch++; $('seat-report-tooltip').hidden = true; $('seat-report-tooltip').replaceChildren()
+  reportAnchor?.removeAttribute('aria-describedby'); reportAnchor = null
+}
+function placeReport(anchor) {
+  const tip = $('seat-report-tooltip'), box = anchor.getBoundingClientRect(), bounds = tip.getBoundingClientRect()
+  const left = Math.max(12, Math.min(box.left + box.width / 2 - bounds.width / 2, innerWidth - bounds.width - 12))
+  const top = box.bottom + 10 + bounds.height <= innerHeight - 12 ? box.bottom + 10 : Math.max(12, box.top - bounds.height - 10)
+  tip.style.left = `${left}px`; tip.style.top = `${Math.max(12, Math.min(top, innerHeight - bounds.height - 12))}px`
+}
+async function showReport(node, anchor) {
+  hideReport(); const revision = reportEpoch, current = model, tip = $('seat-report-tooltip')
+  reportAnchor = anchor; anchor.setAttribute('aria-describedby', tip.id)
+  const item = (tag, text) => { const element = document.createElement(tag); element.textContent = text; return element }
+  tip.replaceChildren(item('strong', `${node.id} · Last outbound record`), item('p', 'Reading a bounded native outbox preview…')); tip.hidden = false; placeReport(anchor)
+  let result
+  try { result = current?.source === 'inventory' && reportReader ? await reportReader(node.key) : { status: 'unverified', detail: 'No native report lookup is available for this declaration/standalone preview.' } }
+  catch { result = { status: 'unverified', detail: 'Native report preview unavailable.' } }
+  if (revision !== reportEpoch || current !== model || !anchor.isConnected) return
+  tip.replaceChildren(item('strong', `${node.id} · ${result.status === 'recorded' ? result.kind || 'Recorded outbound message' : result.status === 'none' ? 'No recorded message found' : 'Preview unverified'}`))
+  if (result.status === 'recorded' && typeof result.preview === 'string') {
+    const preview = reportPrefix(result.preview), stamp = Number.isFinite(Date.parse(result.recordedAt)) ? new Date(result.recordedAt).toLocaleString() : 'Unknown time'
+    tip.append(item('p', `To: ${String(result.recipient || 'Unknown').slice(0, 300)} · Recorded: ${stamp}`), item('p', `Native delivery state: ${String(result.delivery || 'unknown').slice(0, 40)}`), item('pre', preview.preview), item('p', `${preview.previewBytes} / ${result.totalBytes ?? preview.previewBytes} UTF-8 bytes${result.truncated ? ' · truncated' : ''} · raw excerpt, not an LLM summary`), item('p', 'Seat history may include an earlier occupant. A recorded message does not prove acknowledgment or correct work.'))
+  } else tip.append(item('p', String(result.detail || 'No verified preview.').slice(0, 700)))
+  placeReport(anchor)
+}
+window.addEventListener('scroll', () => { if (reportAnchor && !$('seat-report-tooltip').hidden) { const box = reportAnchor.getBoundingClientRect(); if (box.bottom < 0 || box.top > innerHeight || box.right < 0 || box.left > innerWidth) hideReport(); else placeReport(reportAnchor) } }, { capture: true }); window.addEventListener('resize', hideReport)
 const source = $('yaml-source'), viewport = $('viewport'), diagram = $('diagram')
 let model = null, selected = '', selectedKey = '', svg = null, svgText = '', natural = { width: 1, height: 1 }, scale = 1
 let epoch = 0, loadEpoch = 0, renderQueue = Promise.resolve(), dirty = false, directionChosen = false
@@ -50,7 +80,7 @@ function fit() {
   viewport.scrollTo({ left: 0, top: 0 })
 }
 function clearGraph() {
-  epoch++; model = null; svg = null; svgText = ''; diagram.replaceChildren(); details(null)
+  hideReport(); epoch++; model = null; svg = null; svgText = ''; diagram.replaceChildren(); details(null)
   $('empty').hidden = false; $('export').disabled = true; $('warnings').replaceChildren(); $('mermaid-source').value = ''
   $('rig-name').textContent = 'No valid topology'
   for (const id of ['pod-count', 'agent-count', 'edge-count']) $(id).textContent = '—'
@@ -61,6 +91,7 @@ function markDirty() {
   notice('Source changed · Render diagram to apply it. The map below is the previous snapshot.')
 }
 function scheduleRender() {
+  hideReport()
   const current = model, direction = $('direction').value, revision = ++epoch
   if (!current) return Promise.resolve()
   $('export').disabled = true; notice('Rendering the declared topology locally…')
@@ -85,21 +116,26 @@ function scheduleRender() {
       const box = svg.viewBox.baseVal
       if (!box.width || !box.height) throw new Error('Empty rendered SVG')
       natural = { width: box.width, height: box.height }; svgText = svg.outerHTML
-      svg.setAttribute('aria-label', `${current.name}: declared pods, agents and relationships`)
+      svg.setAttribute('aria-label', `${current.name}: ${current.source === 'inventory' ? 'native pod seats and reported relationships' : 'declared pods, agents and relationships'}`)
       for (const element of selectable()) {
         const node = current.nodes.find(n => n.uid === nodeId(element))
         if (!node) continue
         element.setAttribute('role', 'button'); element.setAttribute('tabindex', '0'); element.setAttribute('aria-label', `Inspect ${node.id}`)
+        element.addEventListener('mouseenter', () => { void showReport(node, element) })
+        element.addEventListener('mouseleave', () => { if (document.activeElement !== element) hideReport() })
+        element.addEventListener('focus', () => { void showReport(node, element) }); element.addEventListener('blur', hideReport)
+        element.addEventListener('keydown', event => { if (event.key === 'Escape') { event.preventDefault(); hideReport() } })
         element.addEventListener('click', () => details(node))
         element.addEventListener('keydown', event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); details(node) } })
       }
       details(current.nodes.find(n => n.key === selectedKey) || current.nodes[0]); fit()
       $('rig-name').textContent = current.name
-      $('pod-count').textContent = current.pods.length; $('pod-noun').textContent = current.pods.length === 1 ? 'pod' : 'pods'; $('agent-count').textContent = current.nodes.length; $('edge-count').textContent = current.edges.length
+      $('pod-count').textContent = current.pods.length; $('pod-noun').textContent = current.pods.length === 1 ? 'pod' : 'pods'; $('agent-count').textContent = current.nodes.length; $('edge-count').textContent = current.source === 'inventory' && ['unqueried', 'loading', 'unavailable'].includes(current.relationsStatus) ? '—' : current.source === 'inventory' && current.relationsStatus === 'partial' ? `${current.edges.length} observed` : current.edges.length
       $('empty').hidden = true; $('error').hidden = true; $('mermaid-source').value = code
       $('warnings').replaceChildren(...current.warnings.map(message => { const li = document.createElement('li'); li.textContent = message; return li }))
       origin(current.source)
-      $('export').disabled = dirty; notice(dirty ? 'Source changed · The map is the previous snapshot. Render to apply the source.' : current.source === 'inventory' ? `Native pod snapshot · ${new Date(current.observedAt).toLocaleString()}. No relationship edges were inferred.` : 'Ready · Declared topology only. Select an agent to inspect its settings.')
+      if (current.source === 'inventory') $('inventory-legend').textContent = `Native directed relationships · ${current.relationsStatus}`
+      $('export').disabled = dirty; notice(dirty ? 'Source changed · The map is the previous snapshot. Render to apply the source.' : current.source === 'inventory' ? `Native pod snapshot · ${new Date(current.observedAt).toLocaleString()}. Relationships: ${current.relationsStatus}${current.relationshipObservedAt ? ` · ${new Date(current.relationshipObservedAt).toLocaleString()}` : ''}. No connections were inferred.` : 'Ready · Declared topology only. Select an agent to inspect its settings.')
     } catch {
       if (revision !== epoch) return
       clearGraph(); $('error').textContent = 'The local renderer could not draw this projection. Simplify the diagram or shorten its labels; no agent operation was requested.'; $('error').hidden = false
@@ -157,12 +193,12 @@ new ResizeObserver(() => {
   if (!directionChosen && $('direction').value !== preferred) { $('direction').value = preferred; if (model) scheduleRender() }
   else if (svg) fit()
 }).observe(document.querySelector('.map-card'))
-export function displayPodSnapshot(pod, seats = [], observedAt = Date.now()) {
+export function displayPodSnapshot(pod, seats = [], observedAt = Date.now(), relations = null) {
   loadEpoch++; sourceChanged('inventory'); origin('inventory')
   if (!pod) {
     clearGraph(); $('error').hidden = true; $('rig-name').textContent = 'Select an OpenRig pod'; $('topology-origin').textContent = 'Native inventory'; $('empty').textContent = 'Refresh and select an actual rig / pod above. No example is substituted.'; notice('No pod selected. This dashboard does not auto-load an example.'); return
   }
-  try { model = topologyForPod(pod, seats, observedAt); dirty = false; $('error').hidden = true; scheduleRender() }
+  try { model = topologyForPod(pod, seats, observedAt, relations); dirty = false; $('error').hidden = true; scheduleRender() }
   catch (error) { clearGraph(); $('rig-name').textContent = pod.label; $('topology-origin').textContent = 'Native inventory'; $('error').textContent = error.message; $('error').hidden = false; notice('The complete seat list remains below; no partial diagram was substituted.') }
 }
 adoptNativeTheme()

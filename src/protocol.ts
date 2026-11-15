@@ -15,6 +15,8 @@ export interface Seat {
 }
 export interface Pod { key: string; rigId: string; rigName: string; podId: string | null; namespace: string | null; label: string; seatCount: number }
 export interface PodInventory { connection: { source: 'tui' | 'configured'; key: string; home: string; port: string; endpoint: string; matchesConfigured: boolean }; observedAt: number; pods: Pod[]; seats: Seat[] }
+export interface PodRelations { instanceKey: string; podKey: string; memberKeys: string[]; observedAt: number; status: 'complete' | 'partial' | 'unavailable' | 'loading'; edges: { fromKey: string; toKey: string; kind: string }[]; omittedEdges?: number; notes: string[] }
+export interface ReportPreview { instanceKey: string; podKey: string; seatKey: string; observedAt: number; status: 'recorded' | 'none' | 'unverified'; detail: string; preview?: string; previewBytes?: number; totalBytes?: number; truncated?: boolean; recordId?: string; recordedAt?: string; recipient?: string; delivery?: string; kind?: string }
 export interface ExampleRecord {
   id: string; kind: 'demo' | 'claude' | 'codex'; rigName: string; directory: string; specPath: string; configRoot: string; instance?: string
 }
@@ -45,6 +47,8 @@ declare module 'orca' {
     'task.check': { input: { id: string }; output: TaskStatus }
     'terminal.reveal': { input: { terminalId: string }; output: TerminalReceipt }
     'pods.list': { input: { source: 'tui' | 'configured' } | undefined; output: PodInventory }
+    'pods.edges': { input: { source: 'tui' | 'configured'; instanceKey: string; podKey: string }; output: PodRelations }
+    'seat.report': { input: { source: 'tui' | 'configured'; instanceKey: string; podKey: string; seatKey: string }; output: ReportPreview }
     'pods.connect': { input: { source: 'tui' | 'configured'; expectedKey: string }; output: State }
     'seats.list': { output: { seats: Seat[] } }
     'seat.attach': { input: { key: string; workspaceId: string; readOnly: boolean; podKey?: string; instanceKey?: string }; output: TerminalReceipt }

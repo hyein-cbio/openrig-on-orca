@@ -8,6 +8,8 @@ import { canInstruct, instructionTextError } from './seat-instructions.mjs'
 import { canStartSeat, canQueueTask, taskTextError, sameSeatDefinition } from './seat-tasks.mjs'
 import { stageTaskBody, taskHash, validTaskId, checkTask } from './task-files.mjs'
 import { readPodInventory, connectedPodConfig, assertPodInstance } from './pod-inventory.mjs'
+import { readSeatReport } from './seat-reports.mjs'
+import { readPodRelations } from './pod-relations.mjs'
 import { podKeyOf } from './pods.mjs'
 import type { Config, ExampleRecord, Seat, Workspace } from './protocol'
 
@@ -41,6 +43,14 @@ export default function activate(orca: OrcaWorkerApi): void {
   orca.panels.handle('pods.list', async input => {
     const config = await getConfig()
     return readPodInventory(config, await discover({ ...config, provider: 'none' }), input?.source || 'tui')
+  })
+  orca.panels.handle('pods.edges', async (input, { signal }) => {
+    const config = await getConfig()
+    return readPodRelations(config, await discover({ ...config, provider: 'none' }), input, { signal })
+  })
+  orca.panels.handle('seat.report', async (input, { signal }) => {
+    const config = await getConfig()
+    return readSeatReport(config, await discover({ ...config, provider: 'none' }), input, { signal })
   })
   orca.panels.handle('pods.connect', async input => {
     if (typeof input.expectedKey !== 'string' || !/^[a-f0-9]{64}$/.test(input.expectedKey)) throw fail('invalid_instance', 'Refresh the observed instance before connecting')

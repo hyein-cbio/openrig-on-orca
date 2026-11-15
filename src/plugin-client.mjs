@@ -3,7 +3,7 @@ import { EXAMPLE_STEPS } from './example-story.mjs'
 import { workspaceLabel, workspaceOptions } from './workspace-labels.mjs'
 import { canInstruct } from './seat-instructions.mjs'
 import { canQueueTask } from './seat-tasks.mjs'
-import { displayPodSnapshot, observeTopologySource } from './topology-client.mjs'
+import { displayPodSnapshot, observeTopologySource, setReportReader } from './topology-client.mjs'
 
 const $ = id => document.getElementById(id)
 const text = (id, value) => { $(id).textContent = value ?? '' }
@@ -23,8 +23,9 @@ function choices(id, items, value, placeholder) {
 }
 const bridge = window.orca?.plugin?.request ? (name, input, options) => window.orca.plugin.request(name, input, options) : null
 const session = createPluginSession(bridge, render)
-let renderedInventory, renderedPodKey, renderedDiagramSource
+let renderedInventory, renderedPodKey, renderedDiagramSource, renderedRelations
 observeTopologySource(source => session.setDiagramSource(source))
+setReportReader(key => session.readReport(key))
 const inputBindings = { 'instruction-recipient': 'instructionSeat', 'instruction-text': 'instruction', 'task-recipient': 'taskSeat', 'task-summary': 'summary', 'task-body': 'body', 'team-spec': 'spec' }
 for (const [id, key] of Object.entries(inputBindings)) $(id).addEventListener(['instruction-recipient', 'task-recipient'].includes(id) ? 'change' : 'input', event => session.editInput(key, event.target.value))
 for (const [key, label] of CONFIG_FIELDS) {
@@ -54,7 +55,7 @@ $('save-paths').addEventListener('click', session.save)
 $('go-dashboard').addEventListener('click', () => session.switchView('dashboard'))
 $('refresh-seats').addEventListener('click', session.refreshPods)
 $('refresh-pods').addEventListener('click', session.refreshPods)
-$('dashboard-pod').addEventListener('change', event => session.selectPod(event.target.value))
+$('dashboard-pod').addEventListener('change', event => { if (session.selectPod(event.target.value)) void session.refreshRelations() })
 $('pod-instance-source').addEventListener('change', event => { void session.selectInventorySource(event.target.value) })
 $('connect-pod-instance').addEventListener('click', session.connectInventory)
 $('restore-pod-diagram').addEventListener('click', () => { $('yaml-tools').open = false; session.setDiagramSource('inventory') })
@@ -149,7 +150,7 @@ function render(state) {
   text('pod-observation', state.inventory ? `${state.inventory.pods.length} pods observed at ${new Date(state.inventory.observedAt).toLocaleString()}. ${guidance}` : 'Refresh native pods to inspect the TUI inventory. Unavailable is not an empty list.')
   show('pod-connect-review', Boolean(connection && !connection.matchesConfigured)); $('connect-pod-instance').disabled = waiting || dirty || !hosted || !connection
   show('declaration-mode-note', state.diagramSource === 'yaml')
-  if (state.diagramSource === 'inventory' && (renderedInventory !== state.inventory || renderedPodKey !== state.podKey || renderedDiagramSource !== state.diagramSource)) { renderedInventory = state.inventory; renderedPodKey = state.podKey; renderedDiagramSource = state.diagramSource; displayPodSnapshot(session.selectedPod(), session.podSeats(), state.inventory?.observedAt) }
+  if (state.diagramSource === 'inventory' && (renderedInventory !== state.inventory || renderedPodKey !== state.podKey || renderedDiagramSource !== state.diagramSource || renderedRelations !== state.relations)) { renderedInventory = state.inventory; renderedPodKey = state.podKey; renderedDiagramSource = state.diagramSource; renderedRelations = state.relations; displayPodSnapshot(session.selectedPod(), session.podSeats(), state.inventory?.observedAt, state.relations) }
   renderedDiagramSource = state.diagramSource
   text('environment-stage', snapshot ? snapshot.stage.replaceAll('-', ' ') : hosted ? 'Checking environment…' : 'Read-only visual preview; no plugin host.')
   const tools = snapshot ? [['Node', snapshot.tools.node || 'Compatible runtime needed'], ['OpenRig', snapshot.rigVersion || 'Not installed'], ['tmux', snapshot.tmuxVersion || 'Required — unavailable'], ['SQLite', `${snapshot.sqlite.status}: ${snapshot.sqlite.detail}`]] : []

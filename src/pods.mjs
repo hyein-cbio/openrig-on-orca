@@ -18,13 +18,22 @@ export function podsFromSeats(seats) {
   if (groups.size > 128) throw new Error('Native inventory exceeds 128 pods; no truncated pod list was displayed.')
   return [...groups.values()].sort((a, b) => a.label.localeCompare(b.label) || a.key.localeCompare(b.key))
 }
-export function topologyForPod(pod, seats, observedAt) {
+export function topologyForPod(pod, seats, observedAt, relations = null) {
   const members = seats.filter(seat => seatInPod(seat, pod))
   if (members.length > 80) throw new Error('This pod has more than 80 seats. Its complete seat list remains available, but the diagram was not truncated.')
-  return { name: pod.label, source: 'inventory', observedAt,
-    pods: [{ uid: 'pod_0', id: pod.key, label: pod.namespace || pod.label }],
-    nodes: members.map((seat, i) => ({ uid: `agent_${i}`, key: seat.key, podId: pod.key, podNamespace: pod.namespace || pod.label, id: seat.logicalId,
-      runtime: seat.runtime, model: seat.model || 'Not declared here', role: 'Not provided by seat inventory', agentRef: 'Not provided by seat inventory',
-      status: seat.status, activity: seat.activity, attention: seat.attention })),
-    edges: [], warnings: ['Manual native inventory snapshot, not continuous live polling. Running does not mean working or healthy.', 'Relationship edges were not queried by this bounded seat projection; no delegation arrows were inferred.'] }
+  const nodes = members.map((seat, i) => ({ uid: `agent_${i}`, key: seat.key, podId: pod.key, podNamespace: pod.namespace || pod.label, id: seat.logicalId,
+    runtime: seat.runtime, model: seat.model || 'Not declared here', role: 'Not provided by seat inventory', agentRef: 'Not provided by seat inventory',
+    status: seat.status, activity: seat.activity, attention: seat.attention }))
+  const current = relations?.podKey === pod.key ? relations : null, byKey = new Map(nodes.map(n => [n.key, n.uid])), edges = []
+  const warnings = ['Manual native inventory snapshot, not continuous live polling. Running does not mean working or healthy.', ...(current?.notes || ['Relationship edges were not queried yet; no delegation arrows were inferred.'])]
+  let missing = 0
+  for (const edge of current?.edges || []) {
+    const from = byKey.get(edge.fromKey), to = byKey.get(edge.toKey)
+    if (!from || !to) { missing++; continue }
+    edges.push({ from, to, kind: edge.kind })
+  }
+  if (edges.length > 160) throw new Error('More than 160 relationships cannot be rendered; no truncated graph was substituted.')
+  if (missing) warnings.push(`${missing} relationships no longer match the displayed membership snapshot and were not drawn. Refresh this pod.`)
+  return { name: pod.label, source: 'inventory', observedAt, relationsStatus: missing ? 'partial' : current?.status || 'unqueried', relationshipObservedAt: current?.observedAt,
+    pods: [{ uid: 'pod_0', id: pod.key, label: pod.namespace || pod.label }], nodes, edges, warnings }
 }

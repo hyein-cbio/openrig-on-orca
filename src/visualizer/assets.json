@@ -17,34 +17,35 @@
   "inputs": {
     "package-lock.json": "fae8fbcf9275ebe0014740e2a63d6e895ae7342b5bd65808ac4a1555b4773887",
     "scripts/build-visualizer.mjs": "d84cd4919a2f453e8ba46062ef03cb51eccea42514e82af97d806c03e7d3afa2",
-    "scripts/visualizer-inputs.mjs": "560f29350cb4b398fbf874b7d9b4a2a9488b6c7765ffd065f15740504e11296e",
+    "scripts/visualizer-inputs.mjs": "c2c5f0365ad5431842b0276dedb76db88a277abd46d5b478d725fde3520513c7",
     "src/example-story.mjs": "a384d642674d6becf1df0a7054038fdb43c5d5c37ed669f224e1f06a161d5f2f",
-    "src/plugin-client.mjs": "cd671e4c9835a4a9a5b599a087c4559a74f8aa9af6dc265eb23885a9820c1d63",
-    "src/plugin-state.mjs": "dbce710c9c0ef3cbaf4687e05b0a0e477a44f7a591173af9d4c50977e38f4ffc",
+    "src/plugin-client.mjs": "01c8bfc8f952251abd6778dd2f5e2f2d295f7a0cd42c4563a91f646f6c02ee14",
+    "src/plugin-state.mjs": "e959ba457a66096542f7f2d897605eeeab4b50b76308fb23cdb4f56728b79286",
     "src/plugin.css": "1b330bb86d8dbc21fb80913501eb305a460c1d9f0fcd389d6039371747c49e66",
     "src/plugin.html": "3d66bd669bb105234ae774c13811b05cca18ae224c05dea4d2b86f153275f318",
-    "src/pods.mjs": "24165f7de6e1902f70ac1fb05c193281f77bd60af89fa13081fe3c27f43d532a",
+    "src/pods.mjs": "3cac0c3d5fac0626f890821b9b2a86d280a07b40801e20089c4f11aa848772e4",
+    "src/report-preview.mjs": "d470418563b4b72bb23fb24fb03112b7de26fd5315149c7210ca88758f07e02a",
     "src/seat-instructions.mjs": "670a3ba69e39b9d1c88401c3d0190118c31359ad4e3e47e7b6bd6da6d598454b",
     "src/seat-tasks.mjs": "9133d1c2aa3b7e3f4ad24c745e94e2ec590a4bc7a96aee0a8629f2bbf3b1860f",
-    "src/topology-client.mjs": "1078ff54619b5c2fd31fb658dbf505ccdc07f5f8004e36ead748e9d97ab4910a",
-    "src/topology.css": "3ac0aaa9bae3134d645d4d666da7cd476bd1cd1aca4e1367b64d600c26fa2378",
-    "src/topology.html": "39a4385de5c0e7264751879ed0bad38ffd889d8e0f5d4f1aebec979af00902d2",
+    "src/topology-client.mjs": "62b35cb6d19807df3f0e8ab3fe37d5df38d8cde131781b361b5d94a3fa819682",
+    "src/topology.css": "9313eb3dcd3221068055c1d4c3dc2d97d0d1082e833494bc86e8cb289d913ddc",
+    "src/topology.html": "57d8d78b9a735d0b4c2ed8ea2994bbdb9bb47910b90ec36f1187c3bb5a3dc3a7",
     "src/topology.mjs": "99e9609cb018f5a7a7961a01f5c9b486ed62bb948876952674faef1969113e65",
     "src/workspace-labels.mjs": "8328b2fbb4c79221bfdbcdbba524e2c2f53ca48974cf5b548edaa943658ef6ec"
   },
   "files": [
     {
       "path": "app.mjs",
-      "bytes": 108,
-      "sha256": "976523df43eed8d6a476d44ea289e125d9195a376c6a77ab872f928b6f80d6d7"
+      "bytes": 136,
+      "sha256": "440a92c1620440f1cc02b56993a18bb4f3e402f344f76e7cdbbeb5fc65e61095"
     },
     {
-      "path": "chunk-EBWXJU6E.mjs",
-      "bytes": 41057,
-      "sha256": "072acecd441705b8dd12cd76889f68a16409ccf9a8da3b87d7800150671bb8e5"
+      "path": "chunk-ACPV7AEK.mjs",
+      "bytes": 45012,
+      "sha256": "db76422117c8ae6ff0431fe9e38040369bfe0fc7d6c5d18830510ab08dbddcd4"
     },
     {
-      "path": "chunk-EBWXJU6E.mjs.LEGAL.txt",
+      "path": "chunk-ACPV7AEK.mjs.LEGAL.txt",
       "bytes": 417,
       "sha256": "4245c420f535f6b11e3f590606105d70565d76e4ba670d1f1497c1f39c57800a"
     },
@@ -1180,8 +1181,8 @@
     },
     {
       "path": "plugin.html",
-      "bytes": 18581,
-      "sha256": "7d70dbc8f3bc10eca574532b43eeb07262e9d9c2db1f08d81ecf113c5196ee79"
+      "bytes": 18672,
+      "sha256": "77e010ad56a91045ac18f526512c70a79d21136dc87c1e08ea7efdbc781d427a"
     },
     {
       "path": "topology.mjs",
@@ -1190,8 +1191,8 @@
     },
     {
       "path": "workspace.mjs",
-      "bytes": 24794,
-      "sha256": "7c2504c7ea7a2d79013728278ac29edacaed007049a46aab5f8ee7c604373bdf"
+      "bytes": 28329,
+      "sha256": "2da5153258c3ccc80c8c7d6c6c1c8ef15f3272659682ad257adb14abaa9e0a81"
     }
   ]
 }

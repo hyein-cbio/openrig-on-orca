@@ -36,7 +36,7 @@ const check = (id, detail) => report.checks.push({ id, detail })
 let fixtureStarted = false, daemonStarted = false, loaded = false, runtimePid, terminalId, rig, rigEnv
 let ownedWorkspacePaths = [project]
 let rigName
-let frozenFixture, previewServer, previewPage, observedPodFixture
+let frozenFixture, previewServer, previewPage, observedPodFixture, browserStep = ''
 
 async function invoke(command, argv, options = {}) {
   return exec(command, argv, { cwd: source, env, timeout: 45000, maxBuffer: 4 * 1024 * 1024, ...options })
@@ -151,7 +151,15 @@ try {
   const inventory = await request('pods.list', { source: 'configured' })
   const observedPod = inventory.pods.find(p => p.rigId === demoSeats[0].rigId && p.namespace === 'dev')
   assert.ok(observedPod); assert.equal(observedPod.seatCount, 2); assert.equal(inventory.connection.matchesConfigured, true)
-  observedPodFixture = { pod: observedPod, seats: inventory.seats.filter(s => s.rigId === observedPod.rigId && s.podId === observedPod.podId), observedAt: inventory.observedAt }
+  const relations = await request('pods.edges', { source: 'configured', instanceKey: inventory.connection.key, podKey: observedPod.key })
+  assert.equal(relations.status, 'complete'); assert.equal(relations.edges.length, 1); assert.equal(relations.edges[0].kind, 'delegates_to')
+  check('native-relationships', 'Compact read-only native whoami observations resolve the terminal demo relationship without full graph, token or transcript requests')
+  const reportBody = 'TOOLTIP_BODY_FIXTURE <script>window.tooltipInjected=true</script>\n' + '\uAC00🙂'.repeat(300)
+  const audit = await fetch(`http://127.0.0.1:${config.daemonPort}/api/queue/outbox/record`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ outboxId: `tooltip-fixture-${randomUUID()}`, senderSession: demoSeats[0].session, destinationSession: demoSeats[1].session, body: reportBody, tags: ['tooltip-fixture'] }) })
+  assert.equal(audit.status, 201, 'Task-owned outbox audit fixture must record without sending terminal input')
+  const reportPreview = await request('seat.report', { source: 'configured', instanceKey: inventory.connection.key, podKey: observedPod.key, seatKey: demoSeats[0].key })
+  assert.equal(reportPreview.status, 'recorded'); assert.equal(reportPreview.truncated, true); assert.ok(reportPreview.previewBytes <= 500); assert.equal(Buffer.byteLength(reportPreview.preview), reportPreview.previewBytes)
+  observedPodFixture = { pod: observedPod, seats: inventory.seats.filter(s => s.rigId === observedPod.rigId && s.podId === observedPod.podId), observedAt: inventory.observedAt, relations, reportPreview }
   check('pod-inventory', 'Real CLI projected rig/pod identities for both terminal-only seats from the explicitly configured private instance')
   for (const seat of demoSeats) {
     const attached = await request('seat.attach', { key: seat.key, workspaceId: workspace.id, readOnly: true })
@@ -219,7 +227,11 @@ try {
   await evaluate('JSON.stringify(document.getElementById("view-dashboard").click() || true)')
   assert.equal(await evaluate('JSON.stringify(document.querySelectorAll("#diagram svg").length)'), 0)
   assert.equal(await evaluate('JSON.stringify(document.getElementById("workspace-destination-control").parentElement.id)'), 'dashboard-destination')
+  await evaluate(`(async()=>{const m=await import('/visualizer/app.mjs');m.displayPodSnapshot(${JSON.stringify(observedPodFixture.pod)},${JSON.stringify(observedPodFixture.seats)},${observedPodFixture.observedAt},${JSON.stringify(observedPodFixture.relations)});return JSON.stringify(true)})()`)
+  await until(async () => assert.equal(await evaluate('JSON.stringify(document.getElementById("edge-count").textContent)'), '1'))
+  assert.equal(await evaluate('JSON.stringify([...document.querySelectorAll("#diagram path.flowchart-link")].filter(p=>parseFloat(getComputedStyle(p).strokeWidth)>0 && p.hasAttribute("marker-end")).length)'), 1)
   await evaluate(`(async()=>{const m=await import('/visualizer/app.mjs');m.displayPodSnapshot(${JSON.stringify(observedPodFixture.pod)},${JSON.stringify(observedPodFixture.seats)},${observedPodFixture.observedAt});return JSON.stringify(true)})()`)
+  await until(async () => assert.equal(await evaluate('JSON.stringify(document.getElementById("edge-count").textContent)'), '—'))
   await until(async () => assert.equal(await evaluate('JSON.stringify(document.querySelectorAll("#diagram g.node[role=button]").length)'), 2))
   assert.equal(await evaluate('JSON.stringify(!document.getElementById("dashboard-view").hidden && document.getElementById("preparation-view").hidden)'), true)
   await until(async () => assert.ok(await evaluate('JSON.stringify(document.querySelector("#diagram svg").getBoundingClientRect().width > 100)')))
@@ -234,6 +246,30 @@ try {
     })
   }
   check('topology-layout', 'Disconnected inventory seats render in actual left-to-right and top-to-bottom coordinate order, not merely matching dropdown values')
+  await evaluate(`(async()=>{const m=await import('/visualizer/app.mjs');m.displayPodSnapshot(${JSON.stringify(observedPodFixture.pod)},${JSON.stringify(observedPodFixture.seats)},${observedPodFixture.observedAt},${JSON.stringify(observedPodFixture.relations)});return JSON.stringify(true)})()`)
+  await until(async () => assert.equal(await evaluate('JSON.stringify(document.getElementById("edge-count").textContent)'), '1'))
+  browserStep = 'hover-preview'
+  const hoverKey = observedPodFixture.reportPreview.seatKey
+  const hoverName = observedPodFixture.seats.find(s => s.key === hoverKey).logicalId
+  const hoverNode = `[...document.querySelectorAll('#diagram [role=button]')].find(e=>e.getAttribute('aria-label')===${JSON.stringify('Inspect ' + hoverName)})`
+  await evaluate(`(async()=>{const m=await import('/visualizer/app.mjs');m.setReportReader(async key=>key===${JSON.stringify(hoverKey)}?${JSON.stringify(observedPodFixture.reportPreview)}:{status:'none',detail:'Fixture: no record'});${hoverNode}.scrollIntoView({block:'center'});${hoverNode}.dispatchEvent(new MouseEvent('mouseenter'));return JSON.stringify(true)})()`)
+  await until(async () => assert.equal(await evaluate(`JSON.stringify(document.querySelector('#seat-report-tooltip pre')?.textContent===${JSON.stringify(observedPodFixture.reportPreview.preview)})`), true))
+  browserStep = 'inert-html'
+  assert.equal(await evaluate('JSON.stringify(document.querySelector("#seat-report-tooltip script")===null && window.tooltipInjected!==true)'), true)
+  assert.equal(await evaluate('JSON.stringify(document.querySelector("#diagram svg").outerHTML.includes("TOOLTIP_BODY_FIXTURE"))'), false)
+  assert.equal(await evaluate(`JSON.stringify(${hoverNode}.getAttribute('aria-describedby'))`), 'seat-report-tooltip')
+  browserStep = 'mouseleave'
+  await evaluate(`JSON.stringify(${hoverNode}.dispatchEvent(new MouseEvent('mouseleave')))`)
+  assert.equal(await evaluate('JSON.stringify(document.getElementById("seat-report-tooltip").hidden)'), true)
+  browserStep = 'keyboard-preview'
+  // Background Chromium can update activeElement without a focus event. Exercise the renderer's
+  // focus handler explicitly rather than fronting the app or taking the user's keyboard focus.
+  await evaluate(`(()=>{const node=${hoverNode};node.scrollIntoView({block:'center'});node.focus();node.dispatchEvent(new FocusEvent('focus'));return JSON.stringify(true)})()`)
+  await until(async () => assert.equal(await evaluate(`JSON.stringify(document.querySelector('#seat-report-tooltip pre')?.textContent===${JSON.stringify(observedPodFixture.reportPreview.preview)})`), true))
+  browserStep = 'escape'
+  await evaluate(`JSON.stringify(${hoverNode}.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true})))`)
+  assert.equal(await evaluate('JSON.stringify(document.getElementById("seat-report-tooltip").hidden)'), true)
+  check('report-tooltip', 'A task-owned native outbox record produced a <=500-byte UTF-8 hover/focus preview; HTML remained inert, Escape dismissed it, and the body stayed outside the SVG')
   const inspected = observedPodFixture.seats[1].logicalId
   await evaluate(`JSON.stringify([...document.querySelectorAll('#diagram [role=button]')].find(e=>e.getAttribute('aria-label')===${JSON.stringify('Inspect ' + observedPodFixture.seats[1].logicalId)}).dispatchEvent(new MouseEvent('click',{bubbles:true})))`)
   assert.equal(await evaluate('JSON.stringify(document.getElementById("agent-name").textContent)'), inspected)
@@ -262,7 +298,11 @@ try {
   if (keep) console.log('Keeping this disposable daemon and plugin loaded for manual inspection.')
   report.exitCode = 0
 } catch (error) {
-  report.error = String(error)
+  report.error = `${browserStep ? `${browserStep}: ` : ''}${String(error)}`
+  if (previewPage) try {
+    const inspected = await orca(['eval', '--page', previewPage, '--expression', 'JSON.stringify({hidden:document.getElementById("seat-report-tooltip")?.hidden,hasPre:!!document.querySelector("#seat-report-tooltip pre"),labels:[...document.querySelectorAll("#seat-report-tooltip strong,#seat-report-tooltip p")].map(e=>e.textContent),nodeCount:document.querySelectorAll("#diagram g.node[role=button]").length})'])
+    report.tooltipDiagnostic = JSON.parse(inspected.result.result)
+  } catch { /* Diagnostics never read a report body or prevent cleanup. */ }
   report.exitCode = 1
   process.exitCode = 1
 } finally {
