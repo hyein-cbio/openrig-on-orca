@@ -14,6 +14,7 @@
     "typecheck": "tsc --noEmit -p .",
     "validate": "orca plugin validate . --json",
     "test:sandbox": "node scripts/sandbox.mjs",
+    "test:topology-browser": "node scripts/test-topology-browser.mjs",
     "ci:core": "node ci/run-ci.mjs --suite core",
     "ci:orca": "node ci/run-ci.mjs --suite orca"
   },

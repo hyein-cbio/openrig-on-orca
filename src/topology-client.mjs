@@ -2,6 +2,7 @@ import mermaid from './mermaid/mermaid.esm.min.mjs'
 import DOMPurify from 'dompurify'
 import { reportPrefix } from './report-preview.mjs'
 import { topologyForPod } from './pods.mjs'
+import { projectTopology, topologyViewSummary, createTopologyNavigation } from './topology-view.mjs'
 import { parseTopology, topologyMermaid, topologyNodeId, SAMPLE_TOPOLOGY, TOPOLOGY_LIMITS } from './topology.mjs'
 
 const $ = id => document.getElementById(id)
@@ -40,6 +41,35 @@ window.addEventListener('scroll', () => { if (reportAnchor && !$('seat-report-to
 const source = $('yaml-source'), viewport = $('viewport'), diagram = $('diagram')
 let model = null, selected = '', selectedKey = '', svg = null, svgText = '', natural = { width: 1, height: 1 }, scale = 1
 let epoch = 0, loadEpoch = 0, renderQueue = Promise.resolve(), dirty = false, directionChosen = false
+const navigation = createTopologyNavigation()
+let displayedView = null, displayedGeometry = '', navigationMessage = '', inventoryScope = null
+function saveCamera() {
+  if (svg && displayedView?.view.rootKey === navigation.rootKey) navigation.save({ scale, left: viewport.scrollLeft, top: viewport.scrollTop, selectedKey })
+}
+function navigate(action) {
+  if (!model || dirty) return
+  saveCamera(); action(); selectedKey = navigation.camera()?.selectedKey || navigation.rootKey || ''
+  void scheduleRender({ restoreCamera: true, focusNavigation: true })
+}
+$('topology-main').addEventListener('click', () => navigate(() => navigation.main()))
+$('topology-back').addEventListener('click', () => navigate(() => navigation.back()))
+function activateNode(node, projection, renderedModel) {
+  // An old SVG remains on screen while a replacement renders. Its handlers
+  // must not select stale details or put a removed/cross-instance hub back into
+  // navigation, nor act on a view we have already navigated away from.
+  if (dirty || renderedModel !== model || projection !== displayedView || projection.view.rootKey !== navigation.rootKey) return
+  hideReport(); details(node)
+  if (!projection.view.hubs.includes(node.key)) return
+  navigate(() => navigation.enter(node.key, projection))
+}
+function updateNavigation(projection) {
+  const focused = navigation.rootKey !== null
+  $('topology-main').hidden = !focused; $('topology-back').hidden = navigation.path.length < 2
+  $('topology-main').disabled = dirty; $('topology-back').disabled = dirty
+  $('topology-path').textContent = ['Main', ...navigation.path.map(key => model.nodes.find(node => node.key === key)?.id || 'Missing hub')].join(' → ')
+  $('topology-view-summary').textContent = `${navigationMessage}${topologyViewSummary(projection)}`
+  $('direction').disabled = focused; $('direction').hidden = focused; $('topology-direction').hidden = !focused
+}
 function adoptNativeTheme() {
   const styles = getComputedStyle(document.documentElement)
   for (const name of ['background', 'foreground', 'card', 'muted', 'muted-foreground', 'border']) {
@@ -77,11 +107,22 @@ function resize(next) {
 }
 function fit() {
   if (!svg) return
-  resize(Math.min((viewport.clientWidth - 48) / natural.width, innerWidth < 700 ? 1.4 : (viewport.clientHeight - 48) / natural.height, 1.4))
+  const fitted = Math.min((viewport.clientWidth - 48) / natural.width, innerWidth < 700 ? 1.4 : (viewport.clientHeight - 48) / natural.height, 1.4)
+  // A wide fan-out must remain legible instead of becoming a miniature on a
+  // narrow screen. Pan horizontally from the focus root to inspect its children.
+  resize(navigation.rootKey === null ? fitted : Math.max(.8, fitted))
   viewport.scrollTo({ left: 0, top: 0 })
+  if (navigation.rootKey !== null) {
+    const root = selectable().find(element => nodeId(element) === displayedView?.nodes.find(node => node.key === navigation.rootKey)?.uid)
+    if (root) {
+      const box = root.getBoundingClientRect(), bounds = viewport.getBoundingClientRect()
+      viewport.scrollTo({ left: viewport.scrollLeft + box.left + box.width / 2 - bounds.left - bounds.width / 2, top: viewport.scrollTop + box.top - bounds.top - 24 })
+    }
+  }
 }
 function clearGraph() {
-  hideReport(); epoch++; model = null; svg = null; svgText = ''; diagram.replaceChildren(); details(null)
+  hideReport(); epoch++; model = null; svg = null; svgText = ''; displayedView = null; displayedGeometry = ''; navigation.reset(); navigationMessage = ''; inventoryScope = null; diagram.replaceChildren(); details(null)
+  $('topology-main').hidden = true; $('topology-back').hidden = true; $('topology-path').textContent = 'Main'; $('topology-view-summary').textContent = ''; $('direction').disabled = false; $('direction').hidden = false; $('topology-direction').hidden = true
   $('empty').hidden = false; $('export').disabled = true; $('warnings').replaceChildren(); $('mermaid-source').value = ''
   $('rig-name').textContent = 'No valid topology'
   for (const id of ['pod-count', 'agent-count', 'edge-count']) $(id).textContent = '—'
@@ -89,6 +130,7 @@ function clearGraph() {
 function markDirty() {
   sourceChanged('yaml')
   loadEpoch++; epoch++; dirty = true; $('export').disabled = true
+  $('topology-main').disabled = true; $('topology-back').disabled = true
   notice('Source changed · Render diagram to apply it. The map below is the previous snapshot.')
 }
 let observationFreshness = null
@@ -102,20 +144,38 @@ export function updateObservationFreshness(value) {
   $('inventory-legend').textContent = value?.relationsStale ? `Older / incomplete relationships · ${model.relationsStatus} snapshot` : `Native directed relationships · ${model.relationsStatus}`
   if (stale) notice('Older or incomplete observation · see last successful seat/relationship times above. This is not confirmed current state.')
 }
-function updateMetadata(current) {
-  $('rig-name').textContent = current.name
-  $('pod-count').textContent = current.pods.length; $('pod-noun').textContent = current.pods.length === 1 ? 'pod' : 'pods'; $('agent-count').textContent = current.nodes.length; $('edge-count').textContent = current.source === 'inventory' && ['unqueried', 'loading', 'unavailable'].includes(current.relationsStatus) ? '—' : current.source === 'inventory' && current.relationsStatus === 'partial' ? `${current.edges.length} observed` : current.edges.length
+function updateMetadata(current, projection = projectTopology(current, navigation.rootKey)) {
+  const scoped = projection.view.rootKey !== null || projection.nodes.length !== current.nodes.length
+  $('rig-name').textContent = projection.view.rootKey !== null ? `${current.name} / ${projection.view.rootId}` : current.name
+  $('pod-count').textContent = projection.pods.length; $('pod-noun').textContent = projection.pods.length === 1 ? 'pod' : 'pods'
+  $('agent-count').textContent = scoped ? `${projection.nodes.length} / ${current.nodes.length}` : current.nodes.length
+  const edgeCount = scoped ? `${projection.edges.length} / ${current.edges.length}` : current.edges.length
+  $('edge-count').textContent = current.source === 'inventory' && ['unqueried', 'loading', 'unavailable'].includes(current.relationsStatus) ? '—' : current.source === 'inventory' && current.relationsStatus === 'partial' ? `${edgeCount} observed` : edgeCount
+  updateNavigation(projection)
   $('empty').hidden = true; $('error').hidden = true
   $('warnings').replaceChildren(...current.warnings.map(message => { const li = document.createElement('li'); li.textContent = message; return li }))
   origin(current.source)
   if (current.source === 'inventory') $('inventory-legend').textContent = `Native directed relationships · ${current.relationsStatus}`
   $('export').disabled = dirty; notice(dirty ? 'Source changed · The map is the previous snapshot. Render to apply the source.' : current.source === 'inventory' ? `Native pod snapshot · ${new Date(current.observedAt).toLocaleString()}. Relationships: ${current.relationsStatus}${current.relationshipObservedAt ? ` · ${new Date(current.relationshipObservedAt).toLocaleString()}` : ''}. No connections were inferred.` : 'Ready · Declared topology only. Select an agent to inspect its settings.')
   if (current.source === 'inventory') updateObservationFreshness(observationFreshness)
+  // Completeness/timestamps can change without a geometry redraw. Keep exported
+  // scope metadata in sync too; a prior complete SVG must not mask partial data.
+  if (svg) {
+    const title = svg.querySelector('title'), description = svg.querySelector('desc')
+    title.textContent = projection.view.rootKey !== null ? `${current.name} / ${projection.view.rootId}` : current.name
+    description.textContent = topologyViewSummary(projection)
+    svg.setAttribute('aria-label', `${title.textContent}: ${description.textContent}`)
+    const exported = svg.cloneNode(true)
+    exported.style.width = `${natural.width}px`; exported.style.height = `${natural.height}px`
+    svgText = exported.outerHTML
+  }
 }
-function scheduleRender() {
+function scheduleRender({ restoreCamera = false, focusNavigation = false } = {}) {
   hideReport()
-  const current = model, direction = $('direction').value, revision = ++epoch
+  const current = model, rootKey = navigation.rootKey, revision = ++epoch
   if (!current) return Promise.resolve()
+  const direction = rootKey !== null ? 'TB' : $('direction').value
+  const camera = restoreCamera ? navigation.camera() : null
   $('export').disabled = true; notice('Rendering the declared topology locally…')
   renderQueue = renderQueue.catch(() => {}).then(async () => {
     if (revision !== epoch) return
@@ -126,32 +186,49 @@ function scheduleRender() {
       themeVariables: { fontSize: '13px', primaryColor: isDark ? '#26374c' : '#f0f4ff', primaryTextColor: isDark ? '#e4ecf7' : '#27364e', primaryBorderColor: isDark ? '#526988' : '#b4c3e2', lineColor: '#8d9db9', clusterBkg: isDark ? '#1d2a3b' : '#f8faff', clusterBorder: isDark ? '#3c4c64' : '#dbe4f3', edgeLabelBackground: isDark ? '#1b2330' : '#ffffff' },
       flowchart: { htmlLabels: false, useMaxWidth: false, curve: 'basis', padding: 18, nodeSpacing: 40, rankSpacing: 55 } })
     try {
-      const code = topologyMermaid(current, direction)
+      let projection = projectTopology(current, rootKey)
+      const code = topologyMermaid(projection, direction)
       const rendered = await mermaid.render(`rig_diagram_${revision}`, code)
       if (revision !== epoch) return
+      // A metadata-only refresh can update this same model object while Mermaid
+      // is pending without changing the geometry/revision. Commit the latest
+      // completeness, notes and observation times, not the pre-await projection.
+      projection = projectTopology(current, rootKey)
       // Only generated flowcharts enter Mermaid. Sanitize again before attaching or exporting an SVG.
       const clean = DOMPurify.sanitize(rendered.svg, { USE_PROFILES: { svg: true, svgFilters: true }, FORBID_TAGS: ['script', 'foreignObject', 'image', 'a', 'iframe', 'animate', 'set', 'use'], FORBID_ATTR: ['href', 'xlink:href'] })
       const parsed = new DOMParser().parseFromString(clean, 'image/svg+xml')
       const root = parsed.documentElement
       if (root.localName !== 'svg' || parsed.querySelector('parsererror')) throw new Error('Invalid rendered SVG')
-      diagram.replaceChildren(document.importNode(root, true)); svg = diagram.querySelector('svg')
+      diagram.replaceChildren(document.importNode(root, true)); diagram.classList.toggle('topology-focus', projection.view.rootKey !== null); svg = diagram.querySelector('svg')
       const box = svg.viewBox.baseVal
       if (!box.width || !box.height) throw new Error('Empty rendered SVG')
-      natural = { width: box.width, height: box.height }; svgText = svg.outerHTML
-      svg.setAttribute('aria-label', `${current.name}: ${current.source === 'inventory' ? 'native pod seats and reported relationships' : 'declared pods, agents and relationships'}`)
+      natural = { width: box.width, height: box.height }; displayedView = projection; displayedGeometry = geometryKey(current)
+      const title = document.createElementNS('http://www.w3.org/2000/svg', 'title'), description = document.createElementNS('http://www.w3.org/2000/svg', 'desc')
+      svg.prepend(title, description)
+      let restoringFocus = false
       for (const element of selectable()) {
-        const node = current.nodes.find(n => n.uid === nodeId(element))
+        const node = projection.nodes.find(n => n.uid === nodeId(element))
         if (!node) continue
-        element.setAttribute('role', 'button'); element.setAttribute('tabindex', '0'); element.setAttribute('aria-label', `Inspect ${node.id}`)
+        const hub = projection.view.hubs.includes(node.key)
+        element.classList.toggle('topology-hub', hub)
+        element.setAttribute('role', 'button'); element.setAttribute('tabindex', '0'); element.setAttribute('aria-label', hub ? `View downstream structure of hub ${node.id}; ${node.hubChildren} ${current.source === 'inventory' ? 'observed' : 'declared'} direct targets` : `Inspect ${node.id}`)
         element.addEventListener('mouseenter', () => { void showReport(node, element) })
         element.addEventListener('mouseleave', hideReport)
-        element.addEventListener('focus', () => { void showReport(node, element) }); element.addEventListener('blur', hideReport)
+        element.addEventListener('focus', () => { if (!restoringFocus) void showReport(node, element) }); element.addEventListener('blur', hideReport)
         element.addEventListener('keydown', event => { if (event.key === 'Escape') { event.preventDefault(); hideReport() } })
-        element.addEventListener('click', () => { hideReport(); details(node) })
-        element.addEventListener('keydown', event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); hideReport(); details(node) } })
+        element.addEventListener('click', () => activateNode(node, projection, current))
+        element.addEventListener('keydown', event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); activateNode(node, projection, current) } })
       }
-      details(current.nodes.find(n => n.key === selectedKey) || current.nodes[0]); fit()
-      $('mermaid-source').value = code; updateMetadata(current)
+      details(projection.nodes.find(n => n.key === (camera?.selectedKey || selectedKey)) || projection.nodes.find(n => n.key === projection.view.rootKey) || projection.nodes[0])
+      if (camera) { resize(camera.scale); viewport.scrollTo({ left: camera.left, top: camera.top }) } else fit()
+      $('mermaid-source').value = code; updateMetadata(current, projection)
+      if (focusNavigation) {
+        const target = selectable().find(element => nodeId(element) === selected) || viewport
+        restoringFocus = true
+        target.focus({ preventScroll: true })
+        restoringFocus = false
+        hideReport()
+      }
     } catch {
       if (revision !== epoch) return
       clearGraph(); $('error').textContent = 'The local renderer could not draw this projection. Simplify the diagram or shorten its labels; no agent operation was requested.'; $('error').hidden = false
@@ -163,7 +240,7 @@ function scheduleRender() {
 function renderSource() {
   sourceChanged('yaml'); origin('yaml')
   loadEpoch++
-  try { model = parseTopology(source.value); dirty = false; $('error').hidden = true; return scheduleRender() }
+  try { model = parseTopology(source.value); navigation.reset(); navigation.sync(model, 'yaml'); navigationMessage = ''; inventoryScope = null; dirty = false; $('error').hidden = true; return scheduleRender() }
   catch (error) { clearGraph(); $('error').textContent = error.message; $('error').hidden = false; notice('Source needs attention · The previous map was cleared.'); return Promise.resolve() }
 }
 source.addEventListener('input', markDirty)
@@ -184,9 +261,9 @@ $('yaml-file').addEventListener('change', async event => {
   } finally { event.target.value = '' }
 })
 $('direction').addEventListener('change', () => { directionChosen = true; if (model) scheduleRender() })
-$('zoom-in').addEventListener('click', () => resize(scale * 1.25))
-$('zoom-out').addEventListener('click', () => resize(scale / 1.25))
-$('fit').addEventListener('click', fit)
+$('zoom-in').addEventListener('click', () => { resize(scale * 1.25); saveCamera() })
+$('zoom-out').addEventListener('click', () => { resize(scale / 1.25); saveCamera() })
+$('fit').addEventListener('click', () => { fit(); saveCamera() })
 $('export').addEventListener('click', async () => {
   if (!svgText || dirty) return
   const data = svgText, suggestedName = `${(model.name.replace(/[^a-z0-9._-]+/gi, '-').slice(0, 64) || 'rig')}-topology.svg`
@@ -201,25 +278,33 @@ $('export').addEventListener('click', async () => {
     }
   } catch { notice('SVG could not be saved. The current diagram is unchanged.') }
 })
-const themeChanged = () => { adoptNativeTheme(); if (model) scheduleRender() }
+const themeChanged = () => { adoptNativeTheme(); if (model) { saveCamera(); scheduleRender({ restoreCamera: true }) } }
 window.orca?.on?.('theme', themeChanged)
 matchMedia('(prefers-color-scheme: dark)').addEventListener('change', themeChanged)
 let lastViewportWidth = 0
 new ResizeObserver(() => {
   const width = viewport.clientWidth, preferred = innerWidth < 700 ? 'TB' : 'LR'
-  if (!directionChosen && $('direction').value !== preferred) { $('direction').value = preferred; if (model) scheduleRender() }
-  else if (svg && width !== lastViewportWidth) fit()
+  if (navigation.rootKey === null && !directionChosen && $('direction').value !== preferred) { saveCamera(); $('direction').value = preferred; if (model) scheduleRender({ restoreCamera: true }) }
+  // Layout settling (e.g. the breadcrumb wrapping) must not overwrite a user's
+  // zoom or a camera just restored by Back to main.
+  else if (svg && width !== lastViewportWidth && !navigation.camera()) fit()
   lastViewportWidth = width
 }).observe(document.querySelector('.map-card'))
-export function displayPodSnapshot(pod, seats = [], observedAt = Date.now(), relations = null, freshness = null) {
+export function displayPodSnapshot(pod, seats = [], observedAt = Date.now(), relations = null, freshness = null, instanceKey = null) {
   loadEpoch++; observationFreshness = freshness
   if (!pod) {
     sourceChanged('inventory'); origin('inventory'); clearGraph(); $('error').hidden = true; $('rig-name').textContent = 'Select an OpenRig pod'; $('topology-origin').textContent = 'Native inventory'; $('empty').textContent = 'Refresh and select an actual rig / pod above. No example is substituted.'; notice('No pod selected. This dashboard does not auto-load an example.'); return
   }
   try {
     const next = topologyForPod(pod, seats, observedAt, relations)
-    if (model?.source === 'inventory' && svg && !dirty && geometryKey(model) === geometryKey(next)) { Object.assign(model, next); updateMetadata(model); return }
-    sourceChanged('inventory'); origin('inventory'); model = next; dirty = false; $('error').hidden = true; scheduleRender()
+    saveCamera()
+    const previousRoot = navigation.rootKey, nextScope = JSON.stringify(['inventory', instanceKey, pod.key]), sameScope = inventoryScope === nextScope
+    const missing = navigation.sync(next, nextScope)
+    inventoryScope = nextScope
+    if (!sameScope) selectedKey = ''
+    navigationMessage = missing ? 'The previous hub is no longer in this snapshot; returned to main. ' : ''
+    if (sameScope && model?.source === 'inventory' && svg && !dirty && previousRoot === navigation.rootKey && displayedView?.view.rootKey === navigation.rootKey && displayedGeometry === geometryKey(next) && geometryKey(model) === geometryKey(next)) { Object.assign(model, next); updateMetadata(model); return }
+    sourceChanged('inventory'); origin('inventory'); model = next; dirty = false; $('error').hidden = true; scheduleRender({ restoreCamera: true })
   }
   catch (error) { clearGraph(); $('rig-name').textContent = pod.label; $('topology-origin').textContent = 'Native inventory'; $('error').textContent = error.message; $('error').hidden = false; notice('The complete seat list remains below; no partial diagram was substituted.') }
 }

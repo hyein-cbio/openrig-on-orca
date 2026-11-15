@@ -139,6 +139,23 @@ Report-preview coverage in `test/seat-reports.test.mjs` and the session-controll
 
 Safe auto-refresh tests use a deterministic injected clock without changing the production 60000 ms interval. `refresh-loop.test.mjs` checks opt-in, 1-minute cadence, 2/4/8-minute backoff/recovery, review/edit/hidden gates, one overdue resume, cancellation and no overlap. `auto-refresh.test.mjs` checks read-only request names, draft/review retention, stale last-good data, independent relationship failure, vanished/changed-instance refusal and late-response disposal. Visibility unit tests cover document/page lifecycle and visibility-tracking intersection with unknown fail-closed behavior. The live browser harness verifies unchanged SVG/node identity, zoom, selection and tooltip preservation, stale metadata without re-render, and conservative suspension for CSS-hidden same-origin frames. These standard frame checks do not claim a private Orca HTML visibility event exists or OS-level occlusion testing on every desktop.
 
+## Hub drill-down regression coverage
+
+`test/topology-view.test.mjs` exercises the pure, non-mutating projection and instance/pod-scoped navigation: the exact 6/7-child boundary, incoming/duplicate/self/unknown-kind edges, nested hubs, alternate shared paths, disconnected components, rootless hierarchy cycles, omitted feedback into a focus root, partial/unqueried observations, empty pod projection, stable keys across reordered UIDs, missing roots and camera reset/restore. Deterministic mixed-graph checks verify visible endpoints, original-edge provenance and node accounting for every focus. Existing bundled-parser, sanitization, asset-integrity and staging checks still apply.
+
+`test/topology-client.test.mjs` executes the actual browser controller bundled with renderer/DOM doubles. Deferred Mermaid promises deterministically hold membership refreshes and theme redraws while stale click/Enter/Space events or newer metadata arrive. Regressions cover removed hubs, identical seat keys across instance changes, detached/previous-view events, legitimate navigation after a metadata-only update, and complete/partial/unavailable transitions reaching the UI, SVG description and exported SVG after the paused redraw finishes. The doubles do not validate browser layout or sanitization; the real browser checks below cover the shipped renderer separately. They also pause its actual Mermaid promise to verify both stale-click and completeness-update races without timing-dependent sleeps.
+
+With Orca already running, run the synthetic browser checks without installing a plugin or touching a real OpenRig instance:
+
+```sh
+npm run build:visualizer
+npm run test:topology-browser
+npm run test:topology-browser -- --narrow --dark
+# Optional --capture prints paths for main, hub and nested-hub screenshots.
+```
+
+The runner opens/closes only its own allowlisted loopback preview and browser tab. Shared `scripts/topology-browser-checks.mjs` is also used by the disposable live suite, which requires a `topology-drilldown` report entry. Checks cover actual rendered root/child coordinates, mouse and keyboard-event activation, nested/Back to main navigation, camera restoration, unchanged SVG identity, reordered refreshes, partial markers, scoped SVG export through a cancelled save stub, a vanished hub, changed instance, obsolete render disposal and dirty/new YAML behavior. These tests use synthetic observations, no daemon/agent/model/terminal operations. Programmatically dispatched keyboard events do not claim OS-level keyboard or native save-dialog validation.
+
 ## Unverified behavior
 
 - Compatibility with Orca/OpenRig/macOS versions outside the pinned hosted and local targets. Hosted workload success and JUnit ingestion are separate acceptance checks; see the reporting history above.

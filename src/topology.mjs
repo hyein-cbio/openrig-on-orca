@@ -89,11 +89,12 @@ export const mermaidLabel = value => String(value).replace(/["<>`#%$&\\|{}:]/g, 
 export function topologyMermaid(topology, direction = 'LR') {
   if (!['LR', 'TB'].includes(direction)) problem('Unsupported layout direction.')
   const lines = [`flowchart ${direction}`]
+  if (topology.view?.hubs.length) lines.push('classDef topologyHub stroke:#7483ed,stroke-width:2px,stroke-dasharray:5 3')
   for (const pod of topology.pods) {
     lines.push(`subgraph ${pod.uid}["${mermaidLabel(pod.label)}"]`, `direction ${direction}`)
     for (const node of topology.nodes.filter(n => n.podId === pod.id)) {
-      const label = [text(node.id, '', 40), text(node.runtime, '', 24), ...(node.model !== 'Not declared here' ? [text(node.model, '', 40)] : []), ...(topology.source === 'inventory' ? [text(`${node.status} · ${node.activity}${node.attention ? ' · attention' : ''}`, '', 60)] : [])].map(mermaidLabel).join('<br/>')
-      lines.push(`${node.uid}["${label}"]`)
+      const label = [text(node.id, '', 40), text(node.runtime, '', 24), ...(node.model !== 'Not declared here' ? [text(node.model, '', 40)] : []), ...(topology.source === 'inventory' ? [text(`${node.status} · ${node.activity}${node.attention ? ' · attention' : ''}`, '', 60)] : []), ...(node.hubChildren ? [node.key === topology.view?.rootKey ? 'Focus root' : `Hub · ${node.hubChildren} direct targets`] : [])].map(mermaidLabel).join('<br/>')
+      lines.push(`${node.uid}["${label}"]${topology.view?.hubs.includes(node.key) ? ':::topologyHub' : ''}`)
     }
     lines.push('end')
   }
