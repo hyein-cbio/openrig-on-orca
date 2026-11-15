@@ -25,7 +25,7 @@ export function topologyForPod(pod, seats, observedAt, relations = null) {
     runtime: seat.runtime, model: seat.model || 'Not declared here', role: 'Not provided by seat inventory', agentRef: 'Not provided by seat inventory',
     status: seat.status, activity: seat.activity, attention: seat.attention }))
   const current = relations?.podKey === pod.key ? relations : null, byKey = new Map(nodes.map(n => [n.key, n.uid])), edges = []
-  const warnings = ['Manual native inventory snapshot, not continuous live polling. Running does not mean working or healthy.', ...(current?.notes || ['Relationship edges were not queried yet; no delegation arrows were inferred.'])]
+  const warnings = ['Native observation snapshot; optional auto refresh is periodic and read-only, not continuous live status. Running does not mean working or healthy.', ...(current?.notes || ['Relationship edges were not queried yet; no delegation arrows were inferred.'])]
   let missing = 0
   for (const edge of current?.edges || []) {
     const from = byKey.get(edge.fromKey), to = byKey.get(edge.toKey)

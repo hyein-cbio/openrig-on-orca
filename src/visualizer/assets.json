@@ -17,17 +17,18 @@
   "inputs": {
     "package-lock.json": "fae8fbcf9275ebe0014740e2a63d6e895ae7342b5bd65808ac4a1555b4773887",
     "scripts/build-visualizer.mjs": "d84cd4919a2f453e8ba46062ef03cb51eccea42514e82af97d806c03e7d3afa2",
-    "scripts/visualizer-inputs.mjs": "c2c5f0365ad5431842b0276dedb76db88a277abd46d5b478d725fde3520513c7",
+    "scripts/visualizer-inputs.mjs": "31128d02046c2008439e040b7efaa857ba14f87cee158c977c4792164b00064d",
     "src/example-story.mjs": "a384d642674d6becf1df0a7054038fdb43c5d5c37ed669f224e1f06a161d5f2f",
-    "src/plugin-client.mjs": "01c8bfc8f952251abd6778dd2f5e2f2d295f7a0cd42c4563a91f646f6c02ee14",
-    "src/plugin-state.mjs": "e959ba457a66096542f7f2d897605eeeab4b50b76308fb23cdb4f56728b79286",
-    "src/plugin.css": "1b330bb86d8dbc21fb80913501eb305a460c1d9f0fcd389d6039371747c49e66",
-    "src/plugin.html": "3d66bd669bb105234ae774c13811b05cca18ae224c05dea4d2b86f153275f318",
-    "src/pods.mjs": "3cac0c3d5fac0626f890821b9b2a86d280a07b40801e20089c4f11aa848772e4",
+    "src/plugin-client.mjs": "eeb9543d9620e73e3c71b6200dfbab885b32f2d6b16a5f428180f0b4dffd151f",
+    "src/plugin-state.mjs": "5809b7cdda0e7ff4cb9a8406dbb818274be5ce1c6959538a704cd4845e689a17",
+    "src/plugin.css": "1faaa2b8c71f559690086bf78ba112a2cdb82c40f9b6896cee52016f21765f3c",
+    "src/plugin.html": "c0e83c37474d999c1e3f200bb10803cf8cd6d5b52efefd7cacba4675de5c98ca",
+    "src/pods.mjs": "0edc45a435123c4b9f75fe5aad682d6cdcb6772e9b5b317d833847f20c24f0c4",
+    "src/refresh-loop.mjs": "cd7466eb5154e3f995bf84fcb8d98071440bef0fb76dc6bffa47041740c18bc7",
     "src/report-preview.mjs": "d470418563b4b72bb23fb24fb03112b7de26fd5315149c7210ca88758f07e02a",
     "src/seat-instructions.mjs": "670a3ba69e39b9d1c88401c3d0190118c31359ad4e3e47e7b6bd6da6d598454b",
     "src/seat-tasks.mjs": "9133d1c2aa3b7e3f4ad24c745e94e2ec590a4bc7a96aee0a8629f2bbf3b1860f",
-    "src/topology-client.mjs": "62b35cb6d19807df3f0e8ab3fe37d5df38d8cde131781b361b5d94a3fa819682",
+    "src/topology-client.mjs": "85be2dcdc59e18a707730642143f8d434e4d9cac4c2016e2a4fe5ad416b1ceed",
     "src/topology.css": "9313eb3dcd3221068055c1d4c3dc2d97d0d1082e833494bc86e8cb289d913ddc",
     "src/topology.html": "57d8d78b9a735d0b4c2ed8ea2994bbdb9bb47910b90ec36f1187c3bb5a3dc3a7",
     "src/topology.mjs": "99e9609cb018f5a7a7961a01f5c9b486ed62bb948876952674faef1969113e65",
@@ -36,16 +37,16 @@
   "files": [
     {
       "path": "app.mjs",
-      "bytes": 136,
-      "sha256": "440a92c1620440f1cc02b56993a18bb4f3e402f344f76e7cdbbeb5fc65e61095"
+      "bytes": 175,
+      "sha256": "2365053cdb9755f323a2bd1fd2a9c55e64014e71a3da57e73cd4e55832d62527"
     },
     {
-      "path": "chunk-ACPV7AEK.mjs",
-      "bytes": 45012,
-      "sha256": "db76422117c8ae6ff0431fe9e38040369bfe0fc7d6c5d18830510ab08dbddcd4"
+      "path": "chunk-UNJQYDFN.mjs",
+      "bytes": 45995,
+      "sha256": "e2eae36b675874058ece7f6959c6cefc6fe8539a2a98d54b1ea6dd5477270de1"
     },
     {
-      "path": "chunk-ACPV7AEK.mjs.LEGAL.txt",
+      "path": "chunk-UNJQYDFN.mjs.LEGAL.txt",
       "bytes": 417,
       "sha256": "4245c420f535f6b11e3f590606105d70565d76e4ba670d1f1497c1f39c57800a"
     },
@@ -1181,8 +1182,8 @@
     },
     {
       "path": "plugin.html",
-      "bytes": 18672,
-      "sha256": "77e010ad56a91045ac18f526512c70a79d21136dc87c1e08ea7efdbc781d427a"
+      "bytes": 19170,
+      "sha256": "fc453f66c56022234dc9d4b65db583d0e570873588dc448e7eacb28438914218"
     },
     {
       "path": "topology.mjs",
@@ -1191,8 +1192,8 @@
     },
     {
       "path": "workspace.mjs",
-      "bytes": 28329,
-      "sha256": "2da5153258c3ccc80c8c7d6c6c1c8ef15f3272659682ad257adb14abaa9e0a81"
+      "bytes": 37333,
+      "sha256": "7855ce4f831fbe0e774241e116109b4dde8979f0ca69569dc38b993dd99e6f2d"
     }
   ]
 }

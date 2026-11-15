@@ -1,6 +1,7 @@
 import { canInstruct, instructionTextError } from './seat-instructions.mjs'
 import { canStartSeat, canQueueTask, taskTextError } from './seat-tasks.mjs'
 import { EXAMPLE_STEPS } from './example-story.mjs'
+import { createRefreshLoop, REFRESH_MS } from './refresh-loop.mjs'
 import { reportPrefix } from './report-preview.mjs'
 import { seatInPod, operationInstance } from './pods.mjs'
 
@@ -12,24 +13,31 @@ export const CONFIG_FIELDS = [
 ]
 export const EMPTY_INPUT = { instructionSeat: '', instruction: '', taskSeat: '', summary: '', body: '', spec: '' }
 
-/** One panel session. Navigation changes only local state; every write still uses the existing worker review contract. */
-export function createPluginSession(request, changed = () => {}) {
+/** One panel session. Navigation never writes; opted-in visible observations may resume reads. Every write retains the worker review contract. */
+export function createPluginSession(request, changed = () => {}, options = {}) {
+  const now = options.clock?.now || Date.now
+  const emptyObservation = () => ({ seatsAt: 0, relationsAt: 0, lastSuccessAt: 0, seatsError: '', relationsError: '', missing: false, identityChanged: false })
   const state = { view: 'preparation', host: typeof request === 'function', env: null, draft: null, workspaceId: '',
     seats: null, inventory: null, relations: null, inventorySource: 'tui', diagramSource: 'inventory', podKey: '', podError: '', examples: [], input: { ...EMPTY_INPUT }, plan: null, startupRisk: false, receipt: null,
-    task: null, readOnly: true, busy: false, busyKind: null, error: '', notice: '', warning: '', step: 0 }
-  const reportCache = new Map(); let reportReads = 0
-  const emit = () => changed(state)
+    observation: emptyObservation(), autoRefresh: null, task: null, readOnly: true, busy: false, busyKind: null, error: '', notice: '', warning: '', step: 0 }
+  const reportCache = new Map(); let reportReads = 0, refreshLoop = null
+  const emit = () => { refreshLoop?.sync(); changed(state) }
+  const inventoryKey = value => value && JSON.stringify({ ...value, observedAt: 0 })
+  const relationsKey = value => value && JSON.stringify({ ...value, observedAt: 0, memberKeys: [...value.memberKeys].sort(), edges: [...value.edges].sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b))) })
+  const validInventory = value => Array.isArray(value?.pods) && Array.isArray(value.seats) && typeof value.connection?.key === 'string' && /^[a-f0-9]{64}$/.test(value.connection.key)
+  const validRelations = (value, instanceKey, podKey) => value?.instanceKey === instanceKey && value.podKey === podKey && ['complete', 'partial', 'unavailable'].includes(value.status) && Array.isArray(value.memberKeys) && Array.isArray(value.edges) && value.edges.length <= 160 && Array.isArray(value.notes)
   const dirty = () => JSON.stringify(state.draft) !== JSON.stringify(state.env?.config || null)
   function requireHost() { if (!state.host) throw new Error('Open this page inside the OpenRig for Orca plugin to use operations. The standalone preview is read-only.') }
   async function work(fn, kind = 'operation') {
     if (state.busy) return
+    refreshLoop?.cancel()
     state.busy = true; state.busyKind = kind; state.error = ''; state.notice = ''; state.warning = ''; emit()
     try { requireHost(); await fn() } catch (error) { state.error = error instanceof Error ? error.message : String(error) }
     finally { state.busy = false; state.busyKind = null; emit() }
   }
   function invalidate() { state.plan = null; state.startupRisk = false }
   function apply(env) {
-    reportCache.clear()
+    reportCache.clear(); state.observation = emptyObservation()
     if (state.task && JSON.stringify(state.env?.config) !== JSON.stringify(env.config)) state.task = { ...state.task, registration: 'unverified', state: 'unknown', detail: 'Instance configuration changed. Reconcile at the original endpoint before retrying.' }
     state.env = env; state.draft = { ...env.config }; state.seats = null; state.examples = []; state.inventory = null; state.relations = null; state.diagramSource = 'inventory'; state.podKey = ''; state.podError = ''
     state.input.instructionSeat = ''; state.input.taskSeat = ''
@@ -38,36 +46,101 @@ export function createPluginSession(request, changed = () => {}) {
   }
   const selectedPod = () => state.inventory?.pods.find(pod => pod.key === state.podKey) || null
   const podSeats = () => state.inventory?.seats.filter(seat => seatInPod(seat, selectedPod())) || []
-  const podConnected = () => Boolean(selectedPod() && state.inventory?.connection.matchesConfigured && state.diagramSource === 'inventory')
+  const podConnected = () => Boolean(selectedPod() && state.inventory?.connection.matchesConfigured && state.diagramSource === 'inventory' && !state.observation.seatsError && !state.observation.missing)
   const findSeat = key => podSeats().find(seat => seat.key === key)
+  function storeInventory(next) {
+    if (inventoryKey(next) === inventoryKey(state.inventory)) state.inventory.observedAt = next.observedAt
+    else state.inventory = next
+  }
+  function recordFullSuccess() {
+    const o = state.observation
+    if (o.seatsAt && o.relationsAt && !o.seatsError && !o.relationsError && state.relations?.status === 'complete') {
+      o.lastSuccessAt = Math.min(o.seatsAt, o.relationsAt); refreshLoop?.success(o.lastSuccessAt)
+    }
+  }
+  function storeRelations(result, memberKeys) {
+    const different = JSON.stringify([...result.memberKeys].sort()) !== JSON.stringify([...memberKeys].sort())
+    const next = different ? { ...result, status: 'partial', notes: [...result.notes, 'Membership changed while loading relationships. Refresh the pod snapshot; unmatched endpoints are not drawn.'] } : result
+    if (next.status === 'unavailable' && state.relations?.podKey === next.podKey && state.relations?.instanceKey === next.instanceKey && state.relations.status !== 'loading') {
+      state.observation.relationsError = 'Relationship lookup unavailable; showing the previous relationship snapshot.'; return
+    }
+    if (relationsKey(next) === relationsKey(state.relations)) state.relations.observedAt = next.observedAt
+    else state.relations = next
+    state.observation.relationsError = next.status === 'complete' ? '' : 'Relationship observation is partial or unverified.'
+    if (next.status === 'complete') state.observation.relationsAt = now()
+  }
   async function loadPods(keepKey = '') {
     reportCache.clear()
-    state.inventory = null; state.relations = null; state.diagramSource = 'inventory'; state.podError = ''; state.podKey = ''; state.input.instructionSeat = ''; state.input.taskSeat = ''; invalidate(); emit()
+    const previous = state.inventory, previousPod = state.podKey
+    state.diagramSource = 'inventory'; state.podError = ''; invalidate(); emit()
     try {
       const inventory = await request('pods.list', { source: state.inventorySource }, { timeoutMs: 120000 })
-      if (!Array.isArray(inventory?.pods) || !Array.isArray(inventory.seats) || typeof inventory.connection?.key !== 'string' || !/^[a-f0-9]{64}$/.test(inventory.connection.key)) throw new Error('Native pod observation is incomplete; no target was guessed.')
-      state.inventory = inventory
-      if (state.inventory.pods.some(pod => pod.key === keepKey)) { state.podKey = keepKey; await loadRelations() }
-    } catch (error) { state.inventory = null; state.podError = error instanceof Error ? error.message : String(error) }
+      if (!validInventory(inventory)) throw new Error('Native pod observation is incomplete; no target was guessed.')
+      const sameInstance = !previous || previous.connection.key === inventory.connection.key
+      storeInventory(inventory)
+      state.observation.seatsAt = now(); state.observation.seatsError = ''; state.observation.missing = false; state.observation.identityChanged = false
+      state.podKey = sameInstance && inventory.pods.some(p => p.key === keepKey) ? keepKey : ''
+      if (state.podKey !== previousPod || !sameInstance) { state.relations = null; state.observation.relationsAt = 0; state.observation.relationsError = ''; state.observation.lastSuccessAt = 0; reportCache.clear() }
+      if (!podSeats().some(s => s.key === state.input.instructionSeat)) state.input.instructionSeat = ''
+      if (!podSeats().some(s => s.key === state.input.taskSeat)) state.input.taskSeat = ''
+      if (state.podKey) await loadRelations()
+    } catch (error) {
+      state.podError = error instanceof Error ? error.message : String(error)
+      state.observation.seatsError = 'Seat lookup failed; the retained snapshot is stale, not current state.'; refreshLoop?.failure()
+    }
   }
   async function loadRelations() {
     const pod = selectedPod(), inventory = state.inventory
     if (!pod || !inventory) { state.relations = null; return }
     const { key: instanceKey, source } = inventory.connection, podKey = pod.key, memberKeys = podSeats().map(s => s.key)
-    const same = () => state.inventory === inventory && state.podKey === podKey
-    state.relations = { instanceKey, podKey, memberKeys, observedAt: 0, status: 'loading', edges: [], notes: ['Reading native compact relationship metadata…'] }; emit()
+    const same = () => state.inventory?.connection.key === instanceKey && state.podKey === podKey
+    if (!state.relations) state.relations = { instanceKey, podKey, memberKeys, observedAt: 0, status: 'loading', edges: [], notes: ['Reading native compact relationship metadata…'] }
+    emit()
     try {
       const result = await request('pods.edges', { source: source || state.inventorySource, instanceKey, podKey }, { timeoutMs: 120000 })
       if (!same()) return
-      if (result?.instanceKey !== instanceKey || result.podKey !== podKey || !['complete', 'partial', 'unavailable'].includes(result.status) || !Array.isArray(result.memberKeys) || !Array.isArray(result.edges) || result.edges.length > 160 || !Array.isArray(result.notes)) throw new Error('Invalid relationship observation')
-      const changed = JSON.stringify([...result.memberKeys].sort()) !== JSON.stringify([...memberKeys].sort())
-      state.relations = changed ? { ...result, status: 'partial', notes: [...result.notes, 'Membership changed while loading relationships. Refresh the pod snapshot; unmatched endpoints are not drawn.'] } : result
+      if (!validRelations(result, instanceKey, podKey)) throw new Error('Invalid relationship observation')
+      storeRelations(result, memberKeys); if (state.observation.relationsError) refreshLoop?.failure(); else recordFullSuccess()
     } catch {
-      if (same()) state.relations = { instanceKey, podKey, memberKeys, observedAt: 0, status: 'unavailable', edges: [], notes: ['Relationship observation unavailable. Missing lines are unverified, not proof that no connection exists. Refresh the selected pod.'] }
+      if (same()) {
+        state.observation.relationsError = 'Relationship lookup failed; any retained lines are from an older snapshot.'; refreshLoop?.failure()
+        if (!state.relations || state.relations.status === 'loading') state.relations = { instanceKey, podKey, memberKeys, observedAt: 0, status: 'unavailable', edges: [], notes: ['Relationship observation unavailable. Missing lines are unverified, not proof that no connection exists.'] }
+      }
     }
   }
+  async function observeSelected(signal) {
+    const pod = selectedPod(), original = state.inventory
+    if (!pod || !original) return false
+    const instanceKey = original.connection.key, podKey = pod.key, source = original.connection.source || state.inventorySource
+    const current = () => !signal.aborted && state.podKey === podKey && state.inventory?.connection.key === instanceKey && state.view === 'dashboard' && state.diagramSource === 'inventory' && !state.plan && !state.busy && !dirty()
+    let next
+    try {
+      next = await request('pods.list', { source }, { timeoutMs: 120000, signal })
+      if (!current()) return false
+      if (!validInventory(next)) throw new Error('Invalid inventory')
+      if (next.connection.key !== instanceKey) { state.observation.identityChanged = true; throw new Error('Instance changed') }
+      if (!next.pods.some(p => p.key === podKey)) { state.observation.missing = true; throw new Error('Selected pod missing') }
+    } catch {
+      if (current()) { state.observation.seatsError = state.observation.identityChanged ? 'Instance changed. Auto refresh is paused; inspect and refresh manually.' : state.observation.missing ? 'The selected pod was not returned. Its previous snapshot is stale; no other pod was selected.' : 'Automatic seat lookup failed. Showing the last successful snapshot, not current state.'; state.podError = state.observation.seatsError }
+      return false
+    }
+    let result
+    try { result = await request('pods.edges', { source, instanceKey, podKey }, { timeoutMs: 120000, signal }) } catch { /* Preserve last-good relationships independently. */ }
+    if (!current()) return false
+    const selected = next.pods.find(p => p.key === podKey), members = next.seats.filter(s => seatInPod(s, selected)), memberKeys = members.map(s => s.key)
+    const definition = seats => JSON.stringify(seats.map(s => [s.key, s.session, s.runtime, s.model]))
+    if (definition(members) !== definition(podSeats())) reportCache.clear()
+    storeInventory(next); state.observation.seatsAt = now(); state.observation.seatsError = ''; state.observation.missing = false; state.podError = ''
+    if (!members.some(s => s.key === state.input.instructionSeat)) state.input.instructionSeat = ''
+    if (!members.some(s => s.key === state.input.taskSeat)) state.input.taskSeat = ''
+    if (validRelations(result, instanceKey, podKey)) storeRelations(result, memberKeys)
+    else state.observation.relationsError = 'Automatic relationship lookup failed. Showing the older relationship snapshot, not current connections.'
+    const ok = !state.observation.relationsError && state.relations?.status === 'complete'
+    if (ok) state.observation.lastSuccessAt = Math.min(state.observation.seatsAt, state.observation.relationsAt)
+    return ok
+  }
   function canPrepare(action, extra = {}) {
-    if (!state.host || state.busy || dirty() || !state.workspaceId || !state.env) return false
+    if (!state.host || state.busy || state.autoRefresh?.inFlight || dirty() || !state.workspaceId || !state.env) return false
     const snapshot = state.env.snapshot, tools = snapshot.tools
     if (action === 'install-rig') return Boolean(tools.node && tools.npm)
     if (action === 'install-tmux') return true
@@ -89,19 +162,28 @@ export function createPluginSession(request, changed = () => {}) {
   }
   const session = {
     state, dirty, canPrepare, selectedPod, podSeats, podConnected,
+    setAutoRefresh(value) { refreshLoop.setEnabled(value) },
+    setPanelVisibility(visible, known = true) { refreshLoop.setVisibility(visible, known) },
+    observationStatus() {
+      const o = state.observation
+      return { ...o, seatsStale: !o.seatsAt || Boolean(o.seatsError) || now() - o.seatsAt >= REFRESH_MS,
+        relationsStale: !o.relationsAt || Boolean(o.relationsError) || state.relations?.status !== 'complete' || now() - o.relationsAt >= REFRESH_MS }
+    },
+    tickObservationClock() { emit() },
+    dispose() { refreshLoop.dispose(); reportCache.clear() },
     setDiagramSource(source) {
       if (!['inventory', 'yaml'].includes(source) || state.diagramSource === source) return
       state.diagramSource = source; invalidate(); emit()
     },
     selectPod(key) {
       if (state.busy || (key && !state.inventory?.pods.some(pod => pod.key === key))) return false
-      reportCache.clear(); state.podKey = key; state.relations = null; state.diagramSource = 'inventory'; state.input.instructionSeat = ''; state.input.taskSeat = ''; invalidate(); emit(); return true
+      reportCache.clear(); state.podKey = key; state.relations = null; state.observation = { ...state.observation, relationsAt: 0, relationsError: '', lastSuccessAt: 0, missing: false }; state.diagramSource = 'inventory'; state.input.instructionSeat = ''; state.input.taskSeat = ''; invalidate(); emit(); return true
     },
     async readReport(seatKey) {
       const inventory = state.inventory, pod = selectedPod(), seat = podSeats().find(s => s.key === seatKey)
       const base = { instanceKey: inventory?.connection.key || '', podKey: pod?.key || '', seatKey, observedAt: Date.now() }
       const unknown = detail => ({ ...base, status: 'unverified', detail })
-      if (!state.host || !inventory || !pod || !seat || dirty() || state.diagramSource !== 'inventory') return unknown('Preview unavailable for this saved native pod. No YAML or terminal output was used.')
+      if (!state.host || !inventory || !pod || !seat || dirty() || state.observation.seatsError || state.diagramSource !== 'inventory') return unknown('Preview unavailable for this saved native pod. No YAML or terminal output was used.')
       const cached = reportCache.get(seatKey)
       if (cached && Date.now() < cached.expires) return cached.promise
       if (reportReads >= 2) return unknown('Other report previews are loading. Hover or focus this seat again shortly.')
@@ -109,7 +191,7 @@ export function createPluginSession(request, changed = () => {}) {
         reportReads++
         try {
           const result = await request('seat.report', { source: inventory.connection.source || state.inventorySource, instanceKey: base.instanceKey, podKey: base.podKey, seatKey }, { timeoutMs: 45000 })
-          if (state.inventory !== inventory || state.podKey !== pod.key || dirty() || state.diagramSource !== 'inventory') return unknown('Pod context changed; hover again after refreshing.')
+          if (state.inventory?.connection.key !== base.instanceKey || state.podKey !== pod.key || !podSeats().some(s => s.key === seat.key && s.session === seat.session && s.runtime === seat.runtime) || dirty() || state.diagramSource !== 'inventory') return unknown('Pod context changed; hover again after refreshing.')
           if (result?.instanceKey !== base.instanceKey || result.podKey !== base.podKey || result.seatKey !== seatKey || !['recorded', 'none', 'unverified'].includes(result.status)) throw new Error('Invalid report preview')
           const metadata = { ...base, observedAt: result.observedAt, status: result.status, detail: String(result.detail || '').slice(0, 700) }
           if (result.status !== 'recorded') return metadata
@@ -135,7 +217,7 @@ export function createPluginSession(request, changed = () => {}) {
     async selectInventorySource(source) {
       if (!['tui', 'configured'].includes(source) || state.busy) return
       if (dirty()) { state.error = 'Save configuration before selecting another observed instance.'; emit(); return }
-      state.inventorySource = source
+      state.inventorySource = source; state.inventory = null; state.relations = null; state.podKey = ''; state.observation = emptyObservation(); reportCache.clear()
       await session.refreshPods(false)
     },
     async refreshPods(keep = true) {
@@ -247,5 +329,9 @@ export function createPluginSession(request, changed = () => {}) {
       }, 'read')
     }
   }
+  refreshLoop = createRefreshLoop({ run: observeSelected, context: () => state.inventory && state.podKey ? JSON.stringify([state.inventory.connection.key, state.podKey, state.inventorySource]) : '',
+    blocked: () => !state.host ? 'Standalone preview' : state.view !== 'dashboard' ? 'Dashboard not selected' : state.diagramSource !== 'inventory' ? 'YAML preview' : state.plan ? 'Operation review open' : state.busy ? 'Another operation or read is running' : dirty() ? 'Unsaved configuration' : state.observation.identityChanged ? 'Instance changed; refresh manually' : '',
+    lastSuccess: () => state.observation.lastSuccessAt, changed: () => changed(state), clock: options.clock })
+  state.autoRefresh = refreshLoop.state
   return session
 }

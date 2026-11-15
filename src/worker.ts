@@ -3,7 +3,7 @@ import { buildPlan, fingerprint, PlanStore } from './plans.mjs'
 import { stageAction } from './action-files.mjs'
 import { stageLaunchProgram } from './launch-review.mjs'
 import { createTerminalView, persistTerminalReceipt, revealTerminal } from './terminal-receipt.mjs'
-import { commandEnvironment, configFrom, daemonState, discover, fail, listInstructionSeats, listSeats, rigInvocation, shellCommand } from './runtime.mjs'
+import { commandEnvironment, configFrom, daemonState, discover, fail, listInstructionSeats, listSeats, rigInvocation, shellCommand, run } from './runtime.mjs'
 import { canInstruct, instructionTextError } from './seat-instructions.mjs'
 import { canStartSeat, canQueueTask, taskTextError, sameSeatDefinition } from './seat-tasks.mjs'
 import { stageTaskBody, taskHash, validTaskId, checkTask } from './task-files.mjs'
@@ -40,13 +40,22 @@ export default function activate(orca: OrcaWorkerApi): void {
     await orca.storage.set(CONFIG, config)
     return state()
   })
-  orca.panels.handle('pods.list', async input => {
-    const config = await getConfig()
-    return readPodInventory(config, await discover({ ...config, provider: 'none' }), input?.source || 'tui')
+  async function observationTools(config: Config, signal: AbortSignal) {
+    const execute: typeof run = (file, args, options) => {
+      if (signal.aborted) throw fail('cancelled', 'Observation cancelled before another read')
+      return run(file, args, { ...options, signal })
+    }
+    const snapshot = await discover({ ...config, provider: 'none' }, { execute })
+    if (signal.aborted) throw fail('cancelled', 'Observation cancelled')
+    return { snapshot, execute }
+  }
+  orca.panels.handle('pods.list', async (input, { signal }) => {
+    const config = await getConfig(), { snapshot, execute } = await observationTools(config, signal)
+    return readPodInventory(config, snapshot, input?.source || 'tui', execute)
   })
   orca.panels.handle('pods.edges', async (input, { signal }) => {
-    const config = await getConfig()
-    return readPodRelations(config, await discover({ ...config, provider: 'none' }), input, { signal })
+    const config = await getConfig(), { snapshot, execute } = await observationTools(config, signal)
+    return readPodRelations(config, snapshot, input, { signal, execute })
   })
   orca.panels.handle('seat.report', async (input, { signal }) => {
     const config = await getConfig()

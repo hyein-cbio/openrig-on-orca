@@ -53,6 +53,7 @@ const notice = message => { $('notice').textContent = message }
 function origin(kind) {
   const inventory = kind === 'inventory'
   $('topology-origin').textContent = inventory ? 'Observed snapshot' : 'Not live status'
+  $('topology-origin').classList.remove('stale')
   $('topology-inspector-note').textContent = inventory ? 'Observations, not guarantees.' : 'Declarations, not guarantees.'
   $('topology-eyebrow').textContent = inventory ? 'NATIVE POD INVENTORY' : 'DECLARED TOPOLOGY'
   $('agent-noun').textContent = inventory ? 'seats' : 'agents'; $('entity-details').textContent = inventory ? 'SEAT DETAILS' : 'AGENT DETAILS'
@@ -90,6 +91,27 @@ function markDirty() {
   loadEpoch++; epoch++; dirty = true; $('export').disabled = true
   notice('Source changed · Render diagram to apply it. The map below is the previous snapshot.')
 }
+let observationFreshness = null
+const geometryKey = value => value && JSON.stringify([value.name, value.pods, value.nodes, [...value.edges].sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)))])
+export function updateObservationFreshness(value) {
+  observationFreshness = value
+  if (model?.source !== 'inventory') return
+  const stale = Boolean(value?.seatsStale || value?.relationsStale)
+  $('topology-origin').textContent = stale ? 'Stale / incomplete observation' : 'Observed snapshot'
+  $('topology-origin').classList.toggle('stale', stale)
+  $('inventory-legend').textContent = value?.relationsStale ? `Older / incomplete relationships · ${model.relationsStatus} snapshot` : `Native directed relationships · ${model.relationsStatus}`
+  if (stale) notice('Older or incomplete observation · see last successful seat/relationship times above. This is not confirmed current state.')
+}
+function updateMetadata(current) {
+  $('rig-name').textContent = current.name
+  $('pod-count').textContent = current.pods.length; $('pod-noun').textContent = current.pods.length === 1 ? 'pod' : 'pods'; $('agent-count').textContent = current.nodes.length; $('edge-count').textContent = current.source === 'inventory' && ['unqueried', 'loading', 'unavailable'].includes(current.relationsStatus) ? '—' : current.source === 'inventory' && current.relationsStatus === 'partial' ? `${current.edges.length} observed` : current.edges.length
+  $('empty').hidden = true; $('error').hidden = true
+  $('warnings').replaceChildren(...current.warnings.map(message => { const li = document.createElement('li'); li.textContent = message; return li }))
+  origin(current.source)
+  if (current.source === 'inventory') $('inventory-legend').textContent = `Native directed relationships · ${current.relationsStatus}`
+  $('export').disabled = dirty; notice(dirty ? 'Source changed · The map is the previous snapshot. Render to apply the source.' : current.source === 'inventory' ? `Native pod snapshot · ${new Date(current.observedAt).toLocaleString()}. Relationships: ${current.relationsStatus}${current.relationshipObservedAt ? ` · ${new Date(current.relationshipObservedAt).toLocaleString()}` : ''}. No connections were inferred.` : 'Ready · Declared topology only. Select an agent to inspect its settings.')
+  if (current.source === 'inventory') updateObservationFreshness(observationFreshness)
+}
 function scheduleRender() {
   hideReport()
   const current = model, direction = $('direction').value, revision = ++epoch
@@ -122,20 +144,14 @@ function scheduleRender() {
         if (!node) continue
         element.setAttribute('role', 'button'); element.setAttribute('tabindex', '0'); element.setAttribute('aria-label', `Inspect ${node.id}`)
         element.addEventListener('mouseenter', () => { void showReport(node, element) })
-        element.addEventListener('mouseleave', () => { if (document.activeElement !== element) hideReport() })
+        element.addEventListener('mouseleave', hideReport)
         element.addEventListener('focus', () => { void showReport(node, element) }); element.addEventListener('blur', hideReport)
         element.addEventListener('keydown', event => { if (event.key === 'Escape') { event.preventDefault(); hideReport() } })
-        element.addEventListener('click', () => details(node))
-        element.addEventListener('keydown', event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); details(node) } })
+        element.addEventListener('click', () => { hideReport(); details(node) })
+        element.addEventListener('keydown', event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); hideReport(); details(node) } })
       }
       details(current.nodes.find(n => n.key === selectedKey) || current.nodes[0]); fit()
-      $('rig-name').textContent = current.name
-      $('pod-count').textContent = current.pods.length; $('pod-noun').textContent = current.pods.length === 1 ? 'pod' : 'pods'; $('agent-count').textContent = current.nodes.length; $('edge-count').textContent = current.source === 'inventory' && ['unqueried', 'loading', 'unavailable'].includes(current.relationsStatus) ? '—' : current.source === 'inventory' && current.relationsStatus === 'partial' ? `${current.edges.length} observed` : current.edges.length
-      $('empty').hidden = true; $('error').hidden = true; $('mermaid-source').value = code
-      $('warnings').replaceChildren(...current.warnings.map(message => { const li = document.createElement('li'); li.textContent = message; return li }))
-      origin(current.source)
-      if (current.source === 'inventory') $('inventory-legend').textContent = `Native directed relationships · ${current.relationsStatus}`
-      $('export').disabled = dirty; notice(dirty ? 'Source changed · The map is the previous snapshot. Render to apply the source.' : current.source === 'inventory' ? `Native pod snapshot · ${new Date(current.observedAt).toLocaleString()}. Relationships: ${current.relationsStatus}${current.relationshipObservedAt ? ` · ${new Date(current.relationshipObservedAt).toLocaleString()}` : ''}. No connections were inferred.` : 'Ready · Declared topology only. Select an agent to inspect its settings.')
+      $('mermaid-source').value = code; updateMetadata(current)
     } catch {
       if (revision !== epoch) return
       clearGraph(); $('error').textContent = 'The local renderer could not draw this projection. Simplify the diagram or shorten its labels; no agent operation was requested.'; $('error').hidden = false
@@ -188,17 +204,23 @@ $('export').addEventListener('click', async () => {
 const themeChanged = () => { adoptNativeTheme(); if (model) scheduleRender() }
 window.orca?.on?.('theme', themeChanged)
 matchMedia('(prefers-color-scheme: dark)').addEventListener('change', themeChanged)
+let lastViewportWidth = 0
 new ResizeObserver(() => {
-  const preferred = innerWidth < 700 ? 'TB' : 'LR'
+  const width = viewport.clientWidth, preferred = innerWidth < 700 ? 'TB' : 'LR'
   if (!directionChosen && $('direction').value !== preferred) { $('direction').value = preferred; if (model) scheduleRender() }
-  else if (svg) fit()
+  else if (svg && width !== lastViewportWidth) fit()
+  lastViewportWidth = width
 }).observe(document.querySelector('.map-card'))
-export function displayPodSnapshot(pod, seats = [], observedAt = Date.now(), relations = null) {
-  loadEpoch++; sourceChanged('inventory'); origin('inventory')
+export function displayPodSnapshot(pod, seats = [], observedAt = Date.now(), relations = null, freshness = null) {
+  loadEpoch++; observationFreshness = freshness
   if (!pod) {
-    clearGraph(); $('error').hidden = true; $('rig-name').textContent = 'Select an OpenRig pod'; $('topology-origin').textContent = 'Native inventory'; $('empty').textContent = 'Refresh and select an actual rig / pod above. No example is substituted.'; notice('No pod selected. This dashboard does not auto-load an example.'); return
+    sourceChanged('inventory'); origin('inventory'); clearGraph(); $('error').hidden = true; $('rig-name').textContent = 'Select an OpenRig pod'; $('topology-origin').textContent = 'Native inventory'; $('empty').textContent = 'Refresh and select an actual rig / pod above. No example is substituted.'; notice('No pod selected. This dashboard does not auto-load an example.'); return
   }
-  try { model = topologyForPod(pod, seats, observedAt, relations); dirty = false; $('error').hidden = true; scheduleRender() }
+  try {
+    const next = topologyForPod(pod, seats, observedAt, relations)
+    if (model?.source === 'inventory' && svg && !dirty && geometryKey(model) === geometryKey(next)) { Object.assign(model, next); updateMetadata(model); return }
+    sourceChanged('inventory'); origin('inventory'); model = next; dirty = false; $('error').hidden = true; scheduleRender()
+  }
   catch (error) { clearGraph(); $('rig-name').textContent = pod.label; $('topology-origin').textContent = 'Native inventory'; $('error').textContent = error.message; $('error').hidden = false; notice('The complete seat list remains below; no partial diagram was substituted.') }
 }
 adoptNativeTheme()

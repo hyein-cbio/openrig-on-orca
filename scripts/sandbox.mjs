@@ -254,6 +254,12 @@ try {
   const hoverNode = `[...document.querySelectorAll('#diagram [role=button]')].find(e=>e.getAttribute('aria-label')===${JSON.stringify('Inspect ' + hoverName)})`
   await evaluate(`(async()=>{const m=await import('/visualizer/app.mjs');m.setReportReader(async key=>key===${JSON.stringify(hoverKey)}?${JSON.stringify(observedPodFixture.reportPreview)}:{status:'none',detail:'Fixture: no record'});${hoverNode}.scrollIntoView({block:'center'});${hoverNode}.dispatchEvent(new MouseEvent('mouseenter'));return JSON.stringify(true)})()`)
   await until(async () => assert.equal(await evaluate(`JSON.stringify(document.querySelector('#seat-report-tooltip pre')?.textContent===${JSON.stringify(observedPodFixture.reportPreview.preview)})`), true))
+  await evaluate(`(()=>{document.getElementById('zoom-in').click();window.refreshSvg=document.querySelector('#diagram svg');window.refreshNode=${hoverNode};window.refreshWidth=window.refreshSvg.style.width;window.refreshSelected=document.getElementById('agent-name').textContent;return JSON.stringify(true)})()`)
+  await evaluate(`(async()=>{const m=await import('/visualizer/app.mjs');m.displayPodSnapshot(${JSON.stringify(observedPodFixture.pod)},${JSON.stringify(observedPodFixture.seats)},${observedPodFixture.observedAt + 60000},${JSON.stringify({ ...observedPodFixture.relations, observedAt: observedPodFixture.observedAt + 60000 })},{seatsStale:false,relationsStale:false});return JSON.stringify(true)})()`)
+  assert.equal(await evaluate(`JSON.stringify(window.refreshSvg===document.querySelector('#diagram svg') && window.refreshNode===${hoverNode} && window.refreshWidth===window.refreshSvg.style.width && window.refreshSelected===document.getElementById('agent-name').textContent && !document.getElementById('seat-report-tooltip').hidden)`), true)
+  await evaluate(`(async()=>{const m=await import('/visualizer/app.mjs');m.updateObservationFreshness({seatsStale:true,relationsStale:true});return JSON.stringify(true)})()`)
+  assert.equal(await evaluate('JSON.stringify(document.getElementById("topology-origin").textContent.includes("Stale") && window.refreshSvg===document.querySelector("#diagram svg"))'), true)
+  check('refresh-render-stability', 'An unchanged observation preserves SVG/node identity, zoom, selection and an open tooltip; stale markers update without redrawing')
   browserStep = 'inert-html'
   assert.equal(await evaluate('JSON.stringify(document.querySelector("#seat-report-tooltip script")===null && window.tooltipInjected!==true)'), true)
   assert.equal(await evaluate('JSON.stringify(document.querySelector("#diagram svg").outerHTML.includes("TOOLTIP_BODY_FIXTURE"))'), false)
@@ -269,7 +275,32 @@ try {
   browserStep = 'escape'
   await evaluate(`JSON.stringify(${hoverNode}.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true})))`)
   assert.equal(await evaluate('JSON.stringify(document.getElementById("seat-report-tooltip").hidden)'), true)
-  check('report-tooltip', 'A task-owned native outbox record produced a <=500-byte UTF-8 hover/focus preview; HTML remained inert, Escape dismissed it, and the body stayed outside the SVG')
+  browserStep = 'selected-tooltip-dismissal'
+  const dismissals = await evaluate(`(async()=>{
+    const node=${hoverNode},m=await import('/visualizer/app.mjs'),record=${JSON.stringify(observedPodFixture.reportPreview)};
+    const flush=async()=>{await Promise.resolve();await Promise.resolve()};
+    node.dispatchEvent(new FocusEvent('focus'));await flush();node.dispatchEvent(new MouseEvent('click',{bubbles:true}));
+    const clickCloses=document.getElementById('seat-report-tooltip').hidden&&document.getElementById('agent-name').textContent===${JSON.stringify(hoverName)};
+    node.focus();node.dispatchEvent(new FocusEvent('focus'));await flush();node.dispatchEvent(new MouseEvent('mouseleave'));
+    const leaveWhileFocused=document.activeElement===node&&document.getElementById('seat-report-tooltip').hidden&&!node.hasAttribute('aria-describedby');
+    let keyboardCloses=true;for(const key of ['Enter',' ']){node.dispatchEvent(new FocusEvent('focus'));await flush();node.dispatchEvent(new KeyboardEvent('keydown',{key,bubbles:true}));keyboardCloses=keyboardCloses&&document.getElementById('seat-report-tooltip').hidden;}
+    let finish;m.setReportReader(()=>new Promise(resolve=>{finish=resolve}));node.dispatchEvent(new MouseEvent('mouseenter'));node.dispatchEvent(new MouseEvent('click',{bubbles:true}));finish(record);await flush();
+    const lateIgnored=document.getElementById('seat-report-tooltip').hidden&&!document.querySelector('#seat-report-tooltip pre');m.setReportReader(async()=>record);
+    return JSON.stringify({clickCloses,leaveWhileFocused,keyboardCloses,lateIgnored});
+  })()`)
+  assert.deepEqual(dismissals, { clickCloses: true, leaveWhileFocused: true, keyboardCloses: true, lateIgnored: true })
+  check('report-tooltip', 'Native UTF-8 hover/focus previews remain inert and outside SVG; click/Enter/Space and mouseleave (even while focused) dismiss immediately, and late reads cannot reopen them')
+  await evaluate(`(()=>{const frame=document.createElement('iframe');frame.id='visibility-fixture';frame.src='/visualizer/plugin.html';frame.style.cssText='position:fixed;top:10px;left:10px;width:500px;height:300px;z-index:2000;background:white';document.body.append(frame);return JSON.stringify(true)})()`)
+  await until(async () => assert.equal(await evaluate('JSON.stringify(document.getElementById("visibility-fixture").contentDocument?.readyState === "complete")'), true))
+  await evaluate(`(async()=>{const m=await import('/visualizer/workspace.mjs');const frame=document.getElementById('visibility-fixture'),w=frame.contentWindow;window.visibilitySamples=[];window.visibilityProbe=m.watchPanelVisibility({document:w.document,window:w,IntersectionObserver:w.IntersectionObserver,changed:(visible,known)=>window.visibilitySamples.push({visible,known})});return JSON.stringify(true)})()`)
+  await evaluate('JSON.stringify(document.getElementById("visibility-fixture").style.display="none")')
+  await until(async () => assert.equal(await evaluate('JSON.stringify(window.visibilitySamples.at(-1)?.visible===false && window.visibilitySamples.at(-1)?.known===true)'), true))
+  await evaluate('JSON.stringify(document.getElementById("visibility-fixture").style.display="")')
+  await evaluate('JSON.stringify(document.getElementById("visibility-fixture").style.visibility="hidden")')
+  await new Promise(resolve => setTimeout(resolve, 250))
+  assert.equal(await evaluate('JSON.stringify(window.visibilitySamples.at(-1)?.visible===false)'), true)
+  await evaluate('(()=>{window.visibilityProbe.dispose();document.getElementById("visibility-fixture").remove();return JSON.stringify(true)})()')
+  check('refresh-visibility', 'The HTML visibility gate conservatively pauses a same-origin frame hidden with display:none or visibility:hidden; no private Orca event is assumed')
   const inspected = observedPodFixture.seats[1].logicalId
   await evaluate(`JSON.stringify([...document.querySelectorAll('#diagram [role=button]')].find(e=>e.getAttribute('aria-label')===${JSON.stringify('Inspect ' + observedPodFixture.seats[1].logicalId)}).dispatchEvent(new MouseEvent('click',{bubbles:true})))`)
   assert.equal(await evaluate('JSON.stringify(document.getElementById("agent-name").textContent)'), inspected)

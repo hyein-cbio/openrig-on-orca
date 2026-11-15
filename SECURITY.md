@@ -25,6 +25,12 @@ The optional Dashboard YAML preview parses only an explicitly selected/pasted do
 
 Generated local assets are pinned to the lockfile and covered by source/content hashes in `src/visualizer/assets.json`. Keep the dependency audit and asset-integrity tests passing when updating them; copied prebuilt Mermaid modules must also be updated, not merely the npm dependency tree. Explicit SVG export contains displayed topology and may expose private names or model declarations. Native save-dialog consent remains with the user.
 
+## Automatic observation lifecycle
+
+The opt-in one-minute timer is panel-local, OFF by default and has no mutation path: only pods.list and selected-pod pods.edges can be called. Report/body reads, authentication, terminal input, queue actions, daemon startup and connection writes remain outside it. Reviews, operations, unsaved configuration and YAML mode block the timer. Visibility must be positively established through standard document lifecycle plus visibility-tracking intersection; unknown/unsupported/hidden states stop timers and abort/discard work. Worker-side observation processes and compact HTTP reads honor cancellation where possible.
+
+Retained data is explicitly stale after an error or one-minute age threshold. Connection mismatch is fail-closed, a missing target is not replaced, and obsolete responses cannot overwrite a newer context or an open review. Exponential 2/4/8-minute backoff and a single in-flight read bound load. Periodic snapshots are neither atomic nor proof that an agent is working/healthy; only explicit reviewed operations may affect agents.
+
 ## Outbound report previews
 
 The explicit report-preview feature reads message content only from the bounded native sender outbox, on native-node hover/focus. It does not read transcript files, capture a pane, follow report paths, ask an agent to report, invoke a model or deliver anything. The shared HTTP reader permits only compact whoami and outbox-list GET routes on the observed loopback endpoint, with no redirects/proxies/cookies/credential lookup. Outbox bodies are bounded to a 1 MiB response and a 20-row window; native identities and pod/instance context are rechecked.

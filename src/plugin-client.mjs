@@ -3,7 +3,8 @@ import { EXAMPLE_STEPS } from './example-story.mjs'
 import { workspaceLabel, workspaceOptions } from './workspace-labels.mjs'
 import { canInstruct } from './seat-instructions.mjs'
 import { canQueueTask } from './seat-tasks.mjs'
-import { displayPodSnapshot, observeTopologySource, setReportReader } from './topology-client.mjs'
+import { watchPanelVisibility } from './refresh-loop.mjs'
+import { displayPodSnapshot, observeTopologySource, setReportReader, updateObservationFreshness } from './topology-client.mjs'
 
 const $ = id => document.getElementById(id)
 const text = (id, value) => { $(id).textContent = value ?? '' }
@@ -22,8 +23,9 @@ function choices(id, items, value, placeholder) {
   $(id).replaceChildren(...options); $(id).value = value
 }
 const bridge = window.orca?.plugin?.request ? (name, input, options) => window.orca.plugin.request(name, input, options) : null
+let ageTimer = null, disposed = false
 const session = createPluginSession(bridge, render)
-let renderedInventory, renderedPodKey, renderedDiagramSource, renderedRelations
+let renderedInventory, renderedPodKey, renderedDiagramSource, renderedRelations, renderedObservation
 observeTopologySource(source => session.setDiagramSource(source))
 setReportReader(key => session.readReport(key))
 const inputBindings = { 'instruction-recipient': 'instructionSeat', 'instruction-text': 'instruction', 'task-recipient': 'taskSeat', 'task-summary': 'summary', 'task-body': 'body', 'team-spec': 'spec' }
@@ -55,6 +57,7 @@ $('save-paths').addEventListener('click', session.save)
 $('go-dashboard').addEventListener('click', () => session.switchView('dashboard'))
 $('refresh-seats').addEventListener('click', session.refreshPods)
 $('refresh-pods').addEventListener('click', session.refreshPods)
+$('auto-refresh').addEventListener('change', event => session.setAutoRefresh(event.target.checked))
 $('dashboard-pod').addEventListener('change', event => { if (session.selectPod(event.target.value)) void session.refreshRelations() })
 $('pod-instance-source').addEventListener('change', event => { void session.selectInventorySource(event.target.value) })
 $('connect-pod-instance').addEventListener('click', session.connectInventory)
@@ -126,6 +129,16 @@ function renderReview(state) {
   $('confirm-operation').disabled = state.busy || session.dirty() || Boolean(plan.seatLaunch && !state.startupRisk)
   $('cancel-operation').disabled = state.busy
 }
+function renderObservationStatus(state) {
+  const current = session.observationStatus(), auto = state.autoRefresh, stamp = value => value ? new Date(value).toLocaleString() : 'No successful read'
+  $('auto-refresh').checked = auto.enabled; $('auto-refresh').disabled = !state.host
+  text('auto-refresh-status', !auto.enabled ? 'Off · observations are manual snapshots.' : auto.inFlight ? 'Refreshing read-only observations…' : auto.paused ? `Paused · ${auto.paused}` : `Next read: ${stamp(auto.nextAt)} · ${auto.failures ? `${2 ** auto.failures}-minute failure backoff` : '1-minute interval'}`)
+  text('observation-times', `Last successful seats: ${stamp(current.seatsAt)} · complete relationships: ${stamp(current.relationsAt)}`)
+  const stale = Boolean(state.podKey && (current.seatsStale || current.relationsStale))
+  show('observation-stale', stale)
+  text('observation-stale', `${current.seatsStale ? 'Seats are stale/unverified. ' : ''}${current.relationsStale ? 'Relationships are stale/incomplete. ' : ''}${current.seatsError || current.relationsError || 'Data at least one minute old is not confirmed current state.'}`)
+  if (state.diagramSource === 'inventory') updateObservationFreshness(current)
+}
 function render(state) {
   const env = state.env, snapshot = env?.snapshot, dirty = session.dirty(), waiting = state.busy, hosted = state.host
   for (const view of ['preparation', 'dashboard']) {
@@ -150,8 +163,10 @@ function render(state) {
   text('pod-observation', state.inventory ? `${state.inventory.pods.length} pods observed at ${new Date(state.inventory.observedAt).toLocaleString()}. ${guidance}` : 'Refresh native pods to inspect the TUI inventory. Unavailable is not an empty list.')
   show('pod-connect-review', Boolean(connection && !connection.matchesConfigured)); $('connect-pod-instance').disabled = waiting || dirty || !hosted || !connection
   show('declaration-mode-note', state.diagramSource === 'yaml')
-  if (state.diagramSource === 'inventory' && (renderedInventory !== state.inventory || renderedPodKey !== state.podKey || renderedDiagramSource !== state.diagramSource || renderedRelations !== state.relations)) { renderedInventory = state.inventory; renderedPodKey = state.podKey; renderedDiagramSource = state.diagramSource; renderedRelations = state.relations; displayPodSnapshot(session.selectedPod(), session.podSeats(), state.inventory?.observedAt, state.relations) }
+  const observationKey = JSON.stringify([state.inventory?.observedAt, state.relations?.observedAt, state.observation])
+  if (state.diagramSource === 'inventory' && (renderedInventory !== state.inventory || renderedPodKey !== state.podKey || renderedDiagramSource !== state.diagramSource || renderedRelations !== state.relations || renderedObservation !== observationKey)) { renderedInventory = state.inventory; renderedPodKey = state.podKey; renderedDiagramSource = state.diagramSource; renderedRelations = state.relations; renderedObservation = observationKey; displayPodSnapshot(session.selectedPod(), session.podSeats(), state.inventory?.observedAt, state.relations, session.observationStatus()) }
   renderedDiagramSource = state.diagramSource
+  renderObservationStatus(state)
   text('environment-stage', snapshot ? snapshot.stage.replaceAll('-', ' ') : hosted ? 'Checking environment…' : 'Read-only visual preview; no plugin host.')
   const tools = snapshot ? [['Node', snapshot.tools.node || 'Compatible runtime needed'], ['OpenRig', snapshot.rigVersion || 'Not installed'], ['tmux', snapshot.tmuxVersion || 'Required — unavailable'], ['SQLite', `${snapshot.sqlite.status}: ${snapshot.sqlite.detail}`]] : []
   $('environment-tools').replaceChildren(...tools.flatMap(([name, value]) => [element('dt', name), element('dd', value)]))
@@ -185,6 +200,17 @@ function render(state) {
   show('plugin-task', Boolean(state.task && !state.plan))
   if (state.task) { text('task-id', state.task.id); text('task-state', `Destination: ${state.task.destination} · Registration: ${state.task.registration} · Recorded state: ${state.task.state}`); text('task-detail', state.task.detail) }
   $('check-task').disabled = waiting || dirty || !hosted
+  syncAgeClock()
 }
 render(session.state)
+function syncAgeClock() {
+  if (ageTimer !== null) { clearTimeout(ageTimer); ageTimer = null }
+  if (disposed || !session.state.autoRefresh.visible || session.state.view !== 'dashboard') return
+  renderObservationStatus(session.state)
+  ageTimer = setTimeout(syncAgeClock, 15000) // Labels only; never a worker request or DAG redraw.
+}
+const visibility = watchPanelVisibility({ document, window, IntersectionObserver: window.IntersectionObserver, changed: (visible, known) => session.setPanelVisibility(visible, known) })
+window.addEventListener('pagehide', () => { if (ageTimer !== null) clearTimeout(ageTimer); ageTimer = null })
+window.addEventListener('beforeunload', () => { disposed = true; visibility.dispose(); session.dispose(); if (ageTimer !== null) clearTimeout(ageTimer) })
 if (bridge) void session.scan()
+export { watchPanelVisibility }

@@ -176,12 +176,13 @@ test('optional YAML preview invalidates review and locks pod actions without cha
   f.session.setDiagramSource('yaml'); assert.equal(f.state.plan, null); assert.equal(f.session.canPrepare('send-instruction'), false); assert.equal(f.state.podKey, podKey)
   f.session.setDiagramSource('inventory'); assert.equal(f.session.canPrepare('send-instruction'), true); assert.equal(f.calls.length, calls)
 })
-test('an unavailable pod inventory stays unknown and clears a prior selection without example fallback', async () => {
+test('an unavailable pod inventory retains a stale prior selection without example fallback', async () => {
   let failing = false
   const f = fixture({ 'pods.list': () => { if (failing) throw new Error('Native observation unavailable'); return { connection: { matchesConfigured: true, key: 'a'.repeat(64) }, pods: podsFromSeats([seat]), seats: [seat] } } })
-  await ready(f); assert.ok(f.session.selectedPod()); failing = true; await f.session.refreshPods()
-  assert.equal(f.state.inventory, null); assert.equal(f.state.podKey, ''); assert.match(f.state.podError, /unavailable/)
-  assert.equal(f.session.selectPod('made-up'), false); assert.deepEqual(f.session.podSeats(), [])
+  await ready(f); assert.ok(f.session.selectedPod()); const previous = f.state.inventory, selected = f.state.podKey; failing = true; await f.session.refreshPods()
+  assert.equal(f.state.inventory, previous); assert.equal(f.state.podKey, selected); assert.match(f.state.podError, /unavailable/)
+  assert.ok(f.state.observation.seatsError); assert.equal(f.session.observationStatus().seatsStale, true); assert.equal(f.session.podConnected(), false)
+  assert.equal(f.session.selectPod('made-up'), false); assert.deepEqual(f.session.podSeats(), [seat])
 })
 test('unsaved configuration and busy work block review, navigation and accidental rechecks', async () => {
   let finish
