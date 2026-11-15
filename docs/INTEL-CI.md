@@ -42,6 +42,14 @@ The combined runner performs the candidate secret scan, functional tmux prefligh
 
 The original-source SHA-256 regression gate also runs, covering 195 upstream code/configuration files at refreshed main commit `dbf7191`. The upstream refresh is preserved; the additional Intel implementation does not modify those files.
 
+### Cancellation and persistent-runner cleanup
+
+The generated live harness runs inside its Intel wrapper rather than in a surviving child Node process. SIGTERM/SIGINT/SIGHUP block new test commands, abort in-flight work, terminate only command groups created by the harness (with bounded SIGKILL escalation), and unwind the original owned-resource cleanup before the wrapper returns. Cleanup commands are allowed to finish even after repeated cancellation. The runner removes any previous cleanup receipt before starting; it removes its downloaded app only after the current harness explicitly confirms cleanup. Missing/failed cleanup remains a CI failure and retains the owned download for inspection. Uncatchable SIGKILL or machine loss cannot run JavaScript finally blocks and is never represented as verified cleanup.
+
+The runner allocates its own `openrig-intel-plugin-*` staging directory, passes it explicitly to staging/inspection, and removes it in finally after success, partial staging or inspection failure. Removal failure is a failed JUnit step, not a successful cleanup. No externally supplied app directory is deleted.
+
+`test/intel-lifecycle.test.mjs` includes a real execFile timeout with a signal-resistant command and grandchild: it verifies that no further work starts and that cleanup finishes before the wrapper returns. It also covers repeated/cleanup-phase signals, command timeout, staging failure paths and current cleanup receipts.
+
 ## Lab prerequisites and failures
 
 The selected runner must be online, accept this repository's jobs, and have:
@@ -61,7 +69,7 @@ At setup inspection, GitHub reported three online/idle runners with the required
 
 Both workflows are checked with **actionlint 1.7.12**, with the custom label declared in `.github/actionlint.yaml`; shellcheck is disabled for that local lint invocation. YAML parsing and project regressions are separate checks.
 
-The additional Intel runtime/package's earlier local full integration run passed; its historical evidence and refreshed-upstream validation are distinguished in [verification/intel-macos.json](verification/intel-macos.json). After integrating upstream `dbf7191`, local core/Orca totals were 176/209, with typechecking and workflow lint passing. The feature branch was published and an actual `workflow_dispatch` request returned HTTP 404: the new workflow is not yet registered on the default branch. No self-hosted job started. Both workflow files need a reviewed default-branch merge before retrying dispatch. A real hosted pass and an actual offline-lab run are never inferred from local mocks.
+The latest PR lifecycle-fix verification is recorded in [verification/intel-macos.json](verification/intel-macos.json): 184 core / 217 Orca tests, typechecking and workflow lint passed, followed by a real native Intel pipeline with 14 successful steps and 23 live checks. The harness emitted an explicit successful cleanup receipt, no warnings, and the runner-owned staging directory was verified absent afterward. The eight added lifecycle regressions include a real timeout, signal-resistant descendants, cleanup-phase cancellation and failed-staging/inspection cleanup. The feature branch was published and an actual `workflow_dispatch` request returned HTTP 404: the new workflow is not yet registered on the default branch. No self-hosted job started. Both workflow files need a reviewed default-branch merge before retrying dispatch. A real hosted pass and an actual offline-lab run are never inferred from local mocks.
 
 Artifacts:
 

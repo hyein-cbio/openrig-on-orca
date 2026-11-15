@@ -21,6 +21,7 @@ The original runtime, worker, manifest, staging, sandbox, ARM64 bootstrap/settin
 | `ci/intel/run-ci.mjs` | Separate Intel validation runner; reuses original reporting/cell/cleanup helpers |
 | `scripts/intel/sandbox.mjs` | Opt-in Intel staging/architecture-evidence driver around the unchanged original live harness |
 | `scripts/intel/support.mjs` | Adds native Intel/SQLite evidence requirements without changing original report validation |
+| `scripts/intel/cancellation.mjs` | Stops normal command work on cancellation and waits for owned command groups and cleanup |
 
 The adapter does not mutate process PATH, change Node/provider policies, install software, write storage on activation/read, add capabilities or replace operations. It exposes an in-memory configuration default through a separate facade compatible with Orca's frozen API objects. Explicit extra paths stay first. Non-configuration storage and receiver binding are preserved. On ARM64, Linux or other non-Intel hosts it returns the original host unchanged.
 
@@ -57,7 +58,7 @@ node scripts/intel/sandbox.mjs --install --approve-plugin --output ci-results/in
 
 Set `ORCA_CLI_COMMAND` to the exact pinned x64 CLI. `--install` permits public package downloads/install scripts; `--approve-plugin` approves only the staged plugin's existing grants in an isolated profile, not model login or agent execution. The Intel driver requires `--output` and cleanup; it refuses `--keep` for evidence runs.
 
-The driver creates a disposable copy of the original test harness **outside the repository**, with absolute imports, Intel staging selection and architecture assertions. It does not edit the original harness or generate a product-code fork. Exact anchor checks fail closed if the original harness changes. The original install/lifecycle/browser/cleanup assertions still run. The additional report requires matching native x64 Node/worker and a successful real SQLite probe.
+The driver creates a disposable copy of the original test harness **outside the repository**, with absolute imports, Intel staging selection and architecture assertions. It imports that harness into the wrapper process so it cannot survive the wrapper timeout as a separate child. Cancellation blocks new normal commands and waits for owned command termination and the original cleanup; cleanup commands remain allowed. It does not edit the original harness or generate a product-code fork. Exact anchor checks fail closed if the original harness changes. The original install/lifecycle/browser/cleanup assertions still run. The additional report requires matching native x64 Node/worker and a successful real SQLite probe.
 
 For the combined Intel pipeline, use a committed disposable source snapshot so the final tracked-clean gate is meaningful without committing the user's working tree:
 
@@ -76,7 +77,7 @@ Publisher: bundle `com.stablyai.orca`, Team ID `6CX3WHS9HZ`. Intel verification 
 
 ## Evidence and boundaries
 
-Before the upstream refresh, the additive runtime/package's full local pipeline passed all 13 steps and 21 real no-model lifecycle checks. After integrating upstream `dbf7191` (one-minute refresh), local regressions passed 176 core / 209 Orca tests, including the controller/offline-failure tests; these totals include the core suite rather than adding to it. Typechecking and workflow lint passed. The refreshed baseline intentionally incorporates the upstream changes rather than restoring older Apple Silicon code. No hosted workflow pass is implied; see [manual Intel CI](INTEL-CI.md).
+Before the upstream refresh, the additive runtime/package's full local pipeline passed all 13 steps and 21 real no-model lifecycle checks. After integrating upstream `dbf7191` (one-minute refresh), local regressions passed 176 core / 209 Orca tests, including the controller/offline-failure tests; these totals include the core suite rather than adding to it. Typechecking and workflow lint passed. The refreshed baseline intentionally incorporates the upstream changes rather than restoring older Apple Silicon code. The subsequent PR lifecycle fixes passed 184 core / 217 Orca tests and a fresh native Intel pipeline (14 steps, 23 live checks), including explicit cleanup confirmation and verified removal of the staging directory. No hosted workflow pass is implied; see [manual Intel CI](INTEL-CI.md).
 
 [verification/intel-macos.json](verification/intel-macos.json) identifies the tested additive structure, preserved originals and actual latest results. Detailed generated logs, JUnit and reports live under `ci-results/intel-additive/` and are intentionally ignored by Git. Earlier `ci-results/intel-macos/` results describe the superseded shared-code approach and are **not evidence for this additive implementation**.
 

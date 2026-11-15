@@ -14,12 +14,29 @@ import { ORCA_INTEL as ORCA, requireIntelMac } from './settings.mjs'
 const exec = promisify(execFile)
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
 
+export async function cleanupIntelStaging(directory, summary, remove = rm) {
+  if (!directory) return
+  const started = Date.now()
+  try {
+    await remove(directory, { recursive: true, force: true })
+    summary.steps.push({ suite: summary.suite, name: 'staging-cleanup', seconds: (Date.now() - started) / 1000, ok: true })
+    summary.stagingCleanup = 'complete'
+  } catch (error) { recordRunnerFailure(summary, error, 'staging-cleanup') }
+}
+
+export async function sandboxCleanupVerified(output) {
+  try {
+    const report = JSON.parse(await readFile(path.join(output, 'report.json'), 'utf8'))
+    return report.cleanup?.completed === true && Array.isArray(report.warnings) && report.warnings.length === 0
+  } catch { return false }
+}
+
 export async function runIntelCi(argv) {
   const suite = optionValue(argv, '--suite'), version = optionValue(argv, '--node-version')
   const artifacts = path.resolve(optionValue(argv, '--output') || `ci-results/intel-${suite || 'invalid'}`)
   const reports = path.join(root, 'test-reports')
   const env = cleanCiEnvironment(process.env)
-  let downloadDirectory
+  let downloadDirectory, stagingDirectory, sandboxStarted = false
   const summary = { suite, node: version, actualNode: process.version, platform: process.platform, arch: process.arch, steps: [], exitCode: 1 }
   await mkdir(artifacts, { recursive: true }); await mkdir(reports, { recursive: true })
   async function step(name, file, args, options = {}) {
@@ -65,9 +82,12 @@ export async function runIntelCi(argv) {
       await step('plugin-tests', cli, ['plugin', 'test', root, '--json'])
       const checked = JSON.parse(await step('plugin-check', cli, ['plugin', 'check', root, '--json']))
       if (!checked.ok || !checked.result.panels.every(p => !p.issues.length && !p.warnings.length)) throw new Error('Plugin panel check is incomplete or contains warnings')
-      const staged = JSON.parse(await step('stage', process.execPath, ['scripts/stage-intel.mjs']))
-      await step('inspect', cli, ['plugin', 'inspect', staged.path, '--json'])
+      stagingDirectory = await mkdtemp(path.join(tmpdir(), 'openrig-intel-plugin-'))
+      await step('stage', process.execPath, ['scripts/stage-intel.mjs', stagingDirectory])
+      await step('inspect', cli, ['plugin', 'inspect', stagingDirectory, '--json'])
       const output = path.join(artifacts, 'live')
+      await rm(path.join(output, 'report.json'), { force: true }) // Never accept a previous run's cleanup receipt.
+      sandboxStarted = true
       await step('sandbox', process.execPath, ['scripts/intel/sandbox.mjs', '--install', '--approve-plugin', '--output', output])
       const report = JSON.parse(await readFile(path.join(output, 'report.json'), 'utf8'))
       assertIntelReport(report, { install: true })
@@ -77,7 +97,17 @@ export async function runIntelCi(argv) {
     summary.exitCode = 0
   } catch (error) { recordRunnerFailure(summary, error) }
   finally {
-    await cleanupRunnerDownload(downloadDirectory, summary)
+    await cleanupIntelStaging(stagingDirectory, summary)
+    // A killed/uninspectable harness must never race removal of the app it may still own.
+    const safeToRemove = !sandboxStarted || await sandboxCleanupVerified(path.join(artifacts, 'live'))
+    if (safeToRemove) await cleanupRunnerDownload(downloadDirectory, summary)
+    else {
+      recordRunnerFailure(summary, new Error('Sandbox cleanup is unverified; owned app download retained for inspection'), 'sandbox-cleanup')
+      if (downloadDirectory) {
+        summary.bootstrapCleanup = 'retained-unverified-sandbox'
+        summary.retainedDownloadDirectory = downloadDirectory
+      }
+    }
     await writeFile(path.join(artifacts, 'summary.json'), JSON.stringify(summary, null, 2) + '\n')
     await writeFile(path.join(reports, `intel-${suite || 'invalid'}-steps.xml`), junitForSteps(summary.steps))
   }
