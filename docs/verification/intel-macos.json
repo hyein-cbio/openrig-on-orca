@@ -1,0 +1,283 @@
+{
+  "implementation": "additive-intel-opt-in",
+  "preservation": {
+    "baseCommit": "dbf7191db3cde37c2e3aee8ff20aa019025c9988",
+    "protectedOriginalFiles": 195,
+    "hashInventory": "test/fixtures/apple-silicon-baseline.json",
+    "originalFilesChanged": 0,
+    "originalManifestEntry": "src/worker.ts",
+    "intelStagedEntry": "src/intel/worker.ts"
+  },
+  "source": {
+    "localValidationSnapshot": "34b1951c11c722f4641115a9c27f1e5fcee0d335",
+    "published": false
+  },
+  "host": {
+    "platform": "darwin",
+    "arch": "x64",
+    "release": "25.6.0",
+    "cpu": "Intel(R) Core(TM) i9-9880H CPU @ 2.30GHz",
+    "macOS": "26.7.3",
+    "unameMachine": "x86_64"
+  },
+  "versions": {
+    "node": "v22.23.4",
+    "orca": "1.4.258",
+    "openrig": "0.7.13 (b69cc929)",
+    "tmux": "tmux 3.8"
+  },
+  "runtime": {
+    "worker": {
+      "platform": "darwin",
+      "arch": "x64"
+    },
+    "nodeArch": "x64",
+    "sqlite": "ready"
+  },
+  "bootstrap": {
+    "version": "1.4.258",
+    "arch": "x64",
+    "sha256": "e28a685c42a62e0d9b35f3be3b41bde3db654342521d7194490b5ae37931cb3d",
+    "teamId": "6CX3WHS9HZ"
+  },
+  "tests": {
+    "core": {
+      "passed": 155,
+      "failed": 0,
+      "skipped": 0
+    },
+    "orca": {
+      "passed": 188,
+      "failed": 0,
+      "skipped": 0,
+      "includesCore": true
+    }
+  },
+  "worker": {
+    "exitCode": 0,
+    "steps": [
+      {
+        "suite": "orca",
+        "name": "source-secrets",
+        "seconds": 0.242,
+        "ok": true
+      },
+      {
+        "suite": "orca",
+        "name": "tmux-preflight",
+        "seconds": 0.166,
+        "ok": true
+      },
+      {
+        "suite": "orca",
+        "name": "dependencies",
+        "seconds": 3.009,
+        "ok": true
+      },
+      {
+        "suite": "orca",
+        "name": "core-tests",
+        "seconds": 1.492,
+        "ok": true
+      },
+      {
+        "suite": "orca",
+        "name": "orca-version",
+        "seconds": 0.479,
+        "ok": true
+      },
+      {
+        "suite": "orca",
+        "name": "orca-types",
+        "seconds": 0.57,
+        "ok": true
+      },
+      {
+        "suite": "orca",
+        "name": "typecheck",
+        "seconds": 6.959,
+        "ok": true
+      },
+      {
+        "suite": "orca",
+        "name": "plugin-tests",
+        "seconds": 9.523,
+        "ok": true
+      },
+      {
+        "suite": "orca",
+        "name": "plugin-check",
+        "seconds": 0.558,
+        "ok": true
+      },
+      {
+        "suite": "orca",
+        "name": "stage",
+        "seconds": 0.287,
+        "ok": true
+      },
+      {
+        "suite": "orca",
+        "name": "inspect",
+        "seconds": 0.992,
+        "ok": true
+      },
+      {
+        "suite": "orca",
+        "name": "sandbox",
+        "seconds": 124.248,
+        "ok": true
+      },
+      {
+        "suite": "orca",
+        "name": "tracked-clean",
+        "seconds": 0.077,
+        "ok": true
+      }
+    ]
+  },
+  "live": {
+    "exitCode": 0,
+    "checks": [
+      {
+        "id": "install-opened",
+        "detail": "Confirmed install-rig opens an Orca terminal"
+      },
+      {
+        "id": "first-install",
+        "detail": "First-run installer downloaded OpenRig 0.7.13 in an actual Orca terminal"
+      },
+      {
+        "id": "runtime-verified",
+        "detail": "Node + tmux + real SQLite verified; installation completes without agent/auth"
+      },
+      {
+        "id": "daemon-opened",
+        "detail": "Confirmed start-daemon opens an Orca terminal"
+      },
+      {
+        "id": "daemon-no-agents",
+        "detail": "Isolated loopback daemon starts with no kernel or agents"
+      },
+      {
+        "id": "example-opened",
+        "detail": "Confirmed example-demo opens an Orca terminal"
+      },
+      {
+        "id": "two-seats",
+        "detail": "Plugin-created Builder and Reviewer terminal seats are running"
+      },
+      {
+        "id": "native-relationships",
+        "detail": "Compact read-only native whoami observations resolve the terminal demo relationship without full graph, token or transcript requests"
+      },
+      {
+        "id": "pod-inventory",
+        "detail": "Real CLI projected rig/pod identities for both terminal-only seats from the explicitly configured private instance"
+      },
+      {
+        "id": "seat-attached",
+        "detail": "Both example roles rendered prerecorded simulation output in actual Orca PTYs"
+      },
+      {
+        "id": "detach-preserves-seat",
+        "detail": "Closing Orca views leaves both tmux seats running"
+      },
+      {
+        "id": "example-stopped",
+        "detail": "Explicit plugin stop action stops only the recorded terminal demo"
+      },
+      {
+        "id": "example-claude-opened",
+        "detail": "Confirmed example-claude opens an Orca terminal"
+      },
+      {
+        "id": "example-codex-opened",
+        "detail": "Confirmed example-codex opens an Orca terminal"
+      },
+      {
+        "id": "frozen-launch-review",
+        "detail": "Real OpenRig froze both provider templates and displayed declarations/unknowns independently of mutable source files"
+      },
+      {
+        "id": "templates-validated",
+        "detail": "Both single-provider RigSpecs and all AgentSpecs validated by real OpenRig; no real agent seats launched"
+      },
+      {
+        "id": "frozen-terminal-launch",
+        "detail": "The frozen-bundle confirmation program previewed and launched two real terminal-only seats; no model runtime was used"
+      },
+      {
+        "id": "topology-layout",
+        "detail": "Disconnected inventory seats render in actual left-to-right and top-to-bottom coordinate order, not merely matching dropdown values"
+      },
+      {
+        "id": "report-tooltip",
+        "detail": "A task-owned native outbox record produced a <=500-byte UTF-8 hover/focus preview; HTML remained inert, Escape dismissed it, and the body stayed outside the SVG"
+      },
+      {
+        "id": "unified-panel",
+        "detail": "One native HTML panel captured in light/dark; its two-view navigation, inline diagram selection and internal walkthrough exercised in the isolated browser without a worker bridge"
+      },
+      {
+        "id": "cleanup-complete",
+        "detail": "Fixture, daemon, plugin, terminals and profile-owned desktop/terminal-host processes cleaned up"
+      }
+    ],
+    "visual": "captured-seeded-profile",
+    "warnings": []
+  },
+  "unverified": [
+    "Actual provider authentication, paid-agent startup and model work",
+    "Real-agent instruction delivery and durable-task processing",
+    "Native OS SVG save-dialog interaction",
+    "Real package-manager installation",
+    "Other OS/runtime versions and ARM64 hardware rerun",
+    "Hosted Intel GitHub Actions execution"
+  ],
+  "githubActions": {
+    "entry": ".github/workflows/intel-mac-test.yml",
+    "worker": ".github/workflows/intel-mac-worker.yml",
+    "mode": "manual-only, hosted controller supervising an owned self-hosted worker run",
+    "labels": [
+      "self-hosted",
+      "macOS",
+      "X64",
+      "intel-mac-lab"
+    ],
+    "queueDeadlineSeconds": 120,
+    "workerTimeoutMinutes": 30,
+    "offlinePolicy": "cancel owned child and fail controller; no fallback or redispatch",
+    "localValidation": {
+      "controllerRegressionTests": 11,
+      "coreTests": 166,
+      "orcaTests": 199,
+      "failed": 0,
+      "skipped": 0,
+      "typecheck": "passed",
+      "yamlParse": "passed",
+      "actionlint": {
+        "version": "1.7.12",
+        "result": "passed",
+        "shellcheck": false
+      }
+    },
+    "runnerRegistrationObservation": {
+      "matchingOnlineIdle": 3,
+      "notJobExecutionProof": true
+    },
+    "hostedExecution": "not dispatched; workflows are local and not yet committed/pushed"
+  },
+  "historicalEvidenceNote": "The worker/live snapshot below predates refreshed main dbf7191; upstreamRefresh records validation of the newly integrated upstream code, not an inferred hosted pass.",
+  "upstreamRefresh": {
+    "commit": "dbf7191db3cde37c2e3aee8ff20aa019025c9988",
+    "protectedFiles": 195,
+    "coreTests": 176,
+    "orcaTests": 209,
+    "failed": 0,
+    "skipped": 0,
+    "typecheck": "passed",
+    "workflowLint": "passed",
+    "hostedAttempt": "pending publication and dispatch"
+  }
+}
