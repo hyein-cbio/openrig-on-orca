@@ -2,6 +2,16 @@
 
 This is an early-release, trusted-worker Orca plugin, not a security sandbox. Approving it grants code execution with your user account's access. Agent roles, read-only terminal views, and native permission settings are distinct controls; none should be described as universal containment.
 
+## Verified content-hash false positives
+
+The pinned scanner can mistake digest entries in test/fixtures/apple-silicon-baseline.json for generic API keys. Only that exact path, generic-api-key rule and a single complete JSON digest entry may be classified as a verified false positive. The entry must belong to the manifest files map and equal the SHA-256 of the referenced bytes; historical findings use the exact reported Git commit/blob, never current files. Escaped paths, missing proof, mismatches, other rules/files and multiline findings remain blocking. Counts are reported as verifiedBaselineHashes; no file-wide exemption or raw finding output is used.
+
+## Manual stored-result report reads
+
+Reports for you reads only exact external-source/canonical-destination compact queue lists over the same direct loopback GET-only transport. No sender identity/auth headers, inbox check-in, wildcard/unfiltered queue reads, redirects or transcript APIs are used. Sources are declared claims; a resolution may be written by another actor or previous occupant. Filtering and verified seat/rig identity prevent peer tasks from silently becoming user reports, but do not authenticate authorship or human receipt.
+
+Each source window is capped at 20 rows and 1 MiB transport data, with up to four sequential sources, 10 cards and 16 KiB per plain-text body. Source task IDs, commands, paths and HTML inside a report are untrusted evidence only: never followed, interpreted or executed. Bodies are memory-only, manually requested, excluded from diagrams/exports and cleared on context changes/disposal. Automatic observations do not fetch them.
+
 ## Reporting a vulnerability
 
 Use the repository's private vulnerability reporting channel when enabled. Do not post credentials, private project contents, or working exploit details in a public issue. If private reporting is unavailable, request a private contact channel without disclosing the sensitive details. Do not include real model-provider credentials in reproductions.

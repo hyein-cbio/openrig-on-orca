@@ -16,6 +16,8 @@ export interface Seat {
 export interface Pod { key: string; rigId: string; rigName: string; podId: string | null; namespace: string | null; label: string; seatCount: number }
 export interface PodInventory { connection: { source: 'tui' | 'configured'; key: string; home: string; port: string; endpoint: string; matchesConfigured: boolean }; observedAt: number; pods: Pod[]; seats: Seat[] }
 export interface PodRelations { instanceKey: string; podKey: string; memberKeys: string[]; observedAt: number; status: 'complete' | 'partial' | 'unavailable' | 'loading'; edges: { fromKey: string; toKey: string; kind: string }[]; omittedEdges?: number; notes: string[] }
+export interface UserReport { id: string; title: string; titleTruncated?: boolean; source: string; destination: string; state: string; updatedAt: string; body: string; preview: string; bodyBytes: number; totalBytes: number; truncated: boolean }
+export interface UserReports { instanceKey: string; podKey: string; seatKey: string; rigId: string; reportingSeat: string; sources: string[]; observedAt: number; status: 'ready' | 'partial' | 'unverified'; reports: UserReport[]; notes: string[]; truncated: boolean }
 export interface ReportPreview { instanceKey: string; podKey: string; seatKey: string; observedAt: number; status: 'recorded' | 'none' | 'unverified'; detail: string; preview?: string; previewBytes?: number; totalBytes?: number; truncated?: boolean; recordId?: string; recordedAt?: string; recipient?: string; delivery?: string; kind?: string }
 export interface ExampleRecord {
   id: string; kind: 'demo' | 'claude' | 'codex'; rigName: string; directory: string; specPath: string; configRoot: string; instance?: string
@@ -48,6 +50,7 @@ declare module 'orca' {
     'terminal.reveal': { input: { terminalId: string }; output: TerminalReceipt }
     'pods.list': { input: { source: 'tui' | 'configured' } | undefined; output: PodInventory }
     'pods.edges': { input: { source: 'tui' | 'configured'; instanceKey: string; podKey: string }; output: PodRelations }
+    'user.reports': { input: { source: 'tui' | 'configured'; instanceKey: string; podKey: string; seatKey: string; sources: string[] }; output: UserReports }
     'seat.report': { input: { source: 'tui' | 'configured'; instanceKey: string; podKey: string; seatKey: string }; output: ReportPreview }
     'pods.connect': { input: { source: 'tui' | 'configured'; expectedKey: string }; output: State }
     'seats.list': { output: { seats: Seat[] } }

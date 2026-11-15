@@ -2,6 +2,7 @@ import { canInstruct, instructionTextError } from './seat-instructions.mjs'
 import { canStartSeat, canQueueTask, taskTextError } from './seat-tasks.mjs'
 import { EXAMPLE_STEPS } from './example-story.mjs'
 import { createRefreshLoop, REFRESH_MS } from './refresh-loop.mjs'
+import { DEFAULT_REQUEST_SOURCES, reportingSeatDefault, requestSources } from './user-report-projection.mjs'
 import { reportPrefix } from './report-preview.mjs'
 import { seatInPod, operationInstance } from './pods.mjs'
 
@@ -19,6 +20,7 @@ export function createPluginSession(request, changed = () => {}, options = {}) {
   const emptyObservation = () => ({ seatsAt: 0, relationsAt: 0, lastSuccessAt: 0, seatsError: '', relationsError: '', missing: false, identityChanged: false })
   const state = { view: 'preparation', host: typeof request === 'function', env: null, draft: null, workspaceId: '',
     seats: null, inventory: null, relations: null, inventorySource: 'tui', diagramSource: 'inventory', podKey: '', podError: '', examples: [], input: { ...EMPTY_INPUT }, plan: null, startupRisk: false, receipt: null,
+    reportSeatKey: '', reportSeatPinned: false, requestSourceText: DEFAULT_REQUEST_SOURCES.join(', '), userReports: null, userReportError: '',
     observation: emptyObservation(), autoRefresh: null, task: null, readOnly: true, busy: false, busyKind: null, error: '', notice: '', warning: '', step: 0 }
   const reportCache = new Map(); let reportReads = 0, refreshLoop = null
   const emit = () => { refreshLoop?.sync(); changed(state) }
@@ -37,7 +39,7 @@ export function createPluginSession(request, changed = () => {}, options = {}) {
   }
   function invalidate() { state.plan = null; state.startupRisk = false }
   function apply(env) {
-    reportCache.clear(); state.observation = emptyObservation()
+    reportCache.clear(); state.observation = emptyObservation(); state.reportSeatKey = ''; state.reportSeatPinned = false; state.userReports = null; state.userReportError = ''
     if (state.task && JSON.stringify(state.env?.config) !== JSON.stringify(env.config)) state.task = { ...state.task, registration: 'unverified', state: 'unknown', detail: 'Instance configuration changed. Reconcile at the original endpoint before retrying.' }
     state.env = env; state.draft = { ...env.config }; state.seats = null; state.examples = []; state.inventory = null; state.relations = null; state.diagramSource = 'inventory'; state.podKey = ''; state.podError = ''
     state.input.instructionSeat = ''; state.input.taskSeat = ''
@@ -69,6 +71,11 @@ export function createPluginSession(request, changed = () => {}, options = {}) {
     state.observation.relationsError = next.status === 'complete' ? '' : 'Relationship observation is partial or unverified.'
     if (next.status === 'complete') state.observation.relationsAt = now()
   }
+  const reportingSeats = () => state.inventory?.seats.filter(s => s.rigId === selectedPod()?.rigId) || []
+  function syncReportingSeat() {
+    if (state.reportSeatKey && !reportingSeats().some(s => s.key === state.reportSeatKey)) { state.reportSeatKey = ''; state.userReports = null; state.userReportError = 'Reporting seat changed or disappeared. Choose it explicitly before another report read.'; return }
+    if (!state.reportSeatKey && !state.reportSeatPinned) state.reportSeatKey = reportingSeatDefault(state.inventory, selectedPod(), state.relations)
+  }
   async function loadPods(keepKey = '') {
     reportCache.clear()
     const previous = state.inventory, previousPod = state.podKey
@@ -80,7 +87,7 @@ export function createPluginSession(request, changed = () => {}, options = {}) {
       storeInventory(inventory)
       state.observation.seatsAt = now(); state.observation.seatsError = ''; state.observation.missing = false; state.observation.identityChanged = false
       state.podKey = sameInstance && inventory.pods.some(p => p.key === keepKey) ? keepKey : ''
-      if (state.podKey !== previousPod || !sameInstance) { state.relations = null; state.observation.relationsAt = 0; state.observation.relationsError = ''; state.observation.lastSuccessAt = 0; reportCache.clear() }
+      if (state.podKey !== previousPod || !sameInstance) { state.relations = null; state.observation.relationsAt = 0; state.observation.relationsError = ''; state.observation.lastSuccessAt = 0; reportCache.clear(); state.reportSeatKey = ''; state.reportSeatPinned = false; state.userReports = null; state.userReportError = '' }
       if (!podSeats().some(s => s.key === state.input.instructionSeat)) state.input.instructionSeat = ''
       if (!podSeats().some(s => s.key === state.input.taskSeat)) state.input.taskSeat = ''
       if (state.podKey) await loadRelations()
@@ -94,13 +101,14 @@ export function createPluginSession(request, changed = () => {}, options = {}) {
     if (!pod || !inventory) { state.relations = null; return }
     const { key: instanceKey, source } = inventory.connection, podKey = pod.key, memberKeys = podSeats().map(s => s.key)
     const same = () => state.inventory?.connection.key === instanceKey && state.podKey === podKey
+    syncReportingSeat()
     if (!state.relations) state.relations = { instanceKey, podKey, memberKeys, observedAt: 0, status: 'loading', edges: [], notes: ['Reading native compact relationship metadata…'] }
     emit()
     try {
       const result = await request('pods.edges', { source: source || state.inventorySource, instanceKey, podKey }, { timeoutMs: 120000 })
       if (!same()) return
       if (!validRelations(result, instanceKey, podKey)) throw new Error('Invalid relationship observation')
-      storeRelations(result, memberKeys); if (state.observation.relationsError) refreshLoop?.failure(); else recordFullSuccess()
+      storeRelations(result, memberKeys); syncReportingSeat(); if (state.observation.relationsError) refreshLoop?.failure(); else recordFullSuccess()
     } catch {
       if (same()) {
         state.observation.relationsError = 'Relationship lookup failed; any retained lines are from an older snapshot.'; refreshLoop?.failure()
@@ -121,7 +129,7 @@ export function createPluginSession(request, changed = () => {}, options = {}) {
       if (next.connection.key !== instanceKey) { state.observation.identityChanged = true; throw new Error('Instance changed') }
       if (!next.pods.some(p => p.key === podKey)) { state.observation.missing = true; throw new Error('Selected pod missing') }
     } catch {
-      if (current()) { state.observation.seatsError = state.observation.identityChanged ? 'Instance changed. Auto refresh is paused; inspect and refresh manually.' : state.observation.missing ? 'The selected pod was not returned. Its previous snapshot is stale; no other pod was selected.' : 'Automatic seat lookup failed. Showing the last successful snapshot, not current state.'; state.podError = state.observation.seatsError }
+      if (current()) { if (state.observation.identityChanged || state.observation.missing) { state.userReports = null; state.reportSeatKey = ''; state.reportSeatPinned = true; state.userReportError = 'The observed rig/instance context changed or disappeared. Inspect it manually before another report read.' } state.observation.seatsError = state.observation.identityChanged ? 'Instance changed. Auto refresh is paused; inspect and refresh manually.' : state.observation.missing ? 'The selected pod was not returned. Its previous snapshot is stale; no other pod was selected.' : 'Automatic seat lookup failed. Showing the last successful snapshot, not current state.'; state.podError = state.observation.seatsError }
       return false
     }
     let result
@@ -135,6 +143,7 @@ export function createPluginSession(request, changed = () => {}, options = {}) {
     if (!members.some(s => s.key === state.input.taskSeat)) state.input.taskSeat = ''
     if (validRelations(result, instanceKey, podKey)) storeRelations(result, memberKeys)
     else state.observation.relationsError = 'Automatic relationship lookup failed. Showing the older relationship snapshot, not current connections.'
+    syncReportingSeat()
     const ok = !state.observation.relationsError && state.relations?.status === 'complete'
     if (ok) state.observation.lastSuccessAt = Math.min(state.observation.seatsAt, state.observation.relationsAt)
     return ok
@@ -161,7 +170,32 @@ export function createPluginSession(request, changed = () => {}, options = {}) {
     return false
   }
   const session = {
-    state, dirty, canPrepare, selectedPod, podSeats, podConnected,
+    state, dirty, canPrepare, selectedPod, podSeats, podConnected, reportingSeats,
+    selectReportingSeat(key) {
+      if (state.busy || (key && !reportingSeats().some(s => s.key === key))) return false
+      state.reportSeatKey = key; state.reportSeatPinned = true; state.userReports = null; state.userReportError = ''; emit(); return true
+    },
+    editRequestSources(text) {
+      if (state.busy) return
+      state.requestSourceText = String(text).slice(0, 1000); state.userReports = null; state.userReportError = ''; emit()
+    },
+    async loadUserReports() {
+      await work(async () => {
+        if (dirty() || !state.inventory || !selectedPod() || state.diagramSource !== 'inventory' || state.observation.seatsError) throw new Error('Refresh a saved native rig/pod before reading user reports.')
+        const seat = reportingSeats().find(s => s.key === state.reportSeatKey)
+        if (!seat) throw new Error('Choose the reporting seat. Its name alone is not treated as a lead role.')
+        state.reportSeatPinned = true
+        const sources = requestSources(state.requestSourceText), instanceKey = state.inventory.connection.key, podKey = state.podKey, seatKey = seat.key
+        state.userReportError = ''
+        try {
+          const result = await request('user.reports', { source: state.inventory.connection.source || state.inventorySource, instanceKey, podKey, seatKey, sources }, { timeoutMs: 120000 })
+          if (state.inventory?.connection.key !== instanceKey || state.podKey !== podKey || state.reportSeatKey !== seatKey || result?.instanceKey !== instanceKey || result.podKey !== podKey || result.seatKey !== seatKey || result.rigId !== seat.rigId || JSON.stringify(result.sources) !== JSON.stringify(sources) || !['ready', 'partial', 'unverified'].includes(result.status) || !Array.isArray(result.reports) || result.reports.length > 10 || !Array.isArray(result.notes)) throw new Error('The report context changed or returned incomplete data.')
+          if (result.reports.some(r => typeof r.body !== 'string' || new TextEncoder().encode(r.body).length > 16384 || typeof r.preview !== 'string' || new TextEncoder().encode(r.preview).length > 500 || !sources.includes(r.source))) throw new Error('A report exceeded its bounded source/body projection.')
+          if (result.status === 'unverified' && state.userReports?.reports.length) state.userReportError = 'Native report reads are unverified. The last successful report snapshot is retained; its original read time still applies.'
+          else state.userReports = result
+        } catch { state.userReportError = 'User report read failed or changed context. Any retained cards are an older report snapshot; no report was generated.' }
+      }, 'read')
+    },
     setAutoRefresh(value) { refreshLoop.setEnabled(value) },
     setPanelVisibility(visible, known = true) { refreshLoop.setVisibility(visible, known) },
     observationStatus() {
@@ -170,14 +204,14 @@ export function createPluginSession(request, changed = () => {}, options = {}) {
         relationsStale: !o.relationsAt || Boolean(o.relationsError) || state.relations?.status !== 'complete' || now() - o.relationsAt >= REFRESH_MS }
     },
     tickObservationClock() { emit() },
-    dispose() { refreshLoop.dispose(); reportCache.clear() },
+    dispose() { refreshLoop.dispose(); reportCache.clear(); state.userReports = null; state.reportSeatKey = '' },
     setDiagramSource(source) {
       if (!['inventory', 'yaml'].includes(source) || state.diagramSource === source) return
       state.diagramSource = source; invalidate(); emit()
     },
     selectPod(key) {
       if (state.busy || (key && !state.inventory?.pods.some(pod => pod.key === key))) return false
-      reportCache.clear(); state.podKey = key; state.relations = null; state.observation = { ...state.observation, relationsAt: 0, relationsError: '', lastSuccessAt: 0, missing: false }; state.diagramSource = 'inventory'; state.input.instructionSeat = ''; state.input.taskSeat = ''; invalidate(); emit(); return true
+      state.reportSeatKey = ''; state.reportSeatPinned = false; state.userReports = null; state.userReportError = ''; reportCache.clear(); state.podKey = key; state.relations = null; state.observation = { ...state.observation, relationsAt: 0, relationsError: '', lastSuccessAt: 0, missing: false }; state.diagramSource = 'inventory'; state.input.instructionSeat = ''; state.input.taskSeat = ''; invalidate(); emit(); return true
     },
     async readReport(seatKey) {
       const inventory = state.inventory, pod = selectedPod(), seat = podSeats().find(s => s.key === seatKey)
@@ -217,7 +251,7 @@ export function createPluginSession(request, changed = () => {}, options = {}) {
     async selectInventorySource(source) {
       if (!['tui', 'configured'].includes(source) || state.busy) return
       if (dirty()) { state.error = 'Save configuration before selecting another observed instance.'; emit(); return }
-      state.inventorySource = source; state.inventory = null; state.relations = null; state.podKey = ''; state.observation = emptyObservation(); reportCache.clear()
+      state.inventorySource = source; state.inventory = null; state.relations = null; state.podKey = ''; state.observation = emptyObservation(); state.reportSeatKey = ''; state.reportSeatPinned = false; state.userReports = null; state.userReportError = ''; reportCache.clear()
       await session.refreshPods(false)
     },
     async refreshPods(keep = true) {

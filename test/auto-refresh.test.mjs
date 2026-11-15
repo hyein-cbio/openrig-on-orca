@@ -28,10 +28,12 @@ async function fixture() {
 }
 test('one-minute auto refresh reads only observations, preserves identical objects and keeps form drafts', async () => {
   const f = await fixture(); f.session.editInput('instructionSeat', seat.key); f.session.editInput('instruction', 'Keep this draft')
+  const reports = { reports: [{ body: 'Manually loaded result' }] }; f.state.userReports = reports
   const inventory = f.state.inventory, relations = f.state.relations, start = f.calls.length
   assert.equal(f.state.autoRefresh.enabled, false); f.session.setAutoRefresh(true)
   await f.clock.advance(REFRESH_MS - 1); assert.equal(f.calls.length, start); await f.clock.advance(1)
   assert.deepEqual(f.calls.slice(start).map(c => c.name), ['pods.list', 'pods.edges'])
+  assert.equal(f.state.userReports, reports); assert.equal(f.calls.some(c => c.name === 'user.reports'), false)
   assert.equal(f.state.inventory, inventory); assert.equal(f.state.relations, relations); assert.equal(f.state.input.instruction, 'Keep this draft'); assert.equal(f.state.input.instructionSeat, seat.key)
   assert.equal(f.state.observation.seatsAt, f.clock.now()); assert.equal(f.session.observationStatus().seatsStale, false); assert.equal(f.state.autoRefresh.failures, 0)
   f.session.dispose()
@@ -70,8 +72,10 @@ test('hiding cancels an in-flight observation and discards late data, then resum
 test('instance changes and missing pods retain old data without silently selecting or reconnecting another target', async () => {
   for (const mode of ['instance', 'missing']) {
     const f = await fixture(), old = f.state.inventory
+    f.state.userReports = { reports: [{ body: 'Prior-context report text' }] }; f.state.reportSeatPinned = true
     f.mode(mode); f.session.setAutoRefresh(true); await f.clock.advance(REFRESH_MS)
     assert.equal(f.state.inventory, old); assert.equal(f.state.podKey, podKey); assert.equal(f.session.podConnected(), false); assert.equal(f.calls.some(c => c.name === 'pods.connect'), false)
+    assert.equal(f.state.userReports, null); assert.equal(f.state.reportSeatKey, ''); assert.ok(f.state.userReportError)
     assert.ok(f.state.observation.seatsError); f.session.dispose()
   }
 })

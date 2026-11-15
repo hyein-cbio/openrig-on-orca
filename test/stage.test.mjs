@@ -13,7 +13,7 @@ test('shipping stage allowlists runtime files and excludes development/local sta
     await stagePlugin(destination)
     const files = await readdir(destination)
     assert.deepEqual(files.sort(), ['README.md', 'SPEC.md', 'docs', 'orca-plugin.json', 'src'])
-    assert.deepEqual((await readdir(path.join(destination, 'src'))).sort(), ['action-files.mjs', 'example-story.mjs', 'examples.mjs', 'launch-review.mjs', 'native-read.mjs', 'plans.mjs', 'plugin.css', 'pod-inventory.mjs', 'pod-relations.mjs', 'pods.mjs', 'protocol.ts', 'report-preview.mjs', 'runtime.mjs', 'seat-instructions.mjs', 'seat-reports.mjs', 'seat-tasks.mjs', 'task-files.mjs', 'terminal-receipt.mjs', 'topology.css', 'topology.html', 'visualizer', 'worker.ts', 'workspace-labels.mjs'])
+    assert.deepEqual((await readdir(path.join(destination, 'src'))).sort(), ['action-files.mjs', 'example-story.mjs', 'examples.mjs', 'launch-review.mjs', 'native-read.mjs', 'plans.mjs', 'plugin.css', 'pod-inventory.mjs', 'pod-relations.mjs', 'pods.mjs', 'protocol.ts', 'report-preview.mjs', 'runtime.mjs', 'seat-instructions.mjs', 'seat-reports.mjs', 'seat-tasks.mjs', 'task-files.mjs', 'terminal-receipt.mjs', 'topology.css', 'topology.html', 'user-report-projection.mjs', 'user-reports.mjs', 'visualizer', 'worker.ts', 'workspace-labels.mjs'])
     const manifest = JSON.parse(await readFile(path.join(destination, 'orca-plugin.json'), 'utf8'))
     assert.equal(manifest.main, 'src/worker.ts')
     assert.equal(manifest.contributes.panels.length, 1)

@@ -160,7 +160,22 @@ try {
   assert.equal(audit.status, 201, 'Task-owned outbox audit fixture must record without sending terminal input')
   const reportPreview = await request('seat.report', { source: 'configured', instanceKey: inventory.connection.key, podKey: observedPod.key, seatKey: demoSeats[0].key })
   assert.equal(reportPreview.status, 'recorded'); assert.equal(reportPreview.truncated, true); assert.ok(reportPreview.previewBytes <= 500); assert.equal(Buffer.byteLength(reportPreview.preview), reportPreview.previewBytes)
-  observedPodFixture = { pod: observedPod, seats: inventory.seats.filter(s => s.rigId === observedPod.rigId && s.podId === observedPod.podId), observedAt: inventory.observedAt, relations, reportPreview }
+  // Seed completed request evidence only in this proven task-owned SQLite instance. No queue
+  // create/nudge or agent input is needed to test the read-only result-report projection.
+  const dbPath = await realpath(path.join(config.root, 'instance', 'openrig.sqlite'))
+  assert.ok(dbPath.startsWith((await realpath(root)) + path.sep), 'Refusing report fixtures outside the private test root')
+  const { DatabaseSync } = await import('node:sqlite'), db = new DatabaseSync(dbPath)
+  const userResult = 'RESULT_BODY_FIXTURE <script>window.reportInjected=true</script>\nFinal total: 500500. Independent check recorded.\n' + '\uAC00🙂'.repeat(2800), reportId = `qitem-report-fixture-${randomUUID()}`
+  try {
+    db.exec('PRAGMA busy_timeout=2000')
+    const insert = db.prepare('INSERT INTO queue_items (qitem_id,ts_created,ts_updated,source_session,destination_session,state,priority,body,summary,resolution,closure_reason) VALUES (?,?,?,?,?,?,?,?,?,?,?)'), stamp = new Date().toISOString()
+    insert.run(reportId, stamp, stamp, 'user@external', demoSeats[0].session, 'done', 'routine', 'Original user calculation request', 'User requested calculation and independent review', userResult, 'no-follow-on')
+    insert.run(`qitem-peer-fixture-${randomUUID()}`, stamp, stamp, demoSeats[1].session, demoSeats[0].session, 'done', 'routine', 'Internal peer handoff', 'Peer task, not a user report', 'INTERNAL_RESOLUTION_FIXTURE', 'no-follow-on')
+  } finally { db.close() }
+  const userReports = await request('user.reports', { source: 'configured', instanceKey: inventory.connection.key, podKey: observedPod.key, seatKey: demoSeats[0].key, sources: ['user@external', 'orca-gui@external'] })
+  assert.equal(userReports.status, 'ready'); assert.equal(userReports.reports.length, 1); assert.equal(userReports.reports[0].id, reportId); assert.equal(userReports.reports[0].truncated, true); assert.ok(userReports.reports[0].bodyBytes <= 16384)
+  assert.equal(JSON.stringify(userReports).includes('INTERNAL_RESOLUTION_FIXTURE'), false)
+  observedPodFixture = { pod: observedPod, seats: inventory.seats.filter(s => s.rigId === observedPod.rigId && s.podId === observedPod.podId), observedAt: inventory.observedAt, relations, reportPreview, userReports }
   check('pod-inventory', 'Real CLI projected rig/pod identities for both terminal-only seats from the explicitly configured private instance')
   for (const seat of demoSeats) {
     const attached = await request('seat.attach', { key: seat.key, workspaceId: workspace.id, readOnly: true })
@@ -294,6 +309,16 @@ try {
   })()`)
   assert.deepEqual(dismissals, { clickCloses: true, leaveWhileFocused: true, keyboardCloses: true, lateIgnored: true })
   check('report-tooltip', 'Native UTF-8 hover/focus previews remain inert and outside SVG; click/Enter/Space and mouseleave (even while focused) dismiss immediately, and late reads cannot reopen them')
+  browserStep = 'user-report-cards'
+  await evaluate(`(async()=>{const m=await import('/visualizer/workspace.mjs');m.displayUserReportSnapshot(${JSON.stringify(observedPodFixture.userReports)});return JSON.stringify(true)})()`)
+  assert.equal(await evaluate('JSON.stringify(document.querySelectorAll("#user-report-list article").length)'), 1)
+  assert.equal(await evaluate('JSON.stringify(document.querySelector("#user-report-list script")===null && window.reportInjected!==true)'), true)
+  assert.equal(await evaluate(`JSON.stringify(document.querySelector('#user-report-list pre').textContent===${JSON.stringify(observedPodFixture.userReports.reports[0].body)})`), true)
+  assert.equal(await evaluate('JSON.stringify(document.querySelector("#diagram svg").outerHTML.includes("RESULT_BODY_FIXTURE"))'), false)
+  await evaluate('JSON.stringify(document.querySelector("#user-report-list details").open=true)')
+  await evaluate(`(async()=>{const m=await import('/visualizer/workspace.mjs');m.displayUserReportSnapshot(${JSON.stringify({ ...observedPodFixture.userReports, status: 'partial' })},'Read failed: older report snapshot');return JSON.stringify(true)})()`)
+  assert.equal(await evaluate('JSON.stringify(!document.getElementById("user-report-error").hidden && document.getElementById("user-report-status").textContent.includes("older retained snapshot"))'), true)
+  check('user-report-cards', 'Private native external-request resolutions render as inert bounded report cards with source IDs, plain original text, expansion and stale/error labels; peer tasks and SVG exports contain no report body')
   await evaluate(`(()=>{const frame=document.createElement('iframe');frame.id='visibility-fixture';frame.src='/visualizer/plugin.html';frame.style.cssText='position:fixed;top:10px;left:10px;width:500px;height:300px;z-index:2000;background:white';document.body.append(frame);return JSON.stringify(true)})()`)
   await until(async () => assert.equal(await evaluate('JSON.stringify(document.getElementById("visibility-fixture").contentDocument?.readyState === "complete")'), true))
   await evaluate(`(async()=>{const m=await import('/visualizer/workspace.mjs');const frame=document.getElementById('visibility-fixture'),w=frame.contentWindow;window.visibilitySamples=[];window.visibilityProbe=m.watchPanelVisibility({document:w.document,window:w,IntersectionObserver:w.IntersectionObserver,changed:(visible,known)=>window.visibilitySamples.push({visible,known})});return JSON.stringify(true)})()`)

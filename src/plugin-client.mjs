@@ -25,7 +25,7 @@ function choices(id, items, value, placeholder) {
 const bridge = window.orca?.plugin?.request ? (name, input, options) => window.orca.plugin.request(name, input, options) : null
 let ageTimer = null, disposed = false
 const session = createPluginSession(bridge, render)
-let renderedInventory, renderedPodKey, renderedDiagramSource, renderedRelations, renderedObservation
+let renderedInventory, renderedPodKey, renderedDiagramSource, renderedRelations, renderedObservation, renderedUserReports
 observeTopologySource(source => session.setDiagramSource(source))
 setReportReader(key => session.readReport(key))
 const inputBindings = { 'instruction-recipient': 'instructionSeat', 'instruction-text': 'instruction', 'task-recipient': 'taskSeat', 'task-summary': 'summary', 'task-body': 'body', 'team-spec': 'spec' }
@@ -61,6 +61,9 @@ $('auto-refresh').addEventListener('change', event => session.setAutoRefresh(eve
 $('dashboard-pod').addEventListener('change', event => { if (session.selectPod(event.target.value)) void session.refreshRelations() })
 $('pod-instance-source').addEventListener('change', event => { void session.selectInventorySource(event.target.value) })
 $('connect-pod-instance').addEventListener('click', session.connectInventory)
+$('reporting-seat').addEventListener('change', event => session.selectReportingSeat(event.target.value))
+$('user-report-sources').addEventListener('input', event => session.editRequestSources(event.target.value))
+$('load-user-reports').addEventListener('click', session.loadUserReports)
 $('restore-pod-diagram').addEventListener('click', () => { $('yaml-tools').open = false; session.setDiagramSource('inventory') })
 $('refresh-examples').addEventListener('click', session.refreshSeats)
 $('confirm-operation').addEventListener('click', session.confirm)
@@ -89,6 +92,29 @@ function renderSeats(state) {
     attach.disabled = state.busy || session.dirty() || !state.workspaceId || !session.podConnected() || seat.status !== 'running'
     attach.addEventListener('click', () => session.attach(seat.key))
     actions.append(actionButton('Review seat start', 'launch-seat', { seatKey: seat.key }), attach); card.append(actions); return card
+  }))
+}
+function renderUserReports(state) {
+  const pod = session.selectedPod(), reporting = session.reportingSeats().find(s => s.key === state.reportSeatKey), data = state.userReports
+  choices('reporting-seat', session.reportingSeats().map(s => ({ value: s.key, label: `${s.rigName} / ${s.logicalId} · ${s.runtime}` })), state.reportSeatKey, 'Choose the reporting seat in this rig')
+  $('reporting-seat').disabled = state.busy || !state.host || !pod
+  inputValue('user-report-sources', state.requestSourceText); $('user-report-sources').disabled = state.busy || !state.host
+  $('load-user-reports').disabled = state.busy || !state.host || session.dirty() || !reporting?.session || state.diagramSource !== 'inventory' || Boolean(state.observation.seatsError)
+  text('user-report-context', pod ? `Rig: ${pod.rigName}${reporting ? ` · reporting seat: ${reporting.logicalId}` : ' · choose a reporting seat'}${reporting && !state.reportSeatPinned ? ' · topology-based default; confirm this is the seat you want' : ''}` : 'Select an actual native rig / pod to inspect its reports.')
+  displayUserReportSnapshot(data, state.userReportError)
+}
+function displayUserReportSnapshot(data, error = '') {
+  text('user-report-error', error); show('user-report-error', Boolean(error))
+  text('user-report-status', data ? `${data.reports.length} stored resolution reports · ${error ? 'older retained snapshot' : data.status} · read ${new Date(data.observedAt).toLocaleString()}` : 'No report body has been read for this selection. Load stored reports explicitly.')
+  list('user-report-notes', data?.notes || [])
+  if (renderedUserReports === data) return
+  renderedUserReports = data
+  if (!data?.reports.length) { $('user-report-list').replaceChildren(element('p', data ? 'No stored resolution was found in the inspected windows, or the read is unverified. See provenance and limits; no report was generated.' : 'Stored user-request reports will appear here.')); return }
+  $('user-report-list').replaceChildren(...data.reports.map(report => {
+    const card = element('article', undefined, 'seat-card'), detail = element('details'), caption = element('summary', `Read stored resolution · ${report.bodyBytes} / ${report.totalBytes} UTF-8 bytes${report.truncated ? ' · truncated' : ''}`)
+    card.append(element('h3', report.title), element('p', `Original request${report.titleTruncated ? ' title excerpt' : ''} · ${report.source} → ${data.reportingSeat}`), element('p', `Recorded task state: ${report.state} · updated ${new Date(report.updatedAt).toLocaleString()}`), element('code', `Source task: ${report.id}`), element('p', report.preview, 'report-preview'), element('small', `${new TextEncoder().encode(report.preview).length} / ${report.totalBytes} UTF-8-byte preview · expand the stored resolution below`))
+    detail.append(caption, element('pre', report.body)); card.append(detail, element('small', 'Original request resolution, not an independent verification or proof of user delivery.'))
+    return card
   }))
 }
 function renderExamples(state) {
@@ -188,7 +214,7 @@ function render(state) {
   choices('task-recipient', session.podSeats().map(s => ({ value: s.key, label: `${s.rigName} / ${s.logicalId} · ${s.runtime}`, disabled: !canQueueTask(s) })), state.input.taskSeat, 'Choose one existing running agent')
   for (const [id, key] of Object.entries(inputBindings)) { if (!id.endsWith('recipient')) inputValue(id, state.input[key]); $(id).disabled = waiting || dirty || !hosted }
   for (const button of document.querySelectorAll('[data-operation]')) button.disabled = !session.canPrepare(button.dataset.operation)
-  renderSeats(state); renderExamples(state); renderReview(state)
+  renderSeats(state); renderUserReports(state); renderExamples(state); renderReview(state)
   show('plugin-receipt', Boolean(state.receipt && !state.plan))
   if (state.receipt) {
     const receipt = state.receipt
@@ -213,4 +239,4 @@ const visibility = watchPanelVisibility({ document, window, IntersectionObserver
 window.addEventListener('pagehide', () => { if (ageTimer !== null) clearTimeout(ageTimer); ageTimer = null })
 window.addEventListener('beforeunload', () => { disposed = true; visibility.dispose(); session.dispose(); if (ageTimer !== null) clearTimeout(ageTimer) })
 if (bridge) void session.scan()
-export { watchPanelVisibility }
+export { watchPanelVisibility, displayUserReportSnapshot }

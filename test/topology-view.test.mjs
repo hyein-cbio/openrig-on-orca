@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { projectTopology, createTopologyNavigation, topologyViewSummary } from '../src/topology-view.mjs'
-import { topologyMermaid, parseTopology, SAMPLE_TOPOLOGY } from '../src/topology.mjs'
+import { topologyMermaid, parseTopology, SAMPLE_TOPOLOGY } from '../src/visualizer/topology.mjs'
 
 function graph(ids, relationships = []) {
   return { name: 'Fixture', pods: [{ uid: 'pod_0', id: 'p', label: 'Fixture' }],

@@ -20,9 +20,9 @@ import { ensureIntelTmux } from '../ci/intel/ensure-tmux.mjs'
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const hash = bytes => createHash('sha256').update(bytes).digest('hex')
 
-test('all original Apple Silicon implementation, CI, manifest and tests retain their exact baseline bytes', async () => {
+test('shared Apple Silicon implementation, CI, manifest and tests match the reviewed shared-feature baseline', async () => {
   const baseline = JSON.parse(await readFile(path.join(root, 'test/fixtures/apple-silicon-baseline.json'), 'utf8'))
-  assert.equal(Object.keys(baseline.files).length, 195)
+  assert.equal(Object.keys(baseline.files).length, 198)
   for (const [file, expected] of Object.entries(baseline.files)) {
     assert.equal(hash(await readFile(path.join(root, file))), expected, file + ' must remain unchanged; Intel support belongs in additional files')
   }

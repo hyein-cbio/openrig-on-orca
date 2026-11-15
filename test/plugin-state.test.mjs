@@ -18,6 +18,30 @@ function fixture(overrides = {}) {
 const plan = extra => ({ id: 'plan-fixture', workspaceId: 'work', expires: Date.now() + 60000, title: 'Fixture', command: 'never executed here', source: 'https://example.invalid', writes: [], warnings: [], ...extra })
 async function ready(f) { await f.session.scan(); f.session.selectWorkspace('work'); f.session.selectPod(JSON.stringify([seat.rigId, seat.podId])) }
 
+const reportResult = (input, extra = {}) => ({ instanceKey: input.instanceKey, podKey: input.podKey, seatKey: input.seatKey, rigId: seat.rigId, reportingSeat: 'demo / dev.worker', sources: input.sources, observedAt: 1234567890, status: 'ready', truncated: false, notes: ['Original request resolution, no delivery claim'], reports: [{ id: 'qitem-user-fixture', title: 'Original request title', source: input.sources[0], destination: seat.session, state: 'done', updatedAt: '2026-01-01T12:00:00Z', body: 'Original final result', preview: 'Original final result', bodyBytes: 21, totalBytes: 21, truncated: false }], ...extra })
+test('user result reports are explicitly loaded without a workspace, preserve reviews/drafts and never join automatic observations', async () => {
+  const f = fixture({ 'user.reports': reportResult }); await ready(f); f.session.selectReportingSeat(seat.key)
+  f.session.selectWorkspace(''); f.session.editInput('instruction', 'Preserve this draft'); f.state.plan = plan()
+  await f.session.loadUserReports(); assert.equal(f.state.userReports.reports[0].body, 'Original final result'); assert.equal(f.state.plan.id, 'plan-fixture'); assert.equal(f.state.input.instruction, 'Preserve this draft'); assert.equal(f.state.reportSeatPinned, true)
+  await f.session.refreshPods(); assert.equal(f.calls.filter(c => c.name === 'user.reports').length, 1); assert.equal(f.calls.some(c => c.name === 'setup.execute'), false)
+  f.session.editRequestSources('orca-gui@external'); assert.equal(f.state.userReports, null)
+  await f.session.loadUserReports(); assert.deepEqual(f.calls.filter(c => c.name === 'user.reports').at(-1).input.sources, ['orca-gui@external'])
+  f.session.editRequestSources('peer@demo'); await f.session.loadUserReports(); assert.equal(f.calls.filter(c => c.name === 'user.reports').length, 2)
+})
+test('failed stored-report reads retain a visibly older successful snapshot and a disappeared reporting seat is never replaced silently', async () => {
+  let unavailable = false, current = [structuredClone(seat)]
+  const f = fixture({ 'seats.list': () => ({ seats: current }), 'user.reports': input => reportResult(input, unavailable ? { status: 'unverified', reports: [] } : {}) })
+  await ready(f); f.session.selectReportingSeat(seat.key); await f.session.loadUserReports(); const previous = f.state.userReports
+  unavailable = true; await f.session.loadUserReports(); assert.equal(f.state.userReports, previous); assert.match(f.state.userReportError, /last successful/)
+  current = [{ ...seat, key: '["rig-1","dev.other"]', logicalId: 'dev.other', session: 'dev-other@demo' }]
+  await f.session.refreshPods(); await f.session.refreshPods(); assert.equal(f.state.reportSeatKey, ''); assert.equal(f.state.reportSeatPinned, true); assert.equal(f.state.userReports, null)
+})
+test('a late stored-report response cannot repopulate report bodies after disposal', async () => {
+  let finish, context
+  const f = fixture({ 'user.reports': input => { context = input; return new Promise(resolve => { finish = resolve }) } }); await ready(f); f.session.selectReportingSeat(seat.key)
+  const pending = f.session.loadUserReports(); f.session.dispose(); finish(reportResult(context)); await pending
+  assert.equal(f.state.userReports, null); assert.equal(f.state.reportSeatKey, '')
+})
 test('one session has exactly preparation/dashboard navigation with no execution or extra requests', async () => {
   const f = fixture(); await ready(f)
   assert.equal(f.state.view, 'preparation')

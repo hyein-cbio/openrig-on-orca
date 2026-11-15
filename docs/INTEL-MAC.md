@@ -4,9 +4,9 @@
 
 Intel support is an **opt-in addition**, not a rewrite or generalization of the Apple Silicon implementation.
 
-The original runtime, worker, manifest, staging, sandbox, ARM64 bootstrap/settings/CI, dependency lockfile and existing tests remain byte-for-byte identical to refreshed upstream baseline commit `dbf7191db3cde37c2e3aee8ff20aa019025c9988`. No existing source imports the Intel modules. The default `orca-plugin.json` still selects `src/worker.ts`, and the default `node scripts/stage.mjs` still builds the original package.
+Intel adaptation remains separate from the shared runtime, worker, manifest, staging, sandbox, ARM64 bootstrap/settings/CI, dependency lockfile and tests. The reviewed shared-code snapshot is based on upstream `61cffec` and includes its topology hub navigation plus the stored user-request report feature. No shared source imports the Intel modules. The default `orca-plugin.json` still selects `src/worker.ts`, and the default `node scripts/stage.mjs` still builds the shared package.
 
-`test/fixtures/apple-silicon-baseline.json` records SHA-256 hashes for 195 upstream code/configuration files, including the newly integrated one-minute refresh implementation. The added `test/intel-mac.test.mjs` fails if any protected file changes. Future changes to that baseline require an explicit review; updating it merely to hide an Intel regression defeats the preservation contract. Original documentation is unchanged except for an appended Intel entry section in README.
+`test/fixtures/apple-silicon-baseline.json` records SHA-256 hashes for 198 reviewed shared code/configuration files, including the one-minute refresh and stored-result report modules. The shared-feature refresh updates intentional topology/report changes, their scoped security/loader regressions and the generated chunk name, retains unchanged protected hashes, and adds the three new report implementation/test files. `test/intel-mac.test.mjs` still fails if any protected byte changes. Future baseline changes require review; updating it merely to hide an Intel-specific regression defeats the preservation contract. The original historical baseline was `dbf7191`; shared product evolution is distinct from Intel adaptation.
 
 ## Separate Intel entry points
 
@@ -76,6 +76,8 @@ SHA-256: `e28a685c42a62e0d9b35f3be3b41bde3db654342521d7194490b5ae37931cb3d`
 Publisher: bundle `com.stablyai.orca`, Team ID `6CX3WHS9HZ`. Intel verification uses absolute system tools, not potentially shadowing conda/toolchain shims, and requires an x86_64 executable before invoking its CLI.
 
 ## Evidence and boundaries
+
+The native Intel evidence below describes the earlier shared snapshot, not the subsequent topology/report integration. The refreshed shared snapshot is validated on Apple Silicon with platform-conditional Intel unit/staging tests; a fresh native Intel live run or hosted pass is not claimed for it.
 
 Before the upstream refresh, the additive runtime/package's full local pipeline passed all 13 steps and 21 real no-model lifecycle checks. After integrating upstream `dbf7191` (one-minute refresh), local regressions passed 176 core / 209 Orca tests, including the controller/offline-failure tests; these totals include the core suite rather than adding to it. Typechecking and workflow lint passed. The refreshed baseline intentionally incorporates the upstream changes rather than restoring older Apple Silicon code. The subsequent PR lifecycle fixes passed 184 core / 217 Orca tests and a fresh native Intel pipeline (14 steps, 23 live checks), including explicit cleanup confirmation and verified removal of the staging directory. No hosted workflow pass is implied; see [manual Intel CI](INTEL-CI.md).
 

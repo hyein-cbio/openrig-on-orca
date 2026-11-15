@@ -1,4 +1,6 @@
-import { build } from 'esbuild'
+import { execFile } from 'node:child_process'
+import { promisify } from 'node:util'
+import { fileURLToPath } from 'node:url'
 import { readFile } from 'node:fs/promises'
 import { runInNewContext } from 'node:vm'
 import { podsFromSeats } from '../src/pods.mjs'
@@ -6,11 +8,10 @@ import { podsFromSeats } from '../src/pods.mjs'
 // Execute the actual browser controller with isolated DOM/renderer doubles. Only
 // SVG parsing/layout and sanitization are doubled; graph, navigation, events,
 // render queue, metadata and export code are the production implementation.
-const compiled = build({ entryPoints: ['src/topology-client.mjs'], bundle: true, write: false, platform: 'browser', format: 'cjs',
-  target: 'es2022', tsconfigRaw: {}, plugins: [{ name: 'test-browser-dependencies', setup(build) {
-    build.onResolve({ filter: /^(dompurify|\.\/mermaid\/mermaid\.esm\.min\.mjs)$/ }, args => ({ path: args.path, namespace: 'test-browser' }))
-    build.onLoad({ filter: /.*/, namespace: 'test-browser' }, args => ({ contents: `export default globalThis.${args.path === 'dompurify' ? '__purify' : '__mermaid'}` }))
-  } }] }).then(result => result.outputFiles[0].text)
+// Keep the production loader strict: a normal Node child builds the test-only doubles.
+const compiled = promisify(execFile)(process.execPath, [fileURLToPath(new URL('./compile-topology-fixture.mjs', import.meta.url))], {
+  cwd: fileURLToPath(new URL('../', import.meta.url)), timeout: 30000, maxBuffer: 4 * 1024 * 1024
+}).then(result => result.stdout)
 const defer = () => { let resolve; const promise = new Promise(done => { resolve = done }); return { promise, resolve } }
 const escape = value => String(value).replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('"', '&quot;')
 class Element {

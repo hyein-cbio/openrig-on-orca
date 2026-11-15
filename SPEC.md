@@ -130,6 +130,12 @@ Keep full-model and navigation state separate. Bind history/cameras to instance/
 
 Native DAG node hover/focus may lazily read the seat's sender-filtered outbox. Preview the original body's first 500 UTF-8 bytes, omitting a split final code point; never call this extractive preview an LLM summary, authenticated report, current-occupant proof or acknowledgment. Show recipient, recorded time, delivery state and separate truncation metadata. Do not fabricate a sender/session, scan terminal/transcript output or substitute a task title. Keep bounded-window/unknown states explicit. Use text-only, dismissible tooltip DOM outside the exported SVG, with context-bound memory caching and no automatic agent input.
 
+### Original user-request result reports
+
+The Dashboard exposes manual, read-only cards from stored resolutions on requests assigned to a selected native rig seat. Exact declared external source and canonical destination filters exclude peer handoffs and title-only tasks. Default source labels user@external and orca-gui@external are not authenticated identities. A unique delegation root is offered only for a complete in-pod rig graph; no role is inferred from the spelling lead.
+
+The worker rechecks instance/seat identities, inspects at most 20 compact requests per source (up to four sources) and returns at most 10 plain original resolutions, 16 KiB per body and 500 bytes per card preview. No task mutation, LLM summary, transcript capture/start, delivery claim, evidence traversal or automatic body polling occurs. Native recorded states/timestamps are provenance, not independently verified correctness/authorship. Partial, unavailable and bounded/empty results are explicit.
+
 ### Built-in examples
 
 - The example walkthrough topology is `You -> Builder -> Reviewer -> Builder -> You`; it is never substituted for native pod inventory.

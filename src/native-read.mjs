@@ -3,10 +3,11 @@ import { fail } from './runtime.mjs'
 
 // Closed read-only routes. Never follow redirects, use proxies, look up credentials or clean daemon files.
 export function readNativeJson(endpoint, pathname, query, signal, maxBytes = 262144) {
-  const allowed = new Set(['/api/whoami', '/api/queue/outbox/list'])
+  const allowed = new Set(['/api/whoami', '/api/queue/outbox/list', '/api/queue/list'])
   const url = new URL(pathname, endpoint)
-  if (!allowed.has(pathname) || url.protocol !== 'http:' || url.hostname !== '127.0.0.1' || url.username || url.password || !Number.isInteger(maxBytes) || maxBytes < 1 || maxBytes > 1048576) throw fail('invalid_read', 'Only bounded local loopback metadata/outbox reads are supported')
+  if (!allowed.has(pathname) || url.protocol !== 'http:' || url.hostname !== '127.0.0.1' || url.username || url.password || !Number.isInteger(maxBytes) || maxBytes < 1 || maxBytes > 1048576) throw fail('invalid_read', 'Only bounded local loopback metadata/message reads are supported')
   if (pathname === '/api/whoami' && query?.compact !== '1') throw fail('invalid_read', 'Whoami reads must explicitly use the token-free compact projection')
+  if (pathname === '/api/queue/list' && (query?.compact !== '1' || query?.limit !== '20' || query?.sort !== 'updated' || typeof query?.sourceSession !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._-]{0,119}@external$/.test(query.sourceSession) || typeof query?.destinationSession !== 'string' || !query.destinationSession || query.destinationSession.length > 200 || Object.keys(query).some(key => !['sourceSession', 'destinationSession', 'compact', 'sort', 'limit'].includes(key)))) throw fail('invalid_read', 'User-report reads require exact source/destination filters and bounded compact queue output')
   for (const [key, value] of Object.entries(query)) url.searchParams.set(key, String(value))
   return new Promise((resolve, reject) => {
     const timeout = AbortSignal.timeout(2500)

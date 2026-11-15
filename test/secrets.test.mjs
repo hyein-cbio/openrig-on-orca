@@ -6,7 +6,8 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { promisify } from 'node:util'
 import { inspectText, scanGit, sensitiveFilename } from '../scripts/scan-secrets.mjs'
-import { checkSecrets, redactLocations } from '../ci/check-secrets.mjs'
+import { checkSecrets, redactLocations, verifiedBaselineDigest } from '../ci/check-secrets.mjs'
+import { createHash } from 'node:crypto'
 const exec = promisify(execFile)
 
 async function repoFixture() {
@@ -15,6 +16,38 @@ async function repoFixture() {
   await writeFile(path.join(root, 'source.mjs'), '// safe source\n')
   return root
 }
+test('baseline digest false positives require exact file bytes, rule, path and historical Git blob evidence', async () => {
+  const root = await repoFixture(), manifestPath = 'test/fixtures/apple-silicon-baseline.json'
+  try {
+    const digest = createHash('sha256').update(await readFile(path.join(root, 'source.mjs'))).digest('hex')
+    const manifest = JSON.stringify({ files: { 'source.mjs': digest } }, null, 2) + '\n'
+    await mkdir(path.join(root, 'test/fixtures'), { recursive: true }); await writeFile(path.join(root, manifestPath), manifest)
+    const line = manifest.split('\n').findIndex(l => l.includes('"source.mjs"')) + 1, finding = { File: manifestPath, RuleID: 'generic-api-key', StartLine: line, EndLine: line }
+    assert.equal(await verifiedBaselineDigest(root, finding), true)
+    assert.equal(await verifiedBaselineDigest(root, { ...finding, RuleID: 'provider-key' }), false)
+    assert.equal(await verifiedBaselineDigest(root, { ...finding, File: 'elsewhere.json' }), false)
+    assert.equal(await verifiedBaselineDigest(root, { ...finding, EndLine: line + 1 }), false)
+    assert.equal(await verifiedBaselineDigest(root, finding, { history: true }), false)
+    await exec('git', ['add', '.'], { cwd: root })
+    await exec('git', ['-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', '-c', 'commit.gpgsign=false', 'commit', '-qm', 'Synthetic digest fixture'], { cwd: root })
+    const commit = (await exec('git', ['rev-parse', 'HEAD'], { cwd: root })).stdout.trim()
+    const execute = async (binary, args, options) => {
+      if (binary === 'git') return exec(binary, args, options)
+      const report = args.find(a => a.startsWith('--report-path=')).slice('--report-path='.length)
+      await writeFile(report, JSON.stringify([{ ...finding, Commit: args[0] === 'git' ? commit : '' }]))
+      throw Object.assign(new Error('Synthetic scanner finding'), { code: 1 })
+    }
+    const accepted = await checkSecrets(root, path.join(root, 'results'), { execute })
+    assert.equal(accepted.ok, true); assert.deepEqual(accepted.verifiedBaselineHashes, { history: 1, worktree: 1 })
+    await writeFile(path.join(root, 'source.mjs'), '// Changed bytes invalidate the current digest\n')
+    assert.equal(await verifiedBaselineDigest(root, finding), false)
+    assert.equal(await verifiedBaselineDigest(root, { ...finding, Commit: commit }, { history: true }), true)
+    await writeFile(path.join(root, manifestPath), manifest.replace(digest, 'a'.repeat(64)))
+    assert.equal(await verifiedBaselineDigest(root, finding), false, 'An arbitrary hexadecimal secret is not exempt')
+    const rejected = await checkSecrets(root, path.join(root, 'results'), { execute })
+    assert.equal(rejected.ok, false); assert.equal(rejected.worktreeFindings.length, 1)
+  } finally { await rm(root, { recursive: true, force: true }) }
+})
 test('secret policy identifies credential families without returning credential text', () => {
   const value = ['sk', 'proj', 'x'.repeat(40)].join('-')
   const findings = inspectText(`value=${value}`, 'sample.mjs')

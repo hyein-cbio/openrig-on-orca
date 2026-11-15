@@ -8,6 +8,7 @@ import { canInstruct, instructionTextError } from './seat-instructions.mjs'
 import { canStartSeat, canQueueTask, taskTextError, sameSeatDefinition } from './seat-tasks.mjs'
 import { stageTaskBody, taskHash, validTaskId, checkTask } from './task-files.mjs'
 import { readPodInventory, connectedPodConfig, assertPodInstance } from './pod-inventory.mjs'
+import { readUserReports } from './user-reports.mjs'
 import { readSeatReport } from './seat-reports.mjs'
 import { readPodRelations } from './pod-relations.mjs'
 import { podKeyOf } from './pods.mjs'
@@ -56,6 +57,10 @@ export default function activate(orca: OrcaWorkerApi): void {
   orca.panels.handle('pods.edges', async (input, { signal }) => {
     const config = await getConfig(), { snapshot, execute } = await observationTools(config, signal)
     return readPodRelations(config, snapshot, input, { signal, execute })
+  })
+  orca.panels.handle('user.reports', async (input, { signal }) => {
+    const config = await getConfig(), { snapshot, execute } = await observationTools(config, signal)
+    return readUserReports(config, snapshot, input, { signal, execute })
   })
   orca.panels.handle('seat.report', async (input, { signal }) => {
     const config = await getConfig()
