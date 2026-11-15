@@ -113,6 +113,22 @@ test('Intel tmux preflight is explicit verify-only and never enables automatic i
   assert.ok(searchPath.split(path.delimiter).includes('/opt/local/bin'))
 })
 
+test('Intel tmux preflight discovers user-local tools without relying on an interactive shell profile', async () => {
+  let searchPath
+  const result = await ensureIntelTmux({ platform: 'darwin', arch: 'x64', baseEnv: { HOME: '/Users/lab', PATH: '/usr/bin:/bin' },
+    find: async (name, env) => {
+      assert.equal(name, 'tmux'); searchPath = env.PATH
+      return env.PATH.split(path.delimiter).includes('/Users/lab/.local/bin') ? '/Users/lab/.local/bin/tmux' : null
+    },
+    execute: async (_file, args) => ({ ok: true, stdout: args[0] === '-V' ? 'tmux 3.8\n' : args.includes('display-message') ? 'ci-probe\n' : '' })
+  })
+  assert.ok(searchPath.startsWith('/usr/bin:/bin:'))
+  assert.equal(result.path, '/Users/lab/.local/bin/tmux')
+  assert.equal(result.installAttempted, false)
+  assert.equal(result.socketProbePassed, true)
+  await assert.rejects(ensureIntelTmux({ platform: 'darwin', arch: 'x64', find: async () => null }), /docs\/INTEL-CI.md/)
+})
+
 test('Intel report strengthens only the additional validation path and rejects missing native evidence', () => {
   const report = { host: { platform: 'darwin', arch: 'x64' }, runtime: { nodeArch: 'x64', worker: { platform: 'darwin', arch: 'x64' }, sqlite: 'ready' },
     exitCode: 0, checks: [...LIVE_CHECKS, 'install-opened', 'first-install'].map(id => ({ id })),

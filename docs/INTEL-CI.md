@@ -26,7 +26,7 @@ The public manual entry therefore starts a **GitHub-hosted Ubuntu controller**. 
 - The controller's monitoring step is capped at 34 minutes, with an `always()` cleanup step and a 38-minute overall job cap. API calls have 20-second limits; queue deadlines can include bounded API/poll/cancellation overhead.
 - If GitHub itself is unavailable, cancellation may remain unverified. The controller still fails and reports that uncertainty; it never treats inability to contact GitHub as success.
 
-The API client pins GitHub REST version `2026-03-10`, whose workflow-dispatch response includes `workflow_run_id`. An ambiguous dispatch is not replayed automatically. Run identity, correlation title and source SHA are checked; cleanup never guesses another run from a similar title or runner label.
+The API client pins GitHub REST version `2026-03-10`, whose workflow-dispatch response includes `workflow_run_id`. An ambiguous dispatch is not replayed automatically. GitHub can briefly return HTTP 404 or the unevaluated workflow title (`Intel Mac worker`) for that exact new ID. Monitoring and cleanup retry only these publication states, up to ten reads separated by two seconds (18 seconds of delay plus bounded API time). The placeholder never counts as verified identity. Run ID, event, workflow path, correlation title and source SHA are checked; a different request title/path or a moved source fails immediately. Cleanup never guesses another run from a similar title or runner label.
 
 The controller uses job-scoped **`actions: write`** solely to dispatch and cancel its separate worker; both workflows default to `contents: read`, and the self-hosted worker has no Actions write permission. No runner-administration token or additional repository secret is needed. The normal `GITHUB_TOKEN` must be allowed to dispatch/cancel Actions runs. Checkout credentials are not persisted, and all third-party actions are commit-pinned.
 
@@ -55,9 +55,24 @@ The runner allocates its own `openrig-intel-plugin-*` staging directory, passes 
 The selected runner must be online, accept this repository's jobs, and have:
 
 - A normal non-root user, network access to GitHub/npm/Node downloads and sufficient free space.
-- A working native tmux on PATH or `/opt/local/bin`; the Intel preflight is verify-only and will not silently install system packages or ask for administrator access.
+- A working native tmux on PATH, `/opt/local/bin` or `$HOME/.local/bin`; the Intel preflight is verify-only and will not silently install system packages or ask for administrator access. The per-user directory is searched explicitly because launchd runners do not source interactive shell profiles.
 - A working macOS graphical/login session capable of running the isolated Orca app and captures. A service with no usable GUI is not a passing live-test environment.
 - GitHub Actions runner software compatible with the pinned checkout/setup-node/upload-artifact actions.
+
+### One-time user-local tmux provisioning
+
+Provision tmux as the runner account before dispatch. For a lab that already has conda, one option is a dedicated persistent prefix, separate from its base environment and from temporary test outputs:
+
+```sh
+conda create --prefix "$HOME/.local/share/openrig-ci/tmux" \
+  --override-channels --channel conda-forge "tmux=3.8" --yes
+mkdir -p "$HOME/.local/bin"
+# Only create this link if no existing user tmux occupies the path.
+ln -s "$HOME/.local/share/openrig-ci/tmux/bin/tmux" "$HOME/.local/bin/tmux"
+node ci/intel/ensure-tmux.mjs
+```
+
+Alternatively, provision tmux with the lab administrator’s chosen package manager. Do not rely on `/tmp` tool prefixes: earlier local validation used one, but the Actions service could not discover it and temporary prefixes may disappear. The preflight validates an actual detached session on a private socket, not just a version string. No runner restart or global shell-profile edit is required for `$HOME/.local/bin` discovery.
 
 Missing prerequisites, dependency/GUI failures and incomplete cleanup fail the job. Runner registration or an `online` API status is not proof of a successful test run. On forced interruption, inspect the task-owned sandbox report/processes before retrying; never terminate unrelated user sessions to clean up a failed test.
 
@@ -69,7 +84,7 @@ At setup inspection, GitHub reported three online/idle runners with the required
 
 Both workflows are checked with **actionlint 1.7.12**, with the custom label declared in `.github/actionlint.yaml`; shellcheck is disabled for that local lint invocation. YAML parsing and project regressions are separate checks.
 
-The latest PR lifecycle-fix verification is recorded in [verification/intel-macos.json](verification/intel-macos.json): 184 core / 217 Orca tests, typechecking and workflow lint passed, followed by a real native Intel pipeline with 14 successful steps and 23 live checks. The harness emitted an explicit successful cleanup receipt, no warnings, and the runner-owned staging directory was verified absent afterward. The eight added lifecycle regressions include a real timeout, signal-resistant descendants, cleanup-phase cancellation and failed-staging/inspection cleanup. The feature branch was published and an actual `workflow_dispatch` request returned HTTP 404: the new workflow is not yet registered on the default branch. No self-hosted job started. Both workflow files need a reviewed default-branch merge before retrying dispatch. A real hosted pass and an actual offline-lab run are never inferred from local mocks.
+The latest PR lifecycle-fix verification is recorded in [verification/intel-macos.json](verification/intel-macos.json): 184 core / 217 Orca tests, typechecking and workflow lint passed, followed by a real native Intel pipeline with 14 successful steps and 23 live checks. The harness emitted an explicit successful cleanup receipt, no warnings, and the runner-owned staging directory was verified absent afterward. The eight added lifecycle regressions include a real timeout, signal-resistant descendants, cleanup-phase cancellation and failed-staging/inspection cleanup. Historically, feature-branch dispatch returned HTTP 404 before the workflows were registered on the default branch. After merging to main, the first actual hosted run dispatched its worker but failed controller verification on GitHub’s temporary unevaluated title; the worker separately failed because no tmux was discoverable. The publication retry and user-local tmux discovery address those observed failures. A real hosted pass and an actual offline-lab run are never inferred from local mocks.
 
 Artifacts:
 

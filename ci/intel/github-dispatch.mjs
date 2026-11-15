@@ -20,9 +20,25 @@ export function validateRequest({ repo, ref, sha, requestId, parentId }) {
 }
 function verifyChild(run, state, checkSource = true) {
   if (run.id !== state.id || run.id === Number(state.parentId) || run.event !== 'workflow_dispatch' ||
-      (checkSource && run.head_sha !== state.sha) || run.display_title !== 'Intel Mac worker ' + state.requestId) {
-    throw new Error('Worker identity/source mismatch; refusing to operate on an unverified run')
+      run.path !== '.github/workflows/' + WORKER || (checkSource && run.head_sha !== state.sha)) {
+    throw new Error('Worker identity/source mismatch (ID, event, workflow path or source); refusing to operate on an unverified run')
   }
+  if (run.display_title === 'Intel Mac worker ' + state.requestId) return true
+  // GitHub initially exposes the workflow name before evaluating its run-name inputs.
+  // Only that known placeholder may settle; a different request must still fail closed.
+  if (run.display_title === 'Intel Mac worker') return false
+  throw new Error('Worker identity/source mismatch (request title); refusing to operate on an unverified run')
+}
+
+async function verifiedChild(api, state, { delay, checkSource = true }) {
+  for (let attempt = 0; attempt < 10; attempt++) {
+    let run
+    try { run = await api('GET', '/actions/runs/' + state.id) }
+    catch (error) { if (error.status !== 404) throw error }
+    if (run && verifyChild(run, state, checkSource)) return run
+    if (attempt < 9) await delay(2000)
+  }
+  throw new Error('Worker metadata did not become verifiable within the bounded publication wait; inspect child run ' + state.id)
 }
 function claimed(job) {
   return job && ['in_progress', 'completed'].includes(job.status) &&
@@ -32,13 +48,12 @@ function claimed(job) {
 
 export async function cancelChild(api, state, { delay = pause } = {}) {
   const route = '/actions/runs/' + state.id
-  const current = await api('GET', route)
-  verifyChild(current, state, false) // A ref drift fails the experiment but must not leave its owned child queued.
+  // A ref drift fails the experiment but must not leave its owned child queued.
+  const current = await verifiedChild(api, state, { delay, checkSource: false })
   if (current.status === 'completed') return
   try { await api('POST', route + '/cancel') } catch (error) { if (error.status !== 409) throw error }
   for (let attempt = 0; attempt < 6; attempt++) {
-    const run = await api('GET', route)
-    verifyChild(run, state, false)
+    const run = await verifiedChild(api, state, { delay, checkSource: false })
     if (run.status === 'completed') return
     if (attempt === 2) {
       try { await api('POST', route + '/force-cancel') } catch (error) { if (error.status !== 409) throw error }
@@ -64,8 +79,7 @@ export async function dispatchIntel(request, { api, now = Date.now, delay = paus
   try {
     await onChild(state)
     for (;;) {
-      const run = await api('GET', '/actions/runs/' + state.id)
-      verifyChild(run, state)
+      const run = await verifiedChild(api, state, { delay })
       const jobs = await api('GET', '/actions/runs/' + state.id + '/jobs?filter=latest&per_page=100')
       const matching = jobs.jobs?.filter(job => job.name === JOB) || []
       if (matching.length > 1 || jobs.total_count > 100) throw new Error('Worker job identity is ambiguous')
