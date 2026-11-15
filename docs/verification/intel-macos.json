@@ -250,8 +250,8 @@
     "offlinePolicy": "cancel owned child and fail controller; no fallback or redispatch",
     "localValidation": {
       "controllerRegressionTests": 11,
-      "coreTests": 166,
-      "orcaTests": 199,
+      "coreTests": 176,
+      "orcaTests": 209,
       "failed": 0,
       "skipped": 0,
       "typecheck": "passed",
@@ -266,7 +266,7 @@
       "matchingOnlineIdle": 3,
       "notJobExecutionProof": true
     },
-    "hostedExecution": "not dispatched; workflows are local and not yet committed/pushed"
+    "hostedExecution": "Attempted workflow_dispatch on published hyein-cbio/escolar; GitHub returned HTTP 404 because the new workflow is not registered on main. No self-hosted job started."
   },
   "historicalEvidenceNote": "The worker/live snapshot below predates refreshed main dbf7191; upstreamRefresh records validation of the newly integrated upstream code, not an inferred hosted pass.",
   "upstreamRefresh": {
@@ -278,6 +278,13 @@
     "skipped": 0,
     "typecheck": "passed",
     "workflowLint": "passed",
-    "hostedAttempt": "pending publication and dispatch"
+    "hostedAttempt": {
+      "branch": "hyein-cbio/escolar",
+      "attemptedCommit": "6fd7d0d",
+      "workflow": "intel-mac-test.yml",
+      "httpStatus": 404,
+      "runnerJobStarted": false,
+      "requiredNextAction": "Register both workflows on the default branch through reviewed merge, then dispatch again"
+    }
   }
 }

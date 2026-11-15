@@ -61,7 +61,7 @@ At setup inspection, GitHub reported three online/idle runners with the required
 
 Both workflows are checked with **actionlint 1.7.12**, with the custom label declared in `.github/actionlint.yaml`; shellcheck is disabled for that local lint invocation. YAML parsing and project regressions are separate checks.
 
-The additional Intel runtime/package's local full integration run passed before this CI was added; its evidence is in [verification/intel-macos.json](verification/intel-macos.json). The GitHub CI workflows must be registered on the default branch before their first manual run; a feature-branch dispatch can be refused before that registration. The latest local/hosted attempt is recorded in the evidence file. A real hosted pass and an actual offline-lab run are never inferred from local mocks.
+The additional Intel runtime/package's earlier local full integration run passed; its historical evidence and refreshed-upstream validation are distinguished in [verification/intel-macos.json](verification/intel-macos.json). After integrating upstream `dbf7191`, local core/Orca totals were 176/209, with typechecking and workflow lint passing. The feature branch was published and an actual `workflow_dispatch` request returned HTTP 404: the new workflow is not yet registered on the default branch. No self-hosted job started. Both workflow files need a reviewed default-branch merge before retrying dispatch. A real hosted pass and an actual offline-lab run are never inferred from local mocks.
 
 Artifacts:
 
