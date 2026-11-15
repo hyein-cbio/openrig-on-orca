@@ -15,6 +15,7 @@ import { exampleBundle, writeExampleCommand } from '../src/examples.mjs'
 import { prepareLaunchReview, stageLaunchProgram } from '../src/launch-review.mjs'
 import { optionValue, processSampleState, seedFreshOrcaProfile } from './ci-support.mjs'
 import { startTopologyPreview } from './preview-topology.mjs'
+import { checkTopologyDrilldown } from './topology-browser-checks.mjs'
 
 const exec = promisify(execFile)
 const source = path.dirname(path.dirname(fileURLToPath(import.meta.url)))
@@ -227,6 +228,9 @@ try {
   await evaluate('JSON.stringify(document.getElementById("view-dashboard").click() || true)')
   assert.equal(await evaluate('JSON.stringify(document.querySelectorAll("#diagram svg").length)'), 0)
   assert.equal(await evaluate('JSON.stringify(document.getElementById("workspace-destination-control").parentElement.id)'), 'dashboard-destination')
+  browserStep = 'topology-drilldown'
+  await checkTopologyDrilldown(evaluate, until)
+  check('topology-drilldown', 'Synthetic hub overview, nested mouse/keyboard drill-down, measured top-root geometry, history/camera, refresh/reorder, scoped SVG export, missing roots, instance changes and YAML edit guards')
   await evaluate(`(async()=>{const m=await import('/visualizer/app.mjs');m.displayPodSnapshot(${JSON.stringify(observedPodFixture.pod)},${JSON.stringify(observedPodFixture.seats)},${observedPodFixture.observedAt},${JSON.stringify(observedPodFixture.relations)});return JSON.stringify(true)})()`)
   await until(async () => assert.equal(await evaluate('JSON.stringify(document.getElementById("edge-count").textContent)'), '1'))
   assert.equal(await evaluate('JSON.stringify([...document.querySelectorAll("#diagram path.flowchart-link")].filter(p=>parseFloat(getComputedStyle(p).strokeWidth)>0 && p.hasAttribute("marker-end")).length)'), 1)
