@@ -48,6 +48,37 @@ test('baseline digest false positives require exact file bytes, rule, path and h
     assert.equal(rejected.ok, false); assert.equal(rejected.worktreeFindings.length, 1)
   } finally { await rm(root, { recursive: true, force: true }) }
 })
+test('directory digest verification uses the scanner snapshot even if the checkout changes, and never falls back outside it', async () => {
+  const root = await repoFixture(), snapshot = await mkdtemp(path.join(tmpdir(), 'orca-digest-snapshot-')), file = 'test/fixtures/apple-silicon-baseline.json'
+  try {
+    const source = await readFile(path.join(root, 'source.mjs')), hash = createHash('sha256').update(source).digest('hex'), good = JSON.stringify({ files: { 'source.mjs': hash } }, null, 2) + '\n', bad = good.replace(hash, 'a'.repeat(64))
+    for (const dir of [root, snapshot]) { await mkdir(path.join(dir, 'test/fixtures'), { recursive: true }); await writeFile(path.join(dir, 'source.mjs'), source) }
+    const line = good.split('\n').findIndex(l => l.includes('"source.mjs"')) + 1, finding = { File: path.join(snapshot, file), RuleID: 'generic-api-key', StartLine: line, EndLine: line }
+    await writeFile(path.join(root, file), good); await writeFile(path.join(snapshot, file), bad)
+    assert.equal(await verifiedBaselineDigest(root, finding, { base: snapshot }), false, 'A valid checkout cannot excuse a mismatching scanned digest')
+    await writeFile(path.join(root, file), bad); await writeFile(path.join(snapshot, file), good)
+    assert.equal(await verifiedBaselineDigest(root, finding, { base: snapshot }), true, 'A later checkout edit cannot invalidate genuine copied hash evidence')
+    await rm(path.join(snapshot, 'source.mjs'))
+    assert.equal(await verifiedBaselineDigest(root, finding, { base: snapshot }), false, 'Missing snapshot evidence must not use the checkout as fallback')
+  } finally { await rm(root, { recursive: true, force: true }); await rm(snapshot, { recursive: true, force: true }) }
+})
+test('full gate blocks a copied digest mismatch even when the checkout is repaired after snapshot creation', async () => {
+  const root = await repoFixture(), output = await mkdtemp(path.join(tmpdir(), 'orca-snapshot-gate-')), file = 'test/fixtures/apple-silicon-baseline.json'
+  try {
+    const hash = createHash('sha256').update(await readFile(path.join(root, 'source.mjs'))).digest('hex'), good = JSON.stringify({ files: { 'source.mjs': hash } }, null, 2) + '\n'
+    await mkdir(path.join(root, 'test/fixtures'), { recursive: true }); await writeFile(path.join(root, file), good.replace(hash, 'a'.repeat(64)))
+    const line = good.split('\n').findIndex(l => l.includes('"source.mjs"')) + 1
+    const execute = async (_binary, args) => {
+      const report = args.find(a => a.startsWith('--report-path=')).slice('--report-path='.length)
+      if (args[0] === 'git') { await writeFile(report, '[]'); return { stdout: '', stderr: '' } }
+      await writeFile(path.join(root, file), good)
+      await writeFile(report, JSON.stringify([{ File: path.join(args[1], file), RuleID: 'generic-api-key', StartLine: line, EndLine: line }]))
+      throw Object.assign(new Error('Synthetic snapshot finding'), { code: 1 })
+    }
+    const result = await checkSecrets(root, output, { execute })
+    assert.equal(result.ok, false); assert.equal(result.worktreeFindings.length, 1); assert.equal(result.verifiedBaselineHashes.worktree, 0)
+  } finally { await rm(root, { recursive: true, force: true }); await rm(output, { recursive: true, force: true }) }
+})
 test('secret policy identifies credential families without returning credential text', () => {
   const value = ['sk', 'proj', 'x'.repeat(40)].join('-')
   const findings = inspectText(`value=${value}`, 'sample.mjs')

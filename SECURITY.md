@@ -4,7 +4,7 @@ This is an early-release, trusted-worker Orca plugin, not a security sandbox. Ap
 
 ## Verified content-hash false positives
 
-The pinned scanner can mistake digest entries in test/fixtures/apple-silicon-baseline.json for generic API keys. Only that exact path, generic-api-key rule and a single complete JSON digest entry may be classified as a verified false positive. The entry must belong to the manifest files map and equal the SHA-256 of the referenced bytes; historical findings use the exact reported Git commit/blob, never current files. Escaped paths, missing proof, mismatches, other rules/files and multiline findings remain blocking. Counts are reported as verifiedBaselineHashes; no file-wide exemption or raw finding output is used.
+The pinned scanner can mistake digest entries in test/fixtures/apple-silicon-baseline.json for generic API keys. Only that exact path, generic-api-key rule and a single complete JSON digest entry may be classified as a verified false positive. The entry must belong to the manifest files map and equal the SHA-256 of the referenced bytes; historical findings use the exact reported Git commit/blob, never current files. Directory findings use both the manifest and referenced bytes from the copied scanner-candidate snapshot, never the mutable checkout or a missing-file fallback. Escaped paths, missing proof, mismatches, other rules/files and multiline findings remain blocking. Counts are reported as verifiedBaselineHashes; no file-wide exemption or raw finding output is used.
 
 ## Manual stored-result report reads
 

@@ -35,7 +35,9 @@ export async function verifiedBaselineDigest(root, finding, { history = false, b
     const bytes = async relative => {
       if (!/^[A-Za-z0-9_./-]+$/.test(relative) || path.isAbsolute(relative) || relative.split('/').includes('..')) throw new Error('Unsafe digest reference')
       if (history) return (await execute('git', ['show', `${commit}:${relative}`], { cwd: root, env: cleanCiEnvironment(process.env), encoding: 'buffer', timeout: 10000, maxBuffer: 16 * 1024 * 1024 })).stdout
-      const target = await realpath(path.resolve(root, relative)), canonical = await realpath(root)
+      // Directory findings must be proved against the copied scanner input, not a
+      // mutable checkout that may have changed after the candidate snapshot was made.
+      const canonical = await realpath(base || root), target = await realpath(path.resolve(canonical, relative))
       if (!target.startsWith(canonical + path.sep)) throw new Error('Escaped digest reference')
       return readFile(target)
     }
