@@ -91,6 +91,36 @@ export async function checkTopologyDrilldown(evaluate, until, capture = async ()
   const restoredCamera = await evaluate(`JSON.stringify({actual:{width:document.querySelector('#diagram svg').style.width,left:document.getElementById('viewport').scrollLeft,top:document.getElementById('viewport').scrollTop,viewBox:document.querySelector('#diagram svg').getAttribute('viewBox'),direction:document.getElementById('direction').value,viewportWidth:document.getElementById('viewport').clientWidth},expected:window.topologyMainCamera})`)
   assert.deepEqual(restoredCamera.actual, restoredCamera.expected, 'Back to main restores its camera')
 
+  // Hold the actual Mermaid promise to exercise both review-reported races,
+  // rather than relying on a click/refresh happening to land in a narrow window.
+  const pauseRender = () => expression(`const m=(await import('/visualizer/mermaid/mermaid.esm.min.mjs')).default,original=m.render;window.topologyRenderRace={started:false,finished:false,errors:[],mermaid:m,original};const state=window.topologyRenderRace,gate=new Promise(resolve=>{state.release=resolve});state.onError=event=>state.errors.push(event.message);window.addEventListener('error',state.onError);m.render=async(...args)=>{m.render=original;state.started=true;await gate;try{return await original.apply(m,args)}finally{state.finished=true}};return JSON.stringify(true)`)
+  const renderStarted = () => until(async () => assert.equal(await evaluate('JSON.stringify(window.topologyRenderRace.started)'), true))
+  const releaseRender = () => evaluate('JSON.stringify(window.topologyRenderRace.release() || true)')
+  const cleanupRender = () => expression(`const state=window.topologyRenderRace;state.release();state.mermaid.render=state.original;window.removeEventListener('error',state.onError);delete window.topologyRenderRace;return JSON.stringify(true)`)
+
+  await pauseRender()
+  try {
+    await expression(`window.topologyOldHub=[...document.querySelectorAll('#diagram g.node')].find(n=>n.getAttribute('aria-label').startsWith('View downstream structure of hub hub;'));window.topologyRaceSvg=document.querySelector('#diagram svg');return JSON.stringify(true)`)
+    await display({ members: seats.filter(seat => seat.logicalId !== 'hub') }); await renderStarted()
+    await expression(`window.topologyOldHub.dispatchEvent(new MouseEvent('click',{bubbles:true}));return JSON.stringify(true)`)
+    await releaseRender(); await expectView('Main', 8)
+    assert.equal(await evaluate(`JSON.stringify(window.topologyRenderRace.finished&&window.topologyRaceSvg!==document.querySelector('#diagram svg')&&window.topologyRenderRace.errors.length===0)`), true, 'An old hub click must not cancel the refreshed SVG or throw')
+  } finally { await cleanupRender() }
+
+  await display(); await expectView('Main', 2)
+  await pauseRender()
+  try {
+    await expression(`window.topologyRaceSvg=document.querySelector('#diagram svg');document.getElementById('direction').dispatchEvent(new Event('change',{bubbles:true}));return JSON.stringify(true)`)
+    await renderStarted()
+    await display({ edges: { ...relations, status: 'partial', notes: ['Latest in-flight observation'] } })
+    assert.equal(await evaluate(`JSON.stringify(window.topologyRaceSvg===document.querySelector('#diagram svg')&&document.getElementById('topology-view-summary').textContent.includes('Relationship observation: partial'))`), true)
+    await releaseRender()
+    await until(async () => assert.equal(await evaluate(`JSON.stringify(window.topologyRenderRace.finished&&window.topologyRaceSvg!==document.querySelector('#diagram svg'))`), true))
+    assert.equal(await evaluate(`JSON.stringify(document.getElementById('topology-view-summary').textContent.includes('Relationship observation: partial')&&document.querySelector('#diagram svg > desc').textContent.includes('Relationship observation: partial')&&document.querySelector('#diagram svg').getAttribute('aria-label').includes('Relationship observation: partial')&&window.topologyRenderRace.errors.length===0)`), true, 'A pending redraw must not restore older completeness metadata')
+    await expression(`window.topologyExport=null;return JSON.stringify(true)`); await click('export')
+    await until(async () => assert.equal(await evaluate(`JSON.stringify(window.topologyExport?.data.includes('Relationship observation: partial'))`), true))
+  } finally { await cleanupRender() }
+
   // A vanished hub resets to main with an explanation, never another agent_N node.
   await display(); await activate('hub'); await expectView('Main → hub', 8)
   await display({ members: seats.filter(seat => seat.logicalId !== 'hub') })

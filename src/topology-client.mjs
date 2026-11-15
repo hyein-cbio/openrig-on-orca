@@ -53,9 +53,13 @@ function navigate(action) {
 }
 $('topology-main').addEventListener('click', () => navigate(() => navigation.main()))
 $('topology-back').addEventListener('click', () => navigate(() => navigation.back()))
-function activateNode(node, projection) {
+function activateNode(node, projection, renderedModel) {
+  // An old SVG remains on screen while a replacement renders. Its handlers
+  // must not select stale details or put a removed/cross-instance hub back into
+  // navigation, nor act on a view we have already navigated away from.
+  if (dirty || renderedModel !== model || projection !== displayedView || projection.view.rootKey !== navigation.rootKey) return
   hideReport(); details(node)
-  if (dirty || !projection.view.hubs.includes(node.key)) return
+  if (!projection.view.hubs.includes(node.key)) return
   navigate(() => navigation.enter(node.key, projection))
 }
 function updateNavigation(projection) {
@@ -168,9 +172,9 @@ function updateMetadata(current, projection = projectTopology(current, navigatio
 }
 function scheduleRender({ restoreCamera = false, focusNavigation = false } = {}) {
   hideReport()
-  const current = model, revision = ++epoch
+  const current = model, rootKey = navigation.rootKey, revision = ++epoch
   if (!current) return Promise.resolve()
-  const projection = projectTopology(current, navigation.rootKey), direction = navigation.rootKey !== null ? 'TB' : $('direction').value
+  const direction = rootKey !== null ? 'TB' : $('direction').value
   const camera = restoreCamera ? navigation.camera() : null
   $('export').disabled = true; notice('Rendering the declared topology locally…')
   renderQueue = renderQueue.catch(() => {}).then(async () => {
@@ -182,9 +186,14 @@ function scheduleRender({ restoreCamera = false, focusNavigation = false } = {})
       themeVariables: { fontSize: '13px', primaryColor: isDark ? '#26374c' : '#f0f4ff', primaryTextColor: isDark ? '#e4ecf7' : '#27364e', primaryBorderColor: isDark ? '#526988' : '#b4c3e2', lineColor: '#8d9db9', clusterBkg: isDark ? '#1d2a3b' : '#f8faff', clusterBorder: isDark ? '#3c4c64' : '#dbe4f3', edgeLabelBackground: isDark ? '#1b2330' : '#ffffff' },
       flowchart: { htmlLabels: false, useMaxWidth: false, curve: 'basis', padding: 18, nodeSpacing: 40, rankSpacing: 55 } })
     try {
+      let projection = projectTopology(current, rootKey)
       const code = topologyMermaid(projection, direction)
       const rendered = await mermaid.render(`rig_diagram_${revision}`, code)
       if (revision !== epoch) return
+      // A metadata-only refresh can update this same model object while Mermaid
+      // is pending without changing the geometry/revision. Commit the latest
+      // completeness, notes and observation times, not the pre-await projection.
+      projection = projectTopology(current, rootKey)
       // Only generated flowcharts enter Mermaid. Sanitize again before attaching or exporting an SVG.
       const clean = DOMPurify.sanitize(rendered.svg, { USE_PROFILES: { svg: true, svgFilters: true }, FORBID_TAGS: ['script', 'foreignObject', 'image', 'a', 'iframe', 'animate', 'set', 'use'], FORBID_ATTR: ['href', 'xlink:href'] })
       const parsed = new DOMParser().parseFromString(clean, 'image/svg+xml')
@@ -207,8 +216,8 @@ function scheduleRender({ restoreCamera = false, focusNavigation = false } = {})
         element.addEventListener('mouseleave', hideReport)
         element.addEventListener('focus', () => { if (!restoringFocus) void showReport(node, element) }); element.addEventListener('blur', hideReport)
         element.addEventListener('keydown', event => { if (event.key === 'Escape') { event.preventDefault(); hideReport() } })
-        element.addEventListener('click', () => activateNode(node, projection))
-        element.addEventListener('keydown', event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); activateNode(node, projection) } })
+        element.addEventListener('click', () => activateNode(node, projection, current))
+        element.addEventListener('keydown', event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); activateNode(node, projection, current) } })
       }
       details(projection.nodes.find(n => n.key === (camera?.selectedKey || selectedKey)) || projection.nodes.find(n => n.key === projection.view.rootKey) || projection.nodes[0])
       if (camera) { resize(camera.scale); viewport.scrollTo({ left: camera.left, top: camera.top }) } else fit()

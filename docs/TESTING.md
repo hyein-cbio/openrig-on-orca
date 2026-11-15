@@ -143,6 +143,8 @@ Safe auto-refresh tests use a deterministic injected clock without changing the 
 
 `test/topology-view.test.mjs` exercises the pure, non-mutating projection and instance/pod-scoped navigation: the exact 6/7-child boundary, incoming/duplicate/self/unknown-kind edges, nested hubs, alternate shared paths, disconnected components, rootless hierarchy cycles, omitted feedback into a focus root, partial/unqueried observations, empty pod projection, stable keys across reordered UIDs, missing roots and camera reset/restore. Deterministic mixed-graph checks verify visible endpoints, original-edge provenance and node accounting for every focus. Existing bundled-parser, sanitization, asset-integrity and staging checks still apply.
 
+`test/topology-client.test.mjs` executes the actual browser controller bundled with renderer/DOM doubles. Deferred Mermaid promises deterministically hold membership refreshes and theme redraws while stale click/Enter/Space events or newer metadata arrive. Regressions cover removed hubs, identical seat keys across instance changes, detached/previous-view events, legitimate navigation after a metadata-only update, and complete/partial/unavailable transitions reaching the UI, SVG description and exported SVG after the paused redraw finishes. The doubles do not validate browser layout or sanitization; the real browser checks below cover the shipped renderer separately. They also pause its actual Mermaid promise to verify both stale-click and completeness-update races without timing-dependent sleeps.
+
 With Orca already running, run the synthetic browser checks without installing a plugin or touching a real OpenRig instance:
 
 ```sh
