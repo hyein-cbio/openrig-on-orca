@@ -2,7 +2,7 @@
 
 ## Entry point
 
-Run **Intel Mac experiment** (`.github/workflows/intel-mac-test.yml`) from GitHub Actions, or after both workflows have been published on the repository's default branch:
+Run **Intel Mac CI** (`.github/workflows/intel-mac-test.yml`) from GitHub Actions, or after both workflows have been published on the repository's default branch:
 
 ```sh
 gh workflow run intel-mac-test.yml --ref main
@@ -16,7 +16,7 @@ The original Apple Silicon code, ARM64 CircleCI configuration and existing CI co
 
 A self-hosted job's `timeout-minutes` does not bound the time it spends waiting for a runner. A workflow containing only `runs-on: [self-hosted, macOS, X64, intel-mac-lab]` can remain queued while the lab is offline.
 
-The public manual entry therefore starts a **GitHub-hosted Ubuntu controller**. It dispatches the separate `intel-mac-worker.yml` helper, records its exact run ID, checks its job metadata and reports the helper's actual result. Do not launch the helper directly: the controller supplies the queue deadline and cancellation supervision.
+The public **Intel Mac CI** workflow is the entry point and starts a **GitHub-hosted Ubuntu controller**. It dispatches **Intel Mac CI helper (for Intel Mac CI)** (`intel-mac-worker.yml`), records its exact run ID, checks its job metadata and reports the helper's actual result. The helper is an internal implementation detail of Intel Mac CI, not a second independent CI entry point. Do not launch the helper directly: the parent supplies the queue deadline and cancellation supervision. Workflow filenames remain unchanged so existing dispatch commands and links still work.
 
 - Required worker labels: `self-hosted`, `macOS`, `X64`, `intel-mac-lab`.
 - Acquisition deadline: **120 seconds**. Busy and offline runners are treated alike if no matching runner actually claims the job in that time.
@@ -26,7 +26,7 @@ The public manual entry therefore starts a **GitHub-hosted Ubuntu controller**. 
 - The controller's monitoring step is capped at 34 minutes, with an `always()` cleanup step and a 38-minute overall job cap. API calls have 20-second limits; queue deadlines can include bounded API/poll/cancellation overhead.
 - If GitHub itself is unavailable, cancellation may remain unverified. The controller still fails and reports that uncertainty; it never treats inability to contact GitHub as success.
 
-The API client pins GitHub REST version `2026-03-10`, whose workflow-dispatch response includes `workflow_run_id`. An ambiguous dispatch is not replayed automatically. GitHub can briefly return HTTP 404 or the unevaluated workflow title (`Intel Mac worker`) for that exact new ID. Monitoring and cleanup retry only these publication states, up to ten reads separated by two seconds (18 seconds of delay plus bounded API time). The placeholder never counts as verified identity. Run ID, event, workflow path, correlation title and source SHA are checked; a different request title/path or a moved source fails immediately. Cleanup never guesses another run from a similar title or runner label.
+The API client pins GitHub REST version `2026-03-10`, whose workflow-dispatch response includes `workflow_run_id`. An ambiguous dispatch is not replayed automatically. GitHub can briefly return HTTP 404 or the unevaluated workflow title (`Intel Mac CI helper (for Intel Mac CI)`) for that exact new ID. Monitoring and cleanup retry only these publication states, up to ten reads separated by two seconds (18 seconds of delay plus bounded API time). The placeholder never counts as verified identity. Run ID, event, workflow path, correlation title and source SHA are checked; a different request title/path or a moved source fails immediately. Cleanup never guesses another run from a similar title or runner label.
 
 The controller uses job-scoped **`actions: write`** solely to dispatch and cancel its separate worker; both workflows default to `contents: read`, and the self-hosted worker has no Actions write permission. No runner-administration token or additional repository secret is needed. The normal `GITHUB_TOKEN` must be allowed to dispatch/cancel Actions runs. Checkout credentials are not persisted, and all third-party actions are commit-pinned.
 
@@ -91,6 +91,6 @@ Artifacts:
 - Controller: `intel-controller-<run-id>-<attempt>`, containing child identity and success/failure summary without tokens.
 - Worker: `intel-mac-lab-<child-run-id>`, containing allowlisted Intel logs/reports/images and JUnit.
 
-The controller is the failure-reporting entry: an unavailable lab produces a **failed Intel Mac experiment**, even though its separately cancelled helper is displayed as cancelled.
+The controller is the failure-reporting entry: an unavailable lab produces a **failed Intel Mac CI**, even though its separately cancelled helper is displayed as cancelled.
 
 References: [GitHub Actions limits](https://docs.github.com/en/actions/reference/limits), [dispatch API](https://docs.github.com/en/rest/actions/workflows#create-a-workflow-dispatch-event), [workflow cancellation API](https://docs.github.com/en/rest/actions/workflow-runs#cancel-a-workflow-run).

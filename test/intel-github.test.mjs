@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
-import { cancelChild, dispatchIntel, githubApi, validateRequest, QUEUE_MS, EXECUTION_MS, JOB, WORKER } from '../ci/intel/github-dispatch.mjs'
+import { cancelChild, dispatchIntel, githubApi, validateRequest, QUEUE_MS, EXECUTION_MS, JOB, WORKER, WORKER_NAME } from '../ci/intel/github-dispatch.mjs'
 
 const request = { repo: 'owner/project', ref: 'refs/heads/main', sha: 'a'.repeat(40), requestId: '100-1', parentId: '100' }
 const requiredLabels = ['self-hosted', 'macOS', 'X64', 'intel-mac-lab']
@@ -11,7 +11,7 @@ function fixture(options = {}) {
   const state = () => options.offline ? 0 : Math.min(phase, 2)
   const run = () => ({ id: 200, event: 'workflow_dispatch', head_sha: options.refDrift ? 'b'.repeat(40) : request.sha,
     path: options.wrongPath ? '.github/workflows/unrelated.yml' : '.github/workflows/' + WORKER,
-    display_title: options.wrongIdentity ? 'Another request' : runReads <= (options.placeholderReads || 0) ? 'Intel Mac worker' : 'Intel Mac worker ' + request.requestId,
+    display_title: options.wrongIdentity ? 'Another request' : runReads <= (options.placeholderReads || 0) ? WORKER_NAME : WORKER_NAME + ' ' + request.requestId,
     status: cancelled ? 'completed' : ['in_progress', 'in_progress', 'completed'][state()],
     conclusion: cancelled ? 'cancelled' : state() === 2 ? options.failed ? 'failure' : 'success' : null })
   return { calls, now: () => clock, elapsed: () => clock,
@@ -158,6 +158,9 @@ test('GitHub API uses the direct child-ID version, bounded requests and no token
 test('manual workflows keep Intel lab permissions isolated and include a hosted watchdog with cleanup', async () => {
   const controller = await readFile(new URL('../.github/workflows/intel-mac-test.yml', import.meta.url), 'utf8')
   const worker = await readFile(new URL('../.github/workflows/intel-mac-worker.yml', import.meta.url), 'utf8')
+  assert.equal(controller.split('\n')[0], 'name: Intel Mac CI')
+  assert.equal(worker.split('\n')[0], 'name: ' + WORKER_NAME)
+  assert.equal(worker.split('\n')[1], 'run-name: ' + WORKER_NAME + ' ${{ inputs.request_id }}')
   for (const source of [controller, worker]) {
     assert.match(source, /workflow_dispatch:/)
     assert.doesNotMatch(source, /pull_request|pull_request_target|schedule:|push:/)

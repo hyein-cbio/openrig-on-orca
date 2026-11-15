@@ -5,6 +5,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 export const WORKER = 'intel-mac-worker.yml'
+export const WORKER_NAME = 'Intel Mac CI helper (for Intel Mac CI)'
 export const JOB = 'Intel Mac lab tests'
 export const QUEUE_MS = 120000
 export const EXECUTION_MS = 30 * 60 * 1000
@@ -23,10 +24,10 @@ function verifyChild(run, state, checkSource = true) {
       run.path !== '.github/workflows/' + WORKER || (checkSource && run.head_sha !== state.sha)) {
     throw new Error('Worker identity/source mismatch (ID, event, workflow path or source); refusing to operate on an unverified run')
   }
-  if (run.display_title === 'Intel Mac worker ' + state.requestId) return true
+  if (run.display_title === WORKER_NAME + ' ' + state.requestId) return true
   // GitHub initially exposes the workflow name before evaluating its run-name inputs.
   // Only that known placeholder may settle; a different request must still fail closed.
-  if (run.display_title === 'Intel Mac worker') return false
+  if (run.display_title === WORKER_NAME) return false
   throw new Error('Worker identity/source mismatch (request title); refusing to operate on an unverified run')
 }
 

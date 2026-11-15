@@ -1,11 +1,12 @@
-name: Intel Mac worker
-run-name: Intel Mac worker ${{ inputs.request_id }}
+name: Intel Mac CI helper (for Intel Mac CI)
+run-name: Intel Mac CI helper (for Intel Mac CI) ${{ inputs.request_id }}
+# Internal helper for Intel Mac CI; launch the parent workflow, not this one directly.
 
 on:
   workflow_dispatch:
     inputs:
       request_id:
-        description: Correlation ID supplied by the Intel experiment controller
+        description: Correlation ID supplied by the parent Intel Mac CI workflow
         required: true
         type: string
       source_sha:

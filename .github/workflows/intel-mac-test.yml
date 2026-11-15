@@ -1,4 +1,5 @@
-name: Intel Mac experiment
+name: Intel Mac CI
+# Public entry point; dispatches and supervises the Intel Mac CI helper workflow.
 
 on:
   workflow_dispatch:
@@ -8,7 +9,7 @@ permissions:
 
 jobs:
   dispatch:
-    name: Bounded intel-mac-lab experiment
+    name: Dispatch and supervise Intel Mac CI helper
     runs-on: ubuntu-latest
     timeout-minutes: 38
     permissions:
