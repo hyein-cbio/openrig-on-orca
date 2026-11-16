@@ -1,12 +1,13 @@
 import { createPluginSession, CONFIG_FIELDS } from './plugin-state.mjs'
 import { EXAMPLE_STEPS } from './example-story.mjs'
 import { workspaceLabel, workspaceOptions } from './workspace-labels.mjs'
-import { canInstruct } from './seat-instructions.mjs'
+import { instructionTextError } from './seat-instructions.mjs'
 import { canQueueTask, canStartSeat, managedAgent } from './seat-tasks.mjs'
 import { watchPanelVisibility } from './refresh-loop.mjs'
 import { displayPodSnapshot, observeTopologySource, setReportReader, updateObservationFreshness } from './topology-client.mjs'
 
 const $ = id => document.getElementById(id)
+const VIEWS = ['preparation', 'dashboard', 'messages']
 const text = (id, value) => { $(id).textContent = value ?? '' }
 const show = (id, visible) => { $(id).hidden = !visible }
 function element(tag, value, className) {
@@ -25,7 +26,7 @@ function choices(id, items, value, placeholder) {
 const bridge = window.orca?.plugin?.request ? (name, input, options) => window.orca.plugin.request(name, input, options) : null
 let ageTimer = null, disposed = false
 const session = createPluginSession(bridge, render)
-let renderedInventory, renderedPodKey, renderedDiagramSource, renderedRelations, renderedObservation, renderedUserReports
+let renderedInventory, renderedPodKey, renderedDiagramSource, renderedRelations, renderedObservation, renderedUserReports, renderedReviewId
 observeTopologySource(source => session.setDiagramSource(source))
 setReportReader(key => session.readReport(key))
 const inputBindings = { 'instruction-recipient': 'instructionSeat', 'instruction-text': 'instruction', 'task-recipient': 'taskSeat', 'task-summary': 'summary', 'task-body': 'body', 'team-spec': 'spec' }
@@ -36,13 +37,13 @@ for (const [key, label] of CONFIG_FIELDS) {
   input.addEventListener('input', event => session.editConfig(key, event.target.value))
   field.append(caption, input); $('plugin-paths').append(field)
 }
-for (const view of ['preparation', 'dashboard']) {
+for (const view of VIEWS) {
   const tab = $(`view-${view}`)
   tab.addEventListener('click', () => session.switchView(view))
   tab.addEventListener('keydown', event => {
     if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return
     event.preventDefault()
-    const next = event.key === 'Home' ? 'preparation' : event.key === 'End' ? 'dashboard' : view === 'preparation' ? 'dashboard' : 'preparation'
+    const next = event.key === 'Home' ? VIEWS[0] : event.key === 'End' ? VIEWS.at(-1) : VIEWS[(VIEWS.indexOf(view) + (event.key === 'ArrowRight' ? 1 : VIEWS.length - 1)) % VIEWS.length]
     if (session.switchView(next)) $(`view-${next}`).focus()
   })
 }
@@ -64,6 +65,9 @@ $('dashboard-pod').addEventListener('change', event => { if (session.selectPod(e
 $('pod-instance-source').addEventListener('change', event => { void session.selectInventorySource(event.target.value) })
 $('connect-pod-instance').addEventListener('click', session.connectInventory)
 $('seat-start-connect').addEventListener('click', session.connectInventory)
+$('messages-dashboard').addEventListener('click', () => session.switchView('dashboard'))
+$('messages-refresh').addEventListener('click', session.refreshPods)
+$('messages-connect').addEventListener('click', session.connectInventory)
 $('reporting-seat').addEventListener('change', event => session.selectReportingSeat(event.target.value))
 $('user-report-sources').addEventListener('input', event => session.editRequestSources(event.target.value))
 $('load-user-reports').addEventListener('click', session.loadUserReports)
@@ -143,10 +147,31 @@ function displayUserReportSnapshot(data, error = '') {
   if (!data?.reports.length) { $('user-report-list').replaceChildren(element('p', data ? 'No stored resolution was found in the inspected windows, or the read is unverified. See provenance and limits; no report was generated.' : 'Stored user-request reports will appear here.')); return }
   $('user-report-list').replaceChildren(...data.reports.map(report => {
     const card = element('article', undefined, 'seat-card'), detail = element('details'), caption = element('summary', `Read stored resolution · ${report.bodyBytes} / ${report.totalBytes} UTF-8 bytes${report.truncated ? ' · truncated' : ''}`)
-    card.append(element('h3', report.title), element('p', `Original request${report.titleTruncated ? ' title excerpt' : ''} · ${report.source} → ${data.reportingSeat}`), element('p', `Recorded task state: ${report.state} · updated ${new Date(report.updatedAt).toLocaleString()}`), element('code', `Source task: ${report.id}`), element('p', report.preview, 'report-preview'), element('small', `${new TextEncoder().encode(report.preview).length} / ${report.totalBytes} UTF-8-byte preview · expand the stored resolution below`))
+    card.append(element('h3', report.title), element('p', `Recorded task title${report.titleTruncated ? ' excerpt' : ''} · ${report.source} → ${data.reportingSeat}`), element('p', `Recorded task state: ${report.state} · updated ${new Date(report.updatedAt).toLocaleString()}`), element('code', `Source task: ${report.id}`), element('p', report.preview, 'report-preview'), element('small', `${new TextEncoder().encode(report.preview).length} / ${report.totalBytes} UTF-8-byte preview · expand the stored resolution below`))
     detail.append(caption, element('pre', report.body)); card.append(detail, element('small', 'Original request resolution, not an independent verification or proof of user delivery.'))
     return card
   }))
+}
+function renderMessages(state) {
+  const pod = session.selectedPod(), connection = state.inventory?.connection, recipient = session.podSeats().find(s => s.key === state.input.instructionSeat), eligible = session.podSeats().filter(canQueueTask)
+  text('messages-context', pod && connection ? `Native pod: ${pod.label}\nInstance: ${connection.endpoint}\nSeat snapshot: ${state.observation.seatsAt ? new Date(state.observation.seatsAt).toLocaleString() : 'unverified'}${recipient ? `\nRecipient: ${recipient.logicalId} · ${recipient.runtime} · ${recipient.status} / ${recipient.activity}` : ''}` : 'Choose an actual native rig / pod in Dashboard first. No recipient is inferred from the workspace or a seat name.')
+  const reasons = []
+  if (!pod) reasons.push('No pod selected.')
+  if (state.diagramSource !== 'inventory') reasons.push('Return to native inventory in Dashboard; YAML preview is not a message target.')
+  if (session.dirty()) reasons.push('Save configuration first.')
+  if (state.observation.seatsError || state.observation.missing) reasons.push('Refresh the unavailable/stale native seat snapshot.')
+  if (pod && !connection.matchesConfigured) reasons.push('Connect the observed instance for operations explicitly.')
+  if (!state.workspaceId) reasons.push('Choose a result workspace for the send result.')
+  if (pod && !eligible.length) reasons.push('No eligible running agent. Start or inspect seats in Dashboard; nothing is started here.')
+  text('messages-status', reasons.length ? reasons.join(' ') : `${eligible.length} eligible running recipients. Select one and review the exact message; no send occurs on navigation.`)
+  show('messages-routing', Boolean(pod && connection && !connection.matchesConfigured))
+  $('messages-connect').disabled = !state.host || state.busy || session.dirty() || Boolean(state.observation.seatsError)
+  $('messages-refresh').disabled = !state.host || state.busy || session.dirty() || !pod
+  $('messages-dashboard').disabled = state.busy && state.busyKind !== 'read'
+  const issue = !state.host ? 'Open this panel inside Orca.' : state.busy || state.autoRefresh?.inFlight ? 'Checking the current request…' : reasons[0] || (!state.env?.snapshot.installed ? 'Verify the environment in Preparation.' : !recipient ? 'Choose a running recipient.' : !canQueueTask(recipient) ? 'This seat is not ready to receive. Refresh recipients.' : instructionTextError(state.input.instruction))
+  text('message-send-status', issue || 'Ready. Review the recipient and message.')
+  $('message-send-status').classList.toggle('safety-note', Boolean(issue))
+  document.querySelector('[data-operation="send-message"]').title = issue || 'Review this message'
 }
 function renderExamples(state) {
   const step = EXAMPLE_STEPS[state.step]
@@ -166,22 +191,28 @@ function renderExamples(state) {
 }
 function renderReview(state) {
   const plan = state.plan
-  show('plugin-review', Boolean(plan)); show('preparation-actions', !plan); show('dashboard-actions', !plan)
-  if (!plan) return
-  text('review-title', `Review · ${plan.title}`)
+  show('plugin-review', Boolean(plan)); show('preparation-actions', !plan); show('dashboard-actions', !plan); show('messages-actions', !plan)
+  if (!plan) { renderedReviewId = null; return }
+  if (renderedReviewId !== plan.id) { $('review-effects').open = !plan.instruction; renderedReviewId = plan.id }
+  text('review-title', plan.instruction ? 'Review message' : `Review · ${plan.title}`)
+  text('review-intro', plan.instruction ? 'Check the recipient and message, then send. Review valid for 5 minutes.' : 'No execution has been requested. Launch preparation may have created a private frozen bundle. This one-use review expires after five minutes.')
+  text('review-essential', plan.instruction ? `${plan.queueTask ? 'Creates a Native queue request. ' : ''}Sending may invoke a model and allow file edits.` : ''); show('review-essential', Boolean(plan.instruction))
+  $('confirm-operation').textContent = plan.instruction ? 'Send message' : 'Confirm and open in Orca terminal'
   const target = state.env?.workspaces.find(w => w.id === plan.workspaceId)
-  text('review-workspace', `${plan.pod ? `OpenRig pod: ${plan.pod.namespace || plan.pod.podId || '[unassigned]'} · rig ID ${plan.pod.rigId}\nInstance: ${plan.pod.endpoint}\n` : ''}Result terminal destination: ${workspaceLabel(target)} · ${target?.path || 'unavailable'}`)
+  text('review-instance-detail', `${plan.pod ? `OpenRig pod: ${plan.pod.namespace || plan.pod.podId || '[unassigned]'} · rig ID ${plan.pod.rigId}\nInstance: ${plan.pod.endpoint}\n` : ''}Result terminal destination: ${workspaceLabel(target)} · ${target?.path || 'unavailable'}`)
+  text('review-workspace', plan.instruction ? `${plan.pod ? `${plan.pod.namespace || plan.pod.podId || 'pod'} · ${plan.pod.endpoint}\n` : ''}Result: ${workspaceLabel(target)}` : $('review-instance-detail').textContent)
   let source
   try { source = new URL(plan.source); if (source.protocol !== 'https:') source = null } catch { source = null }
   show('review-source', Boolean(source)); if (source) $('review-source').href = source.href
   list('review-writes', plan.writes); list('review-warnings', plan.warnings); text('review-command', plan.command)
   text('review-declarations', plan.launchReview ? JSON.stringify(plan.launchReview.display, null, 2) : '')
   show('review-declarations', Boolean(plan.launchReview))
+  show('review-response', Boolean(plan.instruction?.completion)); text('review-response-instructions', plan.instruction?.completion || '')
   let recipient = '', content = ''
   if (plan.console) { const c = plan.console; recipient = `TUI instance: ${c.source} · ${c.endpoint}\nOpenRig home: ${c.home}\nCLI: ${c.cli} · version ${c.version}\nNode: ${c.node}\nPrivate view socket directory: ${plan.consoleRuntime}\nView only: no daemon, kernel or agent startup is requested.` }
   if (plan.instruction) { recipient = `Agent: ${plan.instruction.session} · ${plan.instruction.runtime}`; content = plan.instruction.text }
   if (plan.seatLaunch) { const seat = plan.seatLaunch; recipient = `Registered seat: ${seat.rigId} / ${seat.logicalId}\nRuntime: ${seat.runtime}\nModel: ${seat.model || 'UNVERIFIED native selection'}\nCwd: ${seat.cwd || 'UNVERIFIED native seat cwd'}` }
-  if (plan.queueTask) { const task = plan.queueTask; recipient = `Request ID (not proof of registration): ${task.id}\nDestination: ${task.destination}\nTitle: ${task.summary}`; content = task.body }
+  if (plan.queueTask) { const task = plan.queueTask; recipient = `Request ID: ${task.id}\nSource: orca-gui@external\nDestination: ${task.destination}\nTitle: ${task.summary}`; content = plan.instruction ? plan.instruction.text : task.body }
   text('review-target', recipient); text('review-content', content); show('review-target', Boolean(recipient)); show('review-content', Boolean(content))
   show('startup-consent', Boolean(plan.seatLaunch)); $('startup-risk').checked = state.startupRisk; $('startup-risk').disabled = state.busy
   $('confirm-operation').disabled = state.busy || session.dirty() || Boolean(plan.seatLaunch && !state.startupRisk)
@@ -199,7 +230,7 @@ function renderObservationStatus(state) {
 }
 function render(state) {
   const env = state.env, snapshot = env?.snapshot, dirty = session.dirty(), waiting = state.busy, hosted = state.host
-  for (const view of ['preparation', 'dashboard']) {
+  for (const view of VIEWS) {
     const selected = state.view === view, tab = $(`view-${view}`)
     tab.setAttribute('aria-selected', String(selected)); tab.tabIndex = selected ? 0 : -1; tab.disabled = waiting && state.busyKind !== 'read'
     show(`${view}-view`, selected)
@@ -207,10 +238,11 @@ function render(state) {
   show('plugin-preview', !hosted); show('plugin-progress', waiting)
   for (const [id, message] of [['plugin-error', state.error], ['plugin-notice', state.notice], ['plugin-warning', state.warning]]) { text(id, message); show(id, Boolean(message)) }
   show('plugin-dirty', dirty)
-  const destination = $('workspace-destination-control'), destinationHost = $(state.view === 'dashboard' ? session.selectedPod() ? 'seat-start-destination' : 'dashboard-destination' : 'preparation-destination')
+  const destination = $('workspace-destination-control'), destinationHost = $(state.view === 'messages' ? 'messages-destination' : state.view === 'dashboard' ? session.selectedPod() ? 'seat-start-destination' : 'dashboard-destination' : 'preparation-destination')
   show('dashboard-terminal-destination', !session.selectedPod())
   if (destination.parentElement !== destinationHost) destinationHost.append(destination)
-  choices('plugin-workspace', workspaceOptions(env?.workspaces || []), state.workspaceId, 'Choose only when an operation needs a terminal'); $('plugin-workspace').disabled = waiting || !env
+  text('plugin-workspace-label', state.view === 'messages' ? 'Workspace for send result (required)' : 'Result terminal destination · Orca workspace')
+  choices('plugin-workspace', workspaceOptions(env?.workspaces || []), state.workspaceId, state.view === 'messages' ? 'Required: choose result workspace' : 'Choose only when an operation needs a terminal'); $('plugin-workspace').disabled = waiting || !env
   choices('dashboard-pod', (state.inventory?.pods || []).map(pod => ({ value: pod.key, label: `${pod.label} · ${pod.seatCount} seats` })), state.podKey, state.inventory ? 'Choose an actual OpenRig rig / pod' : 'No verified native pod inventory')
   $('dashboard-pod').disabled = waiting || !state.inventory || dirty
   $('refresh-pods').disabled = !hosted || waiting || dirty || !env
@@ -245,11 +277,11 @@ function render(state) {
   $('refresh-seats').disabled = !hosted || waiting || dirty || !env
   $('refresh-examples').disabled = !hosted || waiting || dirty || !snapshot?.installed
   $('seat-read-only').checked = state.readOnly; $('seat-read-only').disabled = waiting
-  choices('instruction-recipient', session.podSeats().map(s => ({ value: s.key, label: `${s.rigName} / ${s.logicalId} · ${s.runtime} · ${s.activity}`, disabled: !canInstruct(s) })), state.input.instructionSeat, 'Choose one existing idle agent')
+  choices('instruction-recipient', session.podSeats().map(s => ({ value: s.key, label: `${s.rigName} / ${s.logicalId} · ${s.runtime} · ${s.activity}`, disabled: !canQueueTask(s) })), state.input.instructionSeat, 'Choose one existing running agent')
   choices('task-recipient', session.podSeats().map(s => ({ value: s.key, label: `${s.rigName} / ${s.logicalId} · ${s.runtime}`, disabled: !canQueueTask(s) })), state.input.taskSeat, 'Choose one existing running agent')
   for (const [id, key] of Object.entries(inputBindings)) { if (!id.endsWith('recipient')) inputValue(id, state.input[key]); $(id).disabled = waiting || dirty || !hosted }
   for (const button of document.querySelectorAll('[data-operation]')) button.disabled = !session.canPrepare(button.dataset.operation, button.dataset.consoleSource ? { consoleSource: button.dataset.consoleSource } : {})
-  renderSeatStarts(state); renderSeats(state); renderUserReports(state); renderExamples(state); renderReview(state)
+  renderSeatStarts(state); renderSeats(state); renderUserReports(state); renderMessages(state); renderExamples(state); renderReview(state)
   show('plugin-receipt', Boolean(state.receipt && !state.plan))
   if (state.receipt) {
     const receipt = state.receipt
@@ -260,6 +292,8 @@ function render(state) {
   $('reveal-terminal').disabled = waiting || !hosted
   show('plugin-task', Boolean(state.task && !state.plan))
   if (state.task) { text('task-id', state.task.id); text('task-state', `Destination: ${state.task.destination} · Registration: ${state.task.registration} · Recorded state: ${state.task.state}`); text('task-detail', state.task.detail) }
+  const reply = state.task?.registration === 'verified' ? state.task.resolution : null
+  show('task-resolution-card', Boolean(reply)); text('task-resolution', reply?.body || ''); text('task-resolution-meta', reply ? `Stored resolution · ${reply.bytes} / ${reply.totalBytes} UTF-8 bytes${reply.truncated ? ' · truncated' : ''}` : '')
   $('check-task').disabled = waiting || dirty || !hosted
   syncAgeClock()
 }

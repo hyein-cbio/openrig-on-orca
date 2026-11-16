@@ -92,11 +92,13 @@ test('a command too large for complete review is rejected before confirmation', 
 
 test('confirmation stores the exact server plan, not a mutable panel command', () => {
   const store = new PlanStore()
-  const original = { command: 'safe', action: 'install-rig' }
+  const original = { command: 'safe', action: 'install-rig', queueTask: { body: 'reviewed', id: 'reserved' } }
   const plan = store.add(original, 'config')
   original.command = 'changed'
   plan.command = 'injected'
-  assert.equal(store.consume(plan.id, 'config').command, 'safe')
+  plan.queueTask.body = 'injected body'; plan.queueTask.id = 'other'
+  const stored = store.consume(plan.id, 'config')
+  assert.equal(stored.command, 'safe'); assert.equal(stored.queueTask.body, 'reviewed'); assert.equal(stored.queueTask.id, 'reserved')
   assert.throws(() => store.consume(plan.id, 'config'), { code: 'plan_expired' })
 })
 

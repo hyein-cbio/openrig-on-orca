@@ -23,7 +23,7 @@ Current automated results:
 
 - Core/parser/controller tests and the retained native-control/worker regression tests pass. The command output supplies the current totals.
 - TypeScript strict checking passes.
-- Manifest/HTML checks enforce one contributed panel with exactly two internal tabs and inline topology; source/content hashes reject stale viewer builds.
+- Manifest/HTML checks enforce one contributed panel with exactly three internal tabs and inline topology; source/content hashes reject stale viewer builds.
 - `plugin check` validates the manifest but does not execute HTML. The old components scenarios are not registered panels or evidence of the current GUI. Actual HTML navigation and rendering are covered separately below.
 - The allowlisted staging artifact passed `plugin inspect`. Do not use a source directory containing development node_modules, indexes, or sockets directly as a distribution folder.
 
@@ -60,7 +60,7 @@ The following real-app checks passed:
 8. Generate Claude-only and Codex-only examples, then validate **both RigSpecs and all four AgentSpecs** with real OpenRig. Do not launch actual agents.
 9. Freeze both real-provider templates with OpenRig's assembler and inspect their declared settings/uncertainties. Verify source-role changes do not alter the archives.
 10. Run the frozen-bundle confirmation program against a separate two-seat terminal-only fixture. Preview and launch require the uncertainty acknowledgment; no model runtime is used.
-11. Verify there is exactly one registered `openrig` panel. In the same isolated app's read-only browser preview, switch its two internal views, select a diagram node and advance the preparation walkthrough; ensure every mutation remains disabled without a plugin bridge. Capture the actual native HTML panel at 440 px light and 320 px dark.
+11. Verify there is exactly one registered `openrig` panel. In the same isolated app's read-only browser preview, switch its three internal views, select a diagram node and advance the preparation walkthrough; ensure every mutation remains disabled without a plugin bridge. Capture the actual native HTML panel at 440 px light and 320 px dark.
 12. Clean up the test team, daemon, plugin, terminals, and profile-owned desktop/terminal-host processes.
 
 `--install` authorizes official package downloads and install scripts; `--approve-plugin` authorizes the exact test-plugin grants in that disposable profile. `--keep` retains the profile, daemon, and plugin for manual inspection. Ordinary user Orca profiles and agent settings are not directly modified.
@@ -111,9 +111,9 @@ The managed macOS four-job matrix (secret gate, two core jobs, and one live job)
 
 - Seven JUnit regressions cover CircleCI hierarchy, safe metadata, failure/skip/todo/hook semantics, invalid input, decimal timings, real standalone Node test execution, and a suite whose skipped body never runs. The failing fixture must retain exit code 1 while producing well-formed report structure.
 
-## Single-seat instruction GUI
+## Native message requests and legacy terminal instructions
 
-The dashboard instruction form reuses native `rig send`, not a new RPC adapter. Isolated tests cover exact recipient/text review, cancel/confirm behavior, disabled shell/busy/attention targets, immutable one-use plans, stopped or retargeted seats, literal argument quoting, control-input rejection and explicit local-instance routing. A harmless executable CLI fixture records the actual generated argv without a model or shell-command injection. Real OpenRig 0.7.12 and 0.7.13 were also run against a task-owned mock HTTP endpoint: each produced exactly one guarded `/api/transport/send` request for the synthetic recipient, preserving the exact text and 1000 ms idle condition.
+Messages are tested through the shared Native queue-create path: one fixed ID, explicit external source, default nudge, a private body file containing the original message and short completion guidance, and no second rig send or self-registration prompt. Busy-agent acceptance, title/body bounds, literal quoting, stopped/retargeted recipients, immutable server plans and ambiguous-result reconciliation are covered. Readback accepts mutable summaries while checking the original body hash and source, rejects mismatches, and bounds stored resolutions to 16 KiB valid UTF-8. The older direct-send API retains isolated literal-argv and idle-target regressions, including the earlier Native 0.7.12/0.7.13 mock-endpoint evidence; it is no longer the Messages UI transport.
 
 These checks do not send to a real agent or prove model acknowledgment/completion. Existing live teams, kernel, account settings and instance selection were not changed. No paid-model smoke run is part of this verification; obtain approval before one. CI monitoring was not resumed.
 
@@ -155,6 +155,10 @@ npm run test:topology-browser -- --narrow --dark
 ```
 
 The runner opens/closes only its own allowlisted loopback preview and browser tab. Shared `scripts/topology-browser-checks.mjs` is also used by the disposable live suite, which requires a `topology-drilldown` report entry. Checks cover actual rendered root/child coordinates, mouse and keyboard-event activation, nested/Back to main navigation, camera restoration, unchanged SVG identity, reordered refreshes, partial markers, scoped SVG export through a cancelled save stub, a vanished hub, changed instance, obsolete render disposal and dirty/new YAML behavior. These tests use synthetic observations, no daemon/agent/model/terminal operations. Programmatically dispatched keyboard events do not claim OS-level keyboard or native save-dialog validation.
+
+## Messages tab
+
+Controller cases preserve message draft/recipient/pod across all three tabs, invalidate reviews on navigation and pause automatic observations outside Dashboard. Successful message and durable-task confirmations clear only the submitted form, preserving the other form's draft. A busy recipient is accepted by send-message but not legacy send-instruction. An ambiguous confirmation retains the original request ID and does not resubmit; manual reply reads reject wrong IDs, oversized bodies and unverified resolution projections. The real 274px/dark browser fixture checks keyboard navigation, adjacent workspace prerequisites, the exact request ID and short completion guidance, then simulates one confirmation receipt and one explicit reply check. Stored reply HTML remains inert. Disposal regressions start with a retained private reply, close during a pending check, then resolve or reject it; no reply, error callback or new read is accepted. Pending outbound previews are also discarded after disposal. Packaging assertions verify the exact project MIT license and security policy are included, with MIT metadata in package.json and the root lockfile entry. The fixture never forwards an actual queue mutation or model call.
 
 ## Prominent seat-start controls
 

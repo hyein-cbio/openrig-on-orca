@@ -22,7 +22,7 @@ export async function stagePlugin(destination) {
   await mkdir(destination, { recursive: true })
   if ((await readdir(destination)).length) throw new Error('Staging destination must be empty; existing files were not overwritten')
   await mkdir(path.join(destination, 'src'))
-  for (const file of ['orca-plugin.json', 'README.md', 'SPEC.md']) await cp(path.join(source, file), path.join(destination, file))
+  for (const file of ['orca-plugin.json', 'README.md', 'SPEC.md', 'LICENSE', 'SECURITY.md']) await cp(path.join(source, file), path.join(destination, file))
   for (const file of runtimeFiles) await cp(path.join(source, 'src', file), path.join(destination, 'src', file))
   for (const file of ['topology.html', 'topology.css', 'plugin.css']) await cp(path.join(source, 'src', file), path.join(destination, 'src', file))
   const assetsRoot = await realpath(path.join(source, 'src', 'visualizer'))

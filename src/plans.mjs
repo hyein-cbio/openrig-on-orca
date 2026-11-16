@@ -6,7 +6,7 @@ import { operationInstance } from './pods.mjs'
 import { prepareLaunchReview } from './launch-review.mjs'
 import { exampleBundle, writeExampleCommand } from './examples.mjs'
 import { canInstruct, instructionEndpoint, instructionTextError } from './seat-instructions.mjs'
-import { canStartSeat, canQueueTask, taskTextError } from './seat-tasks.mjs'
+import { canStartSeat, canQueueTask, taskTextError, messageRequest } from './seat-tasks.mjs'
 import { taskBodyPath } from './task-files.mjs'
 
 export const SOURCES = {
@@ -93,13 +93,13 @@ export async function buildPlan(action, config, snapshot, workspace, input = {},
     writes = [instanceDirectory(config)]
     warnings = ['Explicitly stops only this recorded demo team, including its two tmux seats. Example files are kept. Other teams and views are not targeted.']
     command = shellCommand(rig.file, [...rig.args, 'down', example.rigName])
-  } else if (action === 'launch-seat' || action === 'create-task') {
+  } else if (action === 'launch-seat' || action === 'create-task' || action === 'send-message') {
     if (!snapshot.installed) throw fail('dependencies_missing', 'Verify Node, OpenRig, tmux and SQLite first')
     const seat = input.seat
     if (action === 'launch-seat' && !canStartSeat(seat)) throw fail('seat_unavailable', 'Choose one stopped, exited, detached or never-started agent seat. Running, unknown, shell and kernel seats are refused.')
-    if (action === 'create-task') {
+    if (action === 'create-task' || action === 'send-message') {
       if (!canQueueTask(seat)) throw fail('seat_unavailable', 'Choose one running local agent without an attention request; shell, remote and kernel targets are refused')
-      const problem = taskTextError(input.summary, input.body)
+      const problem = action === 'send-message' ? instructionTextError(input.message) : taskTextError(input.summary, input.body)
       if (problem) throw fail('invalid_task', problem)
     }
     const rig = await rigInvocation(snapshot.tools.rig, snapshot.tools.node)
@@ -113,11 +113,13 @@ export async function buildPlan(action, config, snapshot, workspace, input = {},
       command = `${local} ${shellCommand(rig.file, [...rig.args, 'launch', '--json', '--', seat.rigId, seat.logicalId])}`
     } else {
       const id = `qitem-orca-${randomUUID().replaceAll('-', '')}`
-      queueTask = { id, destination: seat.session, key: seat.key, runtime: seat.runtime, summary: input.summary, body: input.body, bodyFile: taskBodyPath(root, id) }
-      title = `Register task for ${seat.session}`
+      const request = action === 'send-message' ? messageRequest(input.message, id) : input
+      queueTask = { id, destination: seat.session, key: seat.key, runtime: seat.runtime, summary: request.summary, body: request.body, bodyFile: taskBodyPath(root, id) }
+      if (action === 'send-message') instruction = { key: seat.key, session: seat.session, runtime: seat.runtime, text: input.message, completion: request.completion }
+      title = action === 'send-message' ? `Send request to ${seat.session}` : `Register task for ${seat.session}`
       writes = [instanceDirectory(config), queueTask.bodyFile, 'One durable queue row and the native destination nudge/message history']
       warnings = ['This registers work with the selected destination; it does not claim that the agent accepted, completed or independently verified the work. Native nudges may invoke a paid model.', 'The source orca-gui@external is a declared external source, not an authenticated human or a forged seat identity. No guaranteed human reply route is created.', 'The preassigned task ID is not proof of persistence. After confirmation, use Check task registration to read the matching row without creating or nudging again. A missing row or timeout is not permission to create another ID for the same work.', 'The title/body are saved in private action files and native queue history. Do not include credentials. The destination workspace only hosts the result terminal and does not change the agent cwd.']
-      command = `${local} ${shellCommand(rig.file, [...rig.args, 'queue', 'create', '--id', id, '--source', 'orca-gui@external', '--destination', seat.session, `--summary=${input.summary}`, '--body-file', queueTask.bodyFile, '--json'])}`
+      command = `${local} ${shellCommand(rig.file, [...rig.args, 'queue', 'create', '--id', id, '--source', 'orca-gui@external', '--destination', seat.session, `--summary=${queueTask.summary}`, '--body-file', queueTask.bodyFile, '--json'])}`
     }
   } else if (action === 'send-instruction') {
     if (!snapshot.installed) throw fail('dependencies_missing', 'Verify Node, OpenRig, tmux and SQLite first')
@@ -130,7 +132,7 @@ export async function buildPlan(action, config, snapshot, workspace, input = {},
     title = `Send instruction to ${seat.session}`
     source = SOURCES.rig
     writes = ['The selected agent terminal and OpenRig message/audit history', 'The agent may edit files and use paid model capacity; its cwd is not a security sandbox']
-    warnings = ['Sends one terminal message, not a durable queue task or ownership handoff. The sender may be shown as unknown; no reply route is guaranteed. Delivery is not acknowledgment or task completion.', 'The existing local instance and selected seat are rechecked before opening the result terminal. OpenRig must still prove idle within one second and keeps its native prompt/permission guard; no force, raw input or approval bypass is used.', 'A timeout or missing output can follow delivery. Inspect the recipient before any resend; no automatic retry is performed.', 'The destination Orca workspace only hosts the CLI result terminal; it does not change the agent cwd. The reviewed text is saved in a private action script and may appear in local terminal/message history. Do not include credentials.']
+    warnings = ['Sends one terminal message, not a durable queue task. The sender may be unknown; replies appear in the recipient terminal.', 'The existing local instance and selected seat are rechecked before opening the result terminal. OpenRig must still prove idle within one second and keeps its native prompt/permission guard; no force, raw input or approval bypass is used.', 'A timeout or missing output can follow delivery. Inspect the recipient before any resend; no automatic retry is performed.', 'The destination Orca workspace only hosts the CLI result terminal; it does not change the agent cwd. The reviewed text is saved in a private action script and may appear in local terminal/message history. Do not include credentials.']
     command = `export OPENRIG_URL=${quote(instructionEndpoint(config))}; export OPENRIG_HOST_SELECTED=local; ${shellCommand(rig.file, [...rig.args, 'send', '--wait-for-idle', '1', '--json', '--', seat.session, input.message])}`
   } else if (action === 'install-rig') {
     title = `Install OpenRig ${OPENRIG_VERSION}`

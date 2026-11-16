@@ -53,17 +53,66 @@ test('configured-instance handoff is explicit read-only navigation and TUI revie
   assert.equal(input.instanceKey, connection.key); assert.equal(input.consoleSource, connection.source); assert.equal(input.podKey, undefined)
   f.session.editConfig('daemonPort', '17459'); const count = f.calls.length; assert.equal(await f.session.viewConfiguredDashboard(), false); assert.equal(f.calls.length, count)
 })
-test('one session has exactly preparation/dashboard navigation with no execution or extra requests', async () => {
+test('one session has preparation/dashboard/messages navigation with no execution or extra requests', async () => {
   const f = fixture(); await ready(f)
   assert.equal(f.state.view, 'preparation')
   f.session.editInput('instruction', 'Keep this draft')
   const count = f.calls.length
   assert.equal(f.session.switchView('dashboard'), true)
+  assert.equal(f.session.switchView('messages'), true)
   assert.equal(f.session.switchView('topology'), false)
   f.session.switchView('preparation')
   assert.equal(f.state.input.instruction, 'Keep this draft')
   assert.equal(f.calls.length, count)
   assert.deepEqual(f.calls.map(c => c.name), ['environment.scan', 'examples.list', 'pods.list'])
+})
+test('message-tab navigation preserves target/draft, invalidates review and never sends or reconnects', async () => {
+  const f = fixture({ 'setup.prepare': input => plan({ action: input.action, instruction: { key: input.seatKey, session: seat.session, text: input.message } }) }); await ready(f)
+  const pod = f.state.podKey, instance = f.state.inventory.connection.key
+  f.session.switchView('messages'); f.session.editInput('instructionSeat', seat.key); f.session.editInput('instruction', 'Draft stays here')
+  await f.session.prepare('send-instruction'); assert.equal(f.state.plan.instruction.text, 'Draft stays here')
+  const input = f.calls.filter(c => c.name === 'setup.prepare').at(-1).input; assert.equal(input.podKey, pod); assert.equal(input.instanceKey, instance)
+  const count = f.calls.length; f.session.switchView('dashboard'); assert.equal(f.state.plan, null); f.session.switchView('preparation'); f.session.switchView('messages')
+  assert.equal(f.state.podKey, pod); assert.equal(f.state.input.instruction, 'Draft stays here'); assert.equal(f.state.input.instructionSeat, seat.key); assert.equal(f.calls.length, count); assert.equal(f.calls.some(c => c.name === 'setup.execute' || c.name === 'pods.connect'), false)
+})
+test('Messages queues one request for a busy seat and reads its stored reply without another send', async () => {
+  const id = `qitem-orca-${'c'.repeat(32)}`, resolution = { body: '<b>Stored answer</b>', bytes: 20, totalBytes: 20, truncated: false }
+  const f = fixture({ 'seats.list': () => ({ seats: [{ ...seat, activity: 'working' }] }), 'setup.prepare': input => plan({ action: input.action, instruction: { text: input.message }, queueTask: { id, destination: seat.session, summary: 'Message', body: input.message } }), 'setup.execute': () => { throw new Error('Ambiguous request outcome') }, 'task.check': () => ({ id, destination: seat.session, registration: 'verified', state: 'done', detail: 'Stored native result', resolution }) })
+  await ready(f); f.session.switchView('messages'); f.session.editInput('instructionSeat', seat.key); f.session.editInput('instruction', 'Keep request')
+  assert.equal(f.session.canPrepare('send-message'), true); assert.equal(f.session.canPrepare('send-instruction'), false)
+  await f.session.prepare('send-message'); assert.equal(f.calls.filter(c => c.name === 'setup.prepare').at(-1).input.seatKey, seat.key)
+  await f.session.confirm(); assert.equal(f.state.plan, null); assert.equal(f.state.task.id, id); assert.equal(f.state.input.instruction, 'Keep request')
+  await f.session.confirm(); await f.session.checkTask(); assert.equal(f.state.task.resolution.body, resolution.body); assert.equal(f.calls.filter(c => c.name === 'setup.execute').length, 1)
+  f.session.dispose()
+})
+test('disposal clears stored task replies and discards late success/error without callbacks or new reads', async () => {
+  for (const fails of [false, true]) {
+    let settle, calls = 0, updates = 0
+    const session = createPluginSession(() => { calls++; return new Promise((resolve, reject) => { settle = fails ? () => reject(new Error('Late failure')) : resolve }) }, () => updates++)
+    const id = `qitem-orca-${'e'.repeat(32)}`, resolution = { body: 'Private reply fixture', bytes: 21, totalBytes: 21, truncated: false }
+    session.state.env = structuredClone(env); session.state.draft = { ...env.config }
+    session.state.task = { id, destination: seat.session, registration: 'verified', state: 'done', resolution }
+    const pending = session.checkTask(); session.dispose(); session.dispose(); const count = updates
+    assert.equal(session.state.task, null)
+    settle({ id, destination: seat.session, registration: 'verified', state: 'done', resolution }); await pending
+    assert.equal(session.state.task, null); assert.equal(session.state.error, ''); assert.equal(updates, count)
+    await session.checkTask(); assert.equal(calls, 1); assert.equal(session.canPrepare('install-tmux'), false)
+  }
+})
+test('disposal discards in-flight outbound preview content and prevents further preview reads', async () => {
+  let finish
+  const f = fixture({ 'seat.report': () => new Promise(resolve => { finish = resolve }) }); await ready(f)
+  const pending = f.session.readReport(seat.key); f.session.dispose()
+  finish({ instanceKey: 'a'.repeat(64), podKey: f.state.podKey, seatKey: seat.key, status: 'recorded', preview: 'Private reply', totalBytes: 13 })
+  const result = await pending; assert.equal(result.status, 'unverified'); assert.equal(result.preview, undefined)
+  await f.session.readReport(seat.key); assert.equal(f.calls.filter(c => c.name === 'seat.report').length, 1)
+})
+test('request reply reads reject changed IDs and oversized or unverified bodies', async () => {
+  const id = `qitem-orca-${'d'.repeat(32)}`
+  for (const extra of [{ id: 'other' }, { resolution: { body: 'x'.repeat(16385), bytes: 16385, totalBytes: 16385, truncated: false } }, { registration: 'unverified', resolution: { body: 'x', bytes: 1, totalBytes: 1, truncated: false } }]) {
+    const f = fixture({ 'task.check': () => ({ id, destination: seat.session, registration: 'verified', state: 'done', ...extra }) }); await ready(f); const previous = { id, destination: seat.session, registration: 'unverified', state: 'unknown' }; f.state.task = previous
+    await f.session.checkTask(); assert.equal(f.state.task, previous); assert.ok(f.state.error); f.session.dispose()
+  }
 })
 test('read-only environment discovery never blocks access to the dashboard', async () => {
   let finish
@@ -84,7 +133,7 @@ test('standalone preview cannot call a worker or enable mutations', async () => 
 })
 test('instruction review and confirmation use the same server plan and never send a command from the UI', async () => {
   const f = fixture({ 'setup.prepare': input => plan({ action: input.action, instruction: { key: seat.key, session: seat.session, runtime: seat.runtime, text: input.message } }), 'setup.execute': () => ({ terminalId: 'term-result', visibility: 'unverified', recoveryCommand: 'recover-existing' }) })
-  await ready(f); await f.session.refreshSeats(); f.session.switchView('dashboard')
+  await ready(f); await f.session.refreshSeats(); f.session.switchView('messages')
   f.session.editInput('instructionSeat', seat.key); f.session.editInput('instruction', 'Inspect the fixture')
   await f.session.prepare('send-instruction')
   assert.equal(f.calls.some(c => c.name === 'setup.execute'), false)
@@ -94,6 +143,16 @@ test('instruction review and confirmation use the same server plan and never sen
   assert.deepEqual(execution.input, { planId: 'plan-fixture', workspaceId: 'work' })
   assert.equal(f.state.receipt.terminalId, 'term-result'); assert.equal(f.state.input.instruction, '')
   await f.session.confirm(); assert.equal(f.calls.filter(c => c.name === 'setup.execute').length, 1)
+})
+test('successful message and durable-task confirmations clear only their own input drafts', async () => {
+  for (const action of ['send-message', 'create-task']) {
+    const id = `qitem-orca-${'b'.repeat(32)}`, f = fixture({ 'setup.prepare': input => plan({ action: input.action, ...(action === 'send-message' ? { instruction: { text: input.message } } : {}), queueTask: { id, destination: seat.session } }), 'setup.execute': () => ({ terminalId: 'term-fixture', task: { id, destination: seat.session, registration: 'unverified', state: 'unknown' } }) })
+    await ready(f); f.session.editInput('instructionSeat', seat.key); f.session.editInput('instruction', 'Message draft'); f.session.editInput('taskSeat', seat.key); f.session.editInput('summary', 'Task title draft'); f.session.editInput('body', 'Task body draft')
+    await f.session.prepare(action); await f.session.confirm(); assert.equal(f.state.task.id, id)
+    assert.equal(f.state.input.instruction, action === 'send-message' ? '' : 'Message draft'); assert.equal(f.state.input.instructionSeat, action === 'send-message' ? '' : seat.key)
+    assert.equal(f.state.input.taskSeat, action === 'create-task' ? '' : seat.key); assert.equal(f.state.input.summary, action === 'create-task' ? '' : 'Task title draft'); assert.equal(f.state.input.body, action === 'create-task' ? '' : 'Task body draft')
+    f.session.dispose()
+  }
 })
 test('editing a destination, content or view invalidates review and preserves unrelated drafts', async () => {
   const f = fixture({ 'setup.prepare': () => plan({ action: 'install-tmux' }) }); await ready(f)

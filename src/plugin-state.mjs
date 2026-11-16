@@ -22,8 +22,8 @@ export function createPluginSession(request, changed = () => {}, options = {}) {
     seats: null, inventory: null, relations: null, inventorySource: 'tui', diagramSource: 'inventory', podKey: '', podError: '', examples: [], input: { ...EMPTY_INPUT }, plan: null, startupRisk: false, receipt: null,
     reportSeatKey: '', reportSeatPinned: false, requestSourceText: DEFAULT_REQUEST_SOURCES.join(', '), userReports: null, userReportError: '',
     observation: emptyObservation(), autoRefresh: null, task: null, readOnly: true, busy: false, busyKind: null, error: '', notice: '', warning: '', step: 0 }
-  const reportCache = new Map(); let reportReads = 0, refreshLoop = null
-  const emit = () => { refreshLoop?.sync(); changed(state) }
+  const reportCache = new Map(); let reportReads = 0, refreshLoop = null, disposed = false
+  const emit = () => { if (!disposed) { refreshLoop?.sync(); changed(state) } }
   const inventoryKey = value => value && JSON.stringify({ ...value, observedAt: 0 })
   const relationsKey = value => value && JSON.stringify({ ...value, observedAt: 0, memberKeys: [...value.memberKeys].sort(), edges: [...value.edges].sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b))) })
   const validInventory = value => Array.isArray(value?.pods) && Array.isArray(value.seats) && typeof value.connection?.key === 'string' && /^[a-f0-9]{64}$/.test(value.connection.key)
@@ -31,16 +31,16 @@ export function createPluginSession(request, changed = () => {}, options = {}) {
   const dirty = () => JSON.stringify(state.draft) !== JSON.stringify(state.env?.config || null)
   function requireHost() { if (!state.host) throw new Error('Open this page inside the OpenRig for Orca plugin to use operations. The standalone preview is read-only.') }
   async function work(fn, kind = 'operation') {
-    if (state.busy) return
+    if (disposed || state.busy) return
     refreshLoop?.cancel()
     state.busy = true; state.busyKind = kind; state.error = ''; state.notice = ''; state.warning = ''; emit()
-    try { requireHost(); await fn() } catch (error) { state.error = error instanceof Error ? error.message : String(error) }
+    try { requireHost(); await fn() } catch (error) { if (!disposed) state.error = error instanceof Error ? error.message : String(error) }
     finally { state.busy = false; state.busyKind = null; emit() }
   }
   function invalidate() { state.plan = null; state.startupRisk = false }
   function apply(env) {
     reportCache.clear(); state.observation = emptyObservation(); state.reportSeatKey = ''; state.reportSeatPinned = false; state.userReports = null; state.userReportError = ''
-    if (state.task && JSON.stringify(state.env?.config) !== JSON.stringify(env.config)) state.task = { ...state.task, registration: 'unverified', state: 'unknown', detail: 'Instance configuration changed. Reconcile at the original endpoint before retrying.' }
+    if (state.task && JSON.stringify(state.env?.config) !== JSON.stringify(env.config)) state.task = { ...state.task, registration: 'unverified', state: 'unknown', resolution: undefined, detail: 'Instance configuration changed. Reconcile at the original endpoint before retrying.' }
     state.env = env; state.draft = { ...env.config }; state.seats = null; state.examples = []; state.inventory = null; state.relations = null; state.diagramSource = 'inventory'; state.podKey = ''; state.podError = ''
     state.input.instructionSeat = ''; state.input.taskSeat = ''
     if (!env.workspaces.some(w => w.id === state.workspaceId)) state.workspaceId = ''
@@ -149,7 +149,7 @@ export function createPluginSession(request, changed = () => {}, options = {}) {
     return ok
   }
   function canPrepare(action, extra = {}) {
-    if (!state.host || state.busy || state.autoRefresh?.inFlight || dirty() || !state.workspaceId || !state.env) return false
+    if (disposed || !state.host || state.busy || state.autoRefresh?.inFlight || dirty() || !state.workspaceId || !state.env) return false
     const snapshot = state.env.snapshot, tools = snapshot.tools
     if (action === 'install-rig') return Boolean(tools.node && tools.npm)
     if (action === 'install-tmux') return true
@@ -167,6 +167,7 @@ export function createPluginSession(request, changed = () => {}, options = {}) {
     if (action === 'stop-example') return state.examples.some(e => e.id === extra.exampleId && e.kind === 'demo' && e.instance === operationInstance(state.env.config))
     if (action === 'launch-example') return Boolean(snapshot.ready && state.examples.some(e => e.id === extra.exampleId && e.kind !== 'demo'))
     if (action === 'launch-seat') return podConnected() && canStartSeat(findSeat(extra.seatKey))
+    if (action === 'send-message') return podConnected() && canQueueTask(findSeat(state.input.instructionSeat)) && !instructionTextError(state.input.instruction)
     if (action === 'send-instruction') return podConnected() && canInstruct(findSeat(state.input.instructionSeat)) && !instructionTextError(state.input.instruction)
     if (action === 'create-task') return podConnected() && canQueueTask(findSeat(state.input.taskSeat)) && !taskTextError(state.input.summary, state.input.body)
     return false
@@ -191,6 +192,7 @@ export function createPluginSession(request, changed = () => {}, options = {}) {
         state.userReportError = ''
         try {
           const result = await request('user.reports', { source: state.inventory.connection.source || state.inventorySource, instanceKey, podKey, seatKey, sources }, { timeoutMs: 120000 })
+          if (disposed) return
           if (state.inventory?.connection.key !== instanceKey || state.podKey !== podKey || state.reportSeatKey !== seatKey || result?.instanceKey !== instanceKey || result.podKey !== podKey || result.seatKey !== seatKey || result.rigId !== seat.rigId || JSON.stringify(result.sources) !== JSON.stringify(sources) || !['ready', 'partial', 'unverified'].includes(result.status) || !Array.isArray(result.reports) || result.reports.length > 10 || !Array.isArray(result.notes)) throw new Error('The report context changed or returned incomplete data.')
           if (result.reports.some(r => typeof r.body !== 'string' || new TextEncoder().encode(r.body).length > 16384 || typeof r.preview !== 'string' || new TextEncoder().encode(r.preview).length > 500 || !sources.includes(r.source))) throw new Error('A report exceeded its bounded source/body projection.')
           if (result.status === 'unverified' && state.userReports?.reports.length) state.userReportError = 'Native report reads are unverified. The last successful report snapshot is retained; its original read time still applies.'
@@ -206,7 +208,7 @@ export function createPluginSession(request, changed = () => {}, options = {}) {
         relationsStale: !o.relationsAt || Boolean(o.relationsError) || state.relations?.status !== 'complete' || now() - o.relationsAt >= REFRESH_MS }
     },
     tickObservationClock() { emit() },
-    dispose() { refreshLoop.dispose(); reportCache.clear(); state.userReports = null; state.reportSeatKey = '' },
+    dispose() { disposed = true; refreshLoop.dispose(); reportCache.clear(); state.userReports = null; state.reportSeatKey = ''; state.task = null; invalidate() },
     setDiagramSource(source) {
       if (!['inventory', 'yaml'].includes(source) || state.diagramSource === source) return
       state.diagramSource = source; invalidate(); emit()
@@ -219,7 +221,7 @@ export function createPluginSession(request, changed = () => {}, options = {}) {
       const inventory = state.inventory, pod = selectedPod(), seat = podSeats().find(s => s.key === seatKey)
       const base = { instanceKey: inventory?.connection.key || '', podKey: pod?.key || '', seatKey, observedAt: Date.now() }
       const unknown = detail => ({ ...base, status: 'unverified', detail })
-      if (!state.host || !inventory || !pod || !seat || dirty() || state.observation.seatsError || state.diagramSource !== 'inventory') return unknown('Preview unavailable for this saved native pod. No YAML or terminal output was used.')
+      if (disposed || !state.host || !inventory || !pod || !seat || dirty() || state.observation.seatsError || state.diagramSource !== 'inventory') return unknown('Preview unavailable for this saved native pod. No YAML or terminal output was used.')
       const cached = reportCache.get(seatKey)
       if (cached && Date.now() < cached.expires) return cached.promise
       if (reportReads >= 2) return unknown('Other report previews are loading. Hover or focus this seat again shortly.')
@@ -227,7 +229,7 @@ export function createPluginSession(request, changed = () => {}, options = {}) {
         reportReads++
         try {
           const result = await request('seat.report', { source: inventory.connection.source || state.inventorySource, instanceKey: base.instanceKey, podKey: base.podKey, seatKey }, { timeoutMs: 45000 })
-          if (state.inventory?.connection.key !== base.instanceKey || state.podKey !== pod.key || !podSeats().some(s => s.key === seat.key && s.session === seat.session && s.runtime === seat.runtime) || dirty() || state.diagramSource !== 'inventory') return unknown('Pod context changed; hover again after refreshing.')
+          if (disposed || state.inventory?.connection.key !== base.instanceKey || state.podKey !== pod.key || !podSeats().some(s => s.key === seat.key && s.session === seat.session && s.runtime === seat.runtime) || dirty() || state.diagramSource !== 'inventory') return unknown('Pod context changed; hover again after refreshing.')
           if (result?.instanceKey !== base.instanceKey || result.podKey !== base.podKey || result.seatKey !== seatKey || !['recorded', 'none', 'unverified'].includes(result.status)) throw new Error('Invalid report preview')
           const metadata = { ...base, observedAt: result.observedAt, status: result.status, detail: String(result.detail || '').slice(0, 700) }
           if (result.status !== 'recorded') return metadata
@@ -272,7 +274,7 @@ export function createPluginSession(request, changed = () => {}, options = {}) {
       })
     },
     switchView(view) {
-      if (!['preparation', 'dashboard'].includes(view) || (state.busy && state.busyKind !== 'read')) return false
+      if (!['preparation', 'dashboard', 'messages'].includes(view) || (state.busy && state.busyKind !== 'read')) return false
       if (state.view !== view) { state.view = view; invalidate(); emit() }
       return true
     },
@@ -323,8 +325,8 @@ export function createPluginSession(request, changed = () => {}, options = {}) {
       await work(async () => {
         invalidate()
         const input = { action, workspaceId: state.workspaceId, spec: state.input.spec, ...extra }
-        if (['launch-seat', 'send-instruction', 'create-task'].includes(action)) Object.assign(input, { podKey: selectedPod().key, instanceKey: state.inventory.connection.key })
-        if (action === 'send-instruction') Object.assign(input, { seatKey: state.input.instructionSeat, message: state.input.instruction })
+        if (['launch-seat', 'send-instruction', 'send-message', 'create-task'].includes(action)) Object.assign(input, { podKey: selectedPod().key, instanceKey: state.inventory.connection.key })
+        if (action === 'send-instruction' || action === 'send-message') Object.assign(input, { seatKey: state.input.instructionSeat, message: state.input.instruction })
         if (action === 'create-task') Object.assign(input, { seatKey: state.input.taskSeat, summary: state.input.summary, body: state.input.body })
         state.plan = await request('setup.prepare', input, { timeoutMs: 120000 })
       })
@@ -344,7 +346,7 @@ export function createPluginSession(request, changed = () => {}, options = {}) {
         state.receipt = result
         if (result.task) state.task = result.task
         if (plan.instruction) { state.input.instruction = ''; state.input.instructionSeat = '' }
-        if (plan.queueTask) { state.input.taskSeat = ''; state.input.summary = ''; state.input.body = '' }
+        if (plan.action === 'create-task') { state.input.taskSeat = ''; state.input.summary = ''; state.input.body = '' }
         state.notice = 'A result terminal was created. Its creation is not proof of command success, startup or completion.'
         if (plan.example) {
           try { state.examples = (await request('examples.list')).examples }
@@ -367,7 +369,15 @@ export function createPluginSession(request, changed = () => {}, options = {}) {
     async checkTask() {
       await work(async () => {
         if (dirty()) throw new Error('Save configuration before checking registration.')
-        if (state.task) state.task = await request('task.check', { id: state.task.id }, { timeoutMs: 120000 })
+        if (state.task) {
+          const previous = state.task, next = await request('task.check', { id: previous.id }, { timeoutMs: 120000 })
+          // A closed panel must neither retain replies nor accept a late readback.
+          if (disposed || state.task !== previous) return
+          if (next?.id !== previous.id || next.destination !== previous.destination || !['verified', 'unverified'].includes(next.registration)) throw new Error('The request readback changed identity.')
+          const reply = next.resolution
+          if (reply && (next.registration !== 'verified' || typeof reply.body !== 'string' || new TextEncoder().encode(reply.body).length > 16384 || reply.bytes !== new TextEncoder().encode(reply.body).length || !Number.isSafeInteger(reply.totalBytes) || reply.totalBytes < reply.bytes || typeof reply.truncated !== 'boolean')) throw new Error('The stored reply exceeded its bounded projection.')
+          state.task = next
+        }
       }, 'read')
     }
   }

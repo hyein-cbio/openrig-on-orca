@@ -86,9 +86,9 @@ export default function activate(orca: OrcaWorkerApi): void {
       if (typeof input.seatKey !== 'string' || !input.seatKey || input.seatKey.length > 1000) throw fail('seat_unavailable', 'Choose one seat from the refreshed list')
       instructionSeat = (await listInstructionSeats(config, snapshot)).find((seat: Seat) => seat.key === input.seatKey)
     }
-    if (input.action === 'launch-seat' || input.action === 'create-task') {
-      if (input.action === 'create-task') {
-        const problem = taskTextError(input.summary, input.body)
+    if (input.action === 'launch-seat' || input.action === 'create-task' || input.action === 'send-message') {
+      if (input.action === 'create-task' || input.action === 'send-message') {
+        const problem = input.action === 'send-message' ? instructionTextError(input.message) : taskTextError(input.summary, input.body)
         if (problem) throw fail('invalid_task', problem)
       }
       if (typeof input.seatKey !== 'string' || !input.seatKey || input.seatKey.length > 1000) throw fail('seat_unavailable', 'Choose one registered seat from the refreshed list')
@@ -134,7 +134,7 @@ export default function activate(orca: OrcaWorkerApi): void {
       const task = plan.queueTask
       await stageTaskBody(config.root, task)
       // Save intent before the possibly ambiguous terminal operation, so read-only reconciliation remains available.
-      await orca.storage.set(`task:${task.id}`, { id: task.id, destination: task.destination, summary: task.summary, bodyHash: taskHash(task.body), config: JSON.stringify(config) })
+      await orca.storage.set(`task:${task.id}`, { id: task.id, destination: task.destination, summary: task.summary, bodyHash: taskHash(task.body), source: 'orca-gui@external', config: JSON.stringify(config) })
     }
     const staged = await stageAction(config.root, plan.command)
     const result = await createTerminalView(orca, target, plan.title, staged.command)
@@ -146,7 +146,7 @@ export default function activate(orca: OrcaWorkerApi): void {
   orca.panels.handle('task.check', async input => {
     if (!validTaskId(input.id)) throw fail('task_unowned', 'Choose a task ID prepared by this plugin')
     const record = await orca.storage.get(`task:${input.id}`)
-    if (!record || typeof record !== 'object' || Array.isArray(record) || record.id !== input.id || typeof record.config !== 'string' || typeof record.destination !== 'string' || typeof record.summary !== 'string' || typeof record.bodyHash !== 'string' || !/^[a-f0-9]{64}$/.test(record.bodyHash)) throw fail('task_unowned', 'No saved request exists for this ID; inspect the original result terminal before any retry')
+    if (!record || typeof record !== 'object' || Array.isArray(record) || record.id !== input.id || typeof record.config !== 'string' || typeof record.destination !== 'string' || typeof record.summary !== 'string' || typeof record.bodyHash !== 'string' || !/^[a-f0-9]{64}$/.test(record.bodyHash) || (record.source !== undefined && record.source !== 'orca-gui@external')) throw fail('task_unowned', 'No saved request exists for this ID; inspect the original result terminal before any retry')
     const config = await getConfig()
     return checkTask(config, await discover(config), record)
   })

@@ -1,3 +1,5 @@
+import { instructionTextError } from './seat-instructions.mjs'
+
 // Pure GUI/worker rules. These are operator controls, not a security sandbox.
 export const TASK_SUMMARY_LIMIT = 200
 export const TASK_BODY_LIMIT = 4000
@@ -20,6 +22,13 @@ export function taskTextError(summary, body) {
   if (typeof body !== 'string' || !body.trim() || body.length > TASK_BODY_LIMIT || /[\u0000-\u0008\u000b-\u001f\u007f-\u009f]/.test(body)) return 'Enter a task body of 1–4000 characters; only tabs and LF newlines are allowed as control input.'
   return ''
 }
+export function messageRequest(text, id) {
+  if (instructionTextError(text) || !/^qitem-orca-[a-f0-9]{32}$/.test(id)) throw new TypeError('Invalid message request')
+  const title = `Message: ${text.trim()}`, summary = title.length <= TASK_SUMMARY_LIMIT ? title : title.slice(0, TASK_SUMMARY_LIMIT - 1).replace(/[\uD800-\uDBFF]$/, '') + '…'
+  const completion = `Handle this existing qitem (${id}); claim it before working. Store a short result in --summary and the full answer in --resolution. On genuine completion close with --state done --closure-reason no-follow-on; otherwise record the truthful state and follow-through. Print the answer and qitem ID. Do not create a second qitem for this request.`
+  return { summary, completion, body: `${text}\n\n[OpenRig for Orca]\n${completion}` }
+}
+
 export function sameSeatDefinition(current, reviewed) {
   return Boolean(current && reviewed && current.key === reviewed.key && current.rigId === reviewed.rigId &&
     current.logicalId === reviewed.logicalId && current.session === reviewed.session && current.runtime === reviewed.runtime &&

@@ -1,6 +1,5 @@
 // Shared with the sandboxed panel: keep this module free of Node APIs.
 export const INSTRUCTION_LIMIT = 2000
-
 export function canInstruct(seat) {
   return Boolean(seat && seat.status === 'running' && seat.activity === 'idle' && !seat.attention &&
     ['claude-code', 'codex', 'pi'].includes(seat.runtime) && typeof seat.session === 'string' && seat.session.length <= 200 &&

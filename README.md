@@ -4,6 +4,10 @@
 
 > Early release `0.1.0`. Real Orca/OpenRig integration has been validated on macOS. Linux installer branches have unit coverage; remote workspaces and native Windows are not supported yet.
 
+## License and trust
+
+Licensed under the [MIT License](LICENSE), provided **AS IS, without warranty**. This trusted-worker plugin executes local commands with your account's access and can request agent work; install and use only code and runtimes you trust. See [SECURITY.md](SECURITY.md) for the execution boundary and reporting. Bundled third-party components retain their own licenses and notices under `src/visualizer/licenses/` and the generated notice files.
+
 ## Architecture
 
 ```text
@@ -54,14 +58,15 @@ The plugin contributes **exactly one Orca sidebar panel: OpenRig for Orca**. Ope
 orca plugin open local.openrig-for-orca --panel openrig --environment local --json
 ```
 
-Inside that one panel are exactly two views:
+Inside that one panel are exactly three views, in left-to-right order:
 
 - **OpenRig Preparation**: tool/daemon checks, installation and account setup, paths, the walkthrough and recorded examples.
-- **OpenRig Dashboard**: native rig/pod selection, a selected-pod inventory diagram and seat snapshot, reviewed single-seat starts, instructions and durable tasks. Team creation/launch and the advanced terminal console live in Preparation.
+- **OpenRig Dashboard**: native rig/pod selection, an inventory diagram and seat snapshot, prominent single-seat start reviews, stored user reports and durable task registration.
+- **Messages**: a quick Native queue request to a running seat, with explicit instance/recipient context, a result-workspace picker and manual stored-reply readback. Team creation/launch and configured TUI opening live in Preparation.
 
 [Earlier dashboard design capture](docs/images/openrig-dashboard.png) · [Preparation capture](docs/images/openrig-preparation.png). These historical, read-only declared-example previews predate native pod selection; they are not current live-inventory evidence.
 
-Topology and examples have no independent Orca panel/tab. Switching the two internal views never installs software, starts an agent/daemon or sends work; opt-in visible Dashboard observations may resume read-only queries. Navigation retains operation drafts and the selected pod, and invalidates an unconfirmed operation review. Read-only discovery does not block access to the dashboard. The HTML, styles, renderer/parser/sanitizer and notices are bundled; rendering needs no CDN or npm installation, but actual pod observations require an explicitly identified running local OpenRig daemon. Live operations retain their existing explicit worker review/confirmation boundary.
+Topology and examples have no independent Orca panel/tab. Switching the three internal views never installs software, starts an agent/daemon or sends work; opt-in visible Dashboard observations may resume read-only queries. Navigation retains operation drafts and the selected pod, and invalidates an unconfirmed operation review. Read-only discovery does not block access to the dashboard. The HTML, styles, renderer/parser/sanitizer and notices are bundled; rendering needs no CDN or npm installation, but actual pod observations require an explicitly identified running local OpenRig daemon. Live operations retain their existing explicit worker review/confirmation boundary.
 
 Local-folder installation is also available. Its installed copy is separate from the development folder and requires the same code-execution approval.
 
@@ -109,7 +114,7 @@ Each Open seat view click creates a separate view. **Closing a tab detaches from
 
 ### Dashboard: native rig / pod inventory
 
-The primary **OpenRig pod** selector comes from the native projected seat inventory, not Orca workspaces or the built-in example. Choose a real `rig / pod`; its diagram, seat rows, instruction recipients and durable-task recipients use that exact rig/pod identity. An Orca workspace appears only in the secondary **Result terminal destination** section, and is unnecessary for reading/selecting pods.
+The primary **OpenRig pod** selector comes from the native projected seat inventory, not Orca workspaces or the built-in example. Choose a real `rig / pod`; its diagram, seat rows, instruction recipients and durable-task recipients use that exact rig/pod identity. An Orca workspace is only a result-terminal destination, shown alongside seat-start or Messages actions (otherwise in the secondary destination section), and is unnecessary for reading/selecting pods.
 
 Inventory is a bounded observation snapshot from `rig ps --nodes -A --json --no-cleanup --fields …`, with explicit loopback routing and pod ID/namespace fields. No transcript content, resume token, full graph payload, credential file or arbitrary YAML reference is requested. The list represents registered seat groups, as in the TUI's node-backed pod groups; empty declarations without seats are not synthesized. Unassigned seats are labelled as such. Invalid, incomplete, unavailable or oversized observations stay unavailable, not an empty list or an example fallback. Bounds: 512 seats and 128 groups; diagrams cap at 80 seats without truncating the complete selected-pod list.
 
@@ -187,13 +192,15 @@ node scripts/preview-topology.mjs
 
 The preview does not install or replace an Orca plugin. Installed HTML panels use Orca's explicit user-gesture SVG save API; a standalone browser uses a normal SVG download. Native OS dialog writes are not inferred from bridge-payload tests.
 
-### Send one instruction to an existing agent
+### Send a tracked message
 
-In **OpenRig Dashboard**, select a native pod and use **Refresh selected pod snapshot**, choose an **Instruction recipient**, enter a **Short instruction**, and press **Review instruction**. Review the exact target/text and side effects, then **Confirm and open in Orca terminal**. The existing single-use, five-minute plan runs `rig send --wait-for-idle 1 --json -- <session> <text>` in an Orca result terminal; no TUI typing is needed.
+Choose a native pod in **OpenRig Dashboard**, then open **Messages**. Select a running supported recipient, enter one message (single line, at most 2000 characters), choose the required result workspace, and **Review message**. Busy agents can receive queued work; shell, kernel, stopped, attention-requesting and remote targets remain excluded. The review shows the exact destination, fixed request ID, generated short title, user message and expandable completion guidance. Confirm with **Send message**.
 
-This deliberately small feature accepts one running, explicitly idle Claude Code, Codex or Pi seat without an attention request. An existing Pi seat does not require selecting a new installer/provider or changing its model. Shell/unknown runtimes, stopped/busy/unknown-activity seats, control characters and host-qualified targets are refused. Text is a single line of at most 2000 characters. The worker refreshes the target at confirmation and refuses a changed session/runtime; the native CLI retains its idle and prompt/permission guards. The configured loopback instance is explicit, overriding persisted remote-host selection and legacy URL aliases, without changing global settings.
+Messages reuse the same Native queue-creation path as Dashboard task registration: `rig queue create --id <fixed-id> --source orca-gui@external --destination <seat> --summary=<title> --body-file <private-file> --json`. The plugin creates the row after confirmation; OpenRig performs its default destination nudge. There is no second `rig send`, no `--no-nudge`, and no instruction asking the agent to create another qitem. A short note asks it to claim this existing ID, store its short result in `summary` and full answer in `resolution`, and close truthfully. User text plus guidance remains within the 4000-character Native task body limit.
 
-This is a **terminal message**, not a durable queue item, ownership handoff, acknowledgment or completed task. It may trigger paid model calls and file edits; cwd and the read-only view checkbox do not sandbox the agent's tools. The CLI may display an unknown sender. A created result terminal is not proof of delivery, and a timeout can follow delivery: inspect/reconcile with the recipient before any resend. No automatic retry, seat launch, stop, model change or permission bypass is added. The destination Orca workspace only determines where the result terminal opens.
+The confirmed body is staged exclusively in a private file, and the saved intent survives ambiguous terminal creation. **Check request / reply** reads the same ID without creating or nudging again, verifies destination/source and immutable request-body hash, and shows recorded state plus a plain stored-resolution excerpt of at most 16 KiB UTF-8. A mutable result summary does not invalidate the request. No reply polling or LLM summary is added. Native TUI RECENTLY FINISHED reads the completed row; Dashboard **Reports for you** can read its resolution from the declared `orca-gui@external` request source.
+
+A registered row or result terminal is not proof of model completion. Native nudges may invoke a model and file edits. One-use expiry, fresh instance/pod/recipient checks and no-automatic-retry behavior remain. The workspace only hosts the CLI result terminal; it is not the agent cwd. The older direct-terminal `send-instruction` worker action is retained for compatibility/regression coverage, but the Messages UI no longer uses it.
 
 ### Start one registered seat
 
@@ -207,7 +214,7 @@ In **Register one durable task**, choose a running local agent, enter a title (u
 
 The server fixes a random request ID before execution, stores the body in an exclusive private read-only file after confirmation, and invokes native `rig queue create` once with `--id`, `--source orca-gui@external`, `--destination`, `--summary` and `--body-file`. The source is a declared external label, not an authenticated human or an impersonated seat. No human reply route is guaranteed. An ID or result terminal is **not proof of persistence**. The GUI retains the ID even if confirmation returns an ambiguous error.
 
-**Check task registration** is a manual read-only snapshot. It queries the same configured instance, correlates the saved ID/destination/title/body, and shows verified registration and the recorded workflow state only for a matching row. Changed content requires native-history reconciliation. A missing row, timeout, changed instance or unreadable result remains **unverified**, not definitely absent; the check never creates, nudges or retries. A recorded `done` state is the assignee's workflow record, not independent proof of correct results. Do not create another ID for the same work after an unknown outcome.
+**Check request / reply** is a manual read-only snapshot. It queries the same configured instance, correlates the saved ID/destination/declared source/immutable body hash (the summary may change), and shows verified registration and the recorded workflow state only for a matching row. Changed content requires native-history reconciliation. A missing row, timeout, changed instance or unreadable result remains **unverified**, not definitely absent; the check never creates, nudges or retries. A recorded `done` state is the assignee's workflow record, not independent proof of correct results. Do not create another ID for the same work after an unknown outcome.
 
 ### Launch a team (Preparation)
 

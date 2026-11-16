@@ -5,7 +5,7 @@ import { mkdtemp, readFile, writeFile, access, stat, rm } from 'node:fs/promises
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { promisify } from 'node:util'
-import { canStartSeat, canQueueTask, sameSeatDefinition, taskTextError } from '../src/seat-tasks.mjs'
+import { canStartSeat, canQueueTask, sameSeatDefinition, taskTextError, messageRequest } from '../src/seat-tasks.mjs'
 import { stageTaskBody, taskHash, checkTask } from '../src/task-files.mjs'
 import { configFrom, seatsFrom } from '../src/runtime.mjs'
 import { buildPlan } from '../src/plans.mjs'
@@ -73,17 +73,40 @@ test('queue creation fixes its ID at review and stages a literal private body on
     assert.equal(output.source, undefined)
   } finally { await rm(f.root, { recursive: true, force: true }) }
 })
+test('Messages uses one Native queue create with fixed identity, external source and default nudge', async () => {
+  const f = await fixture()
+  try {
+    const text = 'Reply to "quoted" input; $(not-a-command)', plan = await buildPlan('send-message', f.config, f.snapshot, f.workspace, { seat: running, message: text, id: 'untrusted', body: 'untrusted' }), task = plan.queueTask
+    assert.equal(plan.instruction.text, text); assert.equal(plan.instruction.completion, messageRequest(text, task.id).completion)
+    assert.equal(task.body, messageRequest(text, task.id).body); assert.ok(task.body.startsWith(text + '\n\n')); assert.equal(task.body.includes('--no-nudge'), false)
+    assert.equal(taskTextError(task.summary, task.body), ''); await assert.rejects(access(task.bodyFile)); await stageTaskBody(f.config.root, task)
+    await exec('/bin/sh', ['-c', plan.command], { env: { HOME: f.root, PATH: '/usr/bin:/bin', RIGGED_SESSION_NAME: 'another-seat' } })
+    const output = JSON.parse(await readFile(f.observed, 'utf8'))
+    assert.deepEqual(output.args, ['queue', 'create', '--id', task.id, '--source', 'orca-gui@external', '--destination', running.session, `--summary=${task.summary}`, '--body-file', task.bodyFile, '--json'])
+    assert.equal(output.body, task.body); assert.equal(output.source, undefined); assert.equal(output.args.includes('send'), false); assert.equal(output.args.includes('--no-nudge'), false)
+  } finally { await rm(f.root, { recursive: true, force: true }) }
+})
+test('message summaries and completion hints fit Native bounds without asking the agent to create work', () => {
+  const id = `qitem-orca-${'e'.repeat(32)}`
+  for (const text of ['Short request', 'x'.repeat(2000), String.fromCodePoint(0x1f44b).repeat(1000), '"'.repeat(2000)]) {
+    const request = messageRequest(text, id); assert.equal(taskTextError(request.summary, request.body), ''); assert.ok(request.summary.length <= 200); assert.ok(request.completion.includes(id)); assert.ok(request.completion.includes('--resolution')); assert.equal(request.completion.includes('queue create'), false)
+  }
+  for (const [text, task] of [['', id], ['x'.repeat(2001), id], ['a\nb', id], ['x', '../invalid']]) assert.throws(() => messageRequest(text, task))
+})
 test('task readback verifies identity and body while exposing no private body or completion guarantee', async () => {
   const f = await fixture()
   try {
     const id = 'qitem-orca-' + 'a'.repeat(32), body = 'Private fixture body', summary = 'Inspect fixture'
-    const record = { id, destination: running.session, summary, bodyHash: taskHash(body), config: JSON.stringify(f.config) }
-    const row = { qitemId: id, destinationSession: running.session, summary, body, state: 'done' }
+    const record = { id, destination: running.session, summary, bodyHash: taskHash(body), source: 'orca-gui@external', config: JSON.stringify(f.config) }
+    const row = { qitemId: id, destinationSession: running.session, sourceSession: 'orca-gui@external', summary: 'Updated final result', body, state: 'done', resolution: String.fromCodePoint(0xac00).repeat(6000) }
     let calls = 0
     const execute = async (file, args, options) => { calls++; assert.deepEqual(args.slice(-6), ['queue', 'show', '--full', '--json', '--', id]); assert.equal(options.env.OPENRIG_HOST_SELECTED, 'local'); return { ok: true, stdout: JSON.stringify(row) } }
     const result = await checkTask(f.config, f.snapshot, record, execute)
     assert.equal(result.registration, 'verified'); assert.equal(result.state, 'done')
     assert.equal(JSON.stringify(result).includes(body), false)
+    assert.ok(result.resolution.bytes <= 16384); assert.equal(result.resolution.totalBytes, 18000); assert.equal(result.resolution.truncated, true); assert.equal(result.resolution.body.endsWith(String.fromCodePoint(0xfffd)), false)
+    const wrongSource = await checkTask(f.config, f.snapshot, record, async () => ({ ok: true, stdout: JSON.stringify({ ...row, sourceSession: 'other@external' }) }))
+    assert.equal(wrongSource.registration, 'unverified'); assert.equal(wrongSource.resolution, undefined)
     assert.match(result.detail, /not proof/)
     const mismatch = await checkTask(f.config, f.snapshot, record, async () => ({ ok: true, stdout: JSON.stringify({ ...row, body: 'other' }) }))
     assert.equal(mismatch.registration, 'unverified')

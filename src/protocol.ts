@@ -22,9 +22,9 @@ export interface ReportPreview { instanceKey: string; podKey: string; seatKey: s
 export interface ExampleRecord {
   id: string; kind: 'demo' | 'claude' | 'codex'; rigName: string; directory: string; specPath: string; configRoot: string; instance?: string
 }
-export interface Instruction { key: string; session: string; runtime: string; text: string }
+export interface Instruction { key: string; session: string; runtime: string; text: string; completion?: string }
 export interface QueueTask { id: string; destination: string; key: string; runtime: string; summary: string; body: string; bodyFile: string }
-export interface TaskStatus { id: string; destination: string; registration: 'unverified' | 'verified'; state: string; detail: string }
+export interface TaskStatus { id: string; destination: string; registration: 'unverified' | 'verified'; state: string; detail: string; resolution?: { body: string; bytes: number; totalBytes: number; truncated: boolean } }
 export interface NoOpReceipt { noOp: true; detail: string }
 export interface Plan {
   id: string; expires: number; action: string; title: string; source: string

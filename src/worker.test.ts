@@ -189,6 +189,23 @@ test('task preparation does not register work and stopped recipients are refused
   } finally { await worker.deactivate(); await rm(fixture.root, { recursive: true, force: true }) }
 })
 
+test('message preparation uses a Native queue request for a busy seat and rechecks recipient before creation', async () => {
+  const row = { rigId: 'rig-1', rigName: 'demo', logicalId: 'dev.worker', canonicalSessionName: 'dev-worker@demo', runtime: 'pi', sessionStatus: 'running', agentActivity: { state: 'working' } }
+  const fixture = await daemonFixture([row]), host = mockHost({ results: { 'workspace.list': { workspaces: [workspace], truncated: false } }, storage: { 'config.v1': fixture.config } }), worker = await mountWorker(workerModule, { host })
+  try {
+    await fixture.online()
+    const input = { action: 'send-message', workspaceId: workspace.id, seatKey: JSON.stringify([row.rigId, row.logicalId]), message: 'Inspect this request' }
+    const plan = await worker.request('setup.prepare', input)
+    assert.equal(plan.instruction?.text, input.message); assert.match(plan.queueTask?.id || '', /^qitem-orca-[a-f0-9]{32}$/)
+    assert.ok(plan.command.includes('--source') && plan.command.includes('orca-gui@external')); assert.equal(plan.command.includes('--wait-for-idle'), false); assert.ok(plan.queueTask?.body.includes('--resolution')); assert.equal(plan.queueTask?.body.includes('--no-nudge'), false)
+    assert.equal(host.data().storage[`task:${plan.queueTask!.id}`], undefined); assert.equal(host.callsOf('terminal.create').length, 0)
+    await fixture.setNodes([{ ...row, canonicalSessionName: 'other@demo' }])
+    await assert.rejects(worker.request('setup.execute', { planId: plan.id, workspaceId: workspace.id }), /recipient changed/)
+    assert.equal(host.callsOf('terminal.create').length, 0)
+    await assert.rejects(worker.request('task.check', { id: plan.queueTask!.id }), /No saved request/)
+  } finally { await worker.deactivate(); await rm(fixture.root, { recursive: true, force: true }) }
+})
+
 test('native pod observation and explicit connection affect only plugin-owned routing', async () => {
   const row = { rigId: 'rig-1', rigName: 'demo', logicalId: 'dev.worker', podId: 'pod-1', podNamespace: 'dev', canonicalSessionName: 'dev-worker@demo', runtime: 'pi', sessionStatus: 'running', agentActivity: { state: 'idle' } }
   const fixture = await daemonFixture([row])

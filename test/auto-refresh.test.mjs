@@ -62,6 +62,11 @@ test('reviews and unsaved settings pause polling without clearing review or exec
   f.session.editConfig('daemonPort', '43811'); await f.clock.advance(0); assert.equal(f.calls.length, count + 2)
   assert.equal(f.calls.some(c => ['setup.execute', 'pods.connect', 'seat.report'].includes(c.name)), false); f.session.dispose()
 })
+test('Messages pauses automatic observations without sending or dropping a message draft', async () => {
+  const f = await fixture(); f.session.editInput('instruction', 'Preserved message draft'); f.session.setAutoRefresh(true); f.session.switchView('messages'); const count = f.calls.length
+  await f.clock.advance(3 * REFRESH_MS); assert.equal(f.calls.length, count); assert.equal(f.state.input.instruction, 'Preserved message draft'); assert.match(f.state.autoRefresh.paused, /Dashboard/)
+  f.session.switchView('dashboard'); await f.clock.advance(0); assert.deepEqual(f.calls.slice(count).map(c => c.name), ['pods.list', 'pods.edges']); assert.equal(f.calls.some(c => c.name === 'setup.execute'), false); f.session.dispose()
+})
 test('hiding cancels an in-flight observation and discards late data, then resumes with one overdue read', async () => {
   const f = await fixture(), old = f.state.inventory
   f.mode('hold'); f.session.setAutoRefresh(true); await f.clock.advance(REFRESH_MS); assert.equal(f.state.autoRefresh.inFlight, true)

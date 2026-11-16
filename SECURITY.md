@@ -12,6 +12,8 @@ Reports for you reads only exact external-source/canonical-destination compact q
 
 Each source window is capped at 20 rows and 1 MiB transport data, with up to four sequential sources, 10 cards and 16 KiB per plain-text body. Source task IDs, commands, paths and HTML inside a report are untrusted evidence only: never followed, interpreted or executed. Bodies are memory-only, manually requested, excluded from diagrams/exports and cleared on context changes/disposal. Automatic observations do not fetch them.
 
+Manual **Check request / reply** reads only a plugin-owned request ID at its saved instance, verifies destination, declared source when recorded, and the immutable request-body hash, and returns at most 16 KiB of plain stored resolution. Native summaries may legitimately change. Closing the session clears stored reply state, prevents new operations/reads and discards late reply or preview results and callbacks. No request is resent by a check or by closing the panel.
+
 ## Reporting a vulnerability
 
 Use the repository's private vulnerability reporting channel when enabled. Do not post credentials, private project contents, or working exploit details in a public issue. If private reporting is unavailable, request a private contact channel without disclosing the sensitive details. Do not include real model-provider credentials in reproductions.
