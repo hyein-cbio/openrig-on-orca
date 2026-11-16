@@ -22,7 +22,7 @@ const hash = bytes => createHash('sha256').update(bytes).digest('hex')
 
 test('shared Apple Silicon implementation, CI, manifest and tests match the reviewed shared-feature baseline', async () => {
   const baseline = JSON.parse(await readFile(path.join(root, 'test/fixtures/apple-silicon-baseline.json'), 'utf8'))
-  assert.equal(Object.keys(baseline.files).length, 198)
+  assert.equal(Object.keys(baseline.files).length, 199)
   for (const [file, expected] of Object.entries(baseline.files)) {
     assert.equal(hash(await readFile(path.join(root, file))), expected, file + ' must remain unchanged; Intel support belongs in additional files')
   }

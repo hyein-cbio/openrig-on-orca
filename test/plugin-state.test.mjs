@@ -42,6 +42,17 @@ test('a late stored-report response cannot repopulate report bodies after dispos
   const pending = f.session.loadUserReports(); f.session.dispose(); finish(reportResult(context)); await pending
   assert.equal(f.state.userReports, null); assert.equal(f.state.reportSeatKey, '')
 })
+test('configured-instance handoff is explicit read-only navigation and TUI review does not require a pod', async () => {
+  const f = fixture({ 'setup.prepare': input => plan({ action: input.action }) }); await f.session.scan(); f.session.selectWorkspace('work')
+  await f.session.viewConfiguredDashboard(); assert.equal(f.state.view, 'dashboard'); assert.equal(f.state.inventorySource, 'configured'); assert.equal(f.state.podKey, '')
+  assert.equal(f.calls.filter(c => c.name === 'pods.list').at(-1).input.source, 'configured'); assert.equal(f.calls.some(c => c.name === 'config.save' || c.name === 'setup.execute'), false)
+  assert.equal(f.session.canPrepare('console', { consoleSource: 'configured' }), true)
+  const connection = f.state.inventory.connection
+  assert.equal(f.session.canPrepare('console', { consoleSource: connection.source, instanceKey: connection.key }), true)
+  await f.session.prepare('console', { consoleSource: connection.source, instanceKey: connection.key }); const input = f.calls.filter(c => c.name === 'setup.prepare').at(-1).input
+  assert.equal(input.instanceKey, connection.key); assert.equal(input.consoleSource, connection.source); assert.equal(input.podKey, undefined)
+  f.session.editConfig('daemonPort', '17459'); const count = f.calls.length; assert.equal(await f.session.viewConfiguredDashboard(), false); assert.equal(f.calls.length, count)
+})
 test('one session has exactly preparation/dashboard navigation with no execution or extra requests', async () => {
   const f = fixture(); await ready(f)
   assert.equal(f.state.view, 'preparation')

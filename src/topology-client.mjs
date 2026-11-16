@@ -42,9 +42,9 @@ const source = $('yaml-source'), viewport = $('viewport'), diagram = $('diagram'
 let model = null, selected = '', selectedKey = '', svg = null, svgText = '', natural = { width: 1, height: 1 }, scale = 1
 let epoch = 0, loadEpoch = 0, renderQueue = Promise.resolve(), dirty = false, directionChosen = false
 const navigation = createTopologyNavigation()
-let displayedView = null, displayedGeometry = '', navigationMessage = '', inventoryScope = null
+let displayedView = null, displayedGeometry = '', navigationMessage = '', inventoryScope = null, cameraMode = 'fit'
 function saveCamera() {
-  if (svg && displayedView?.view.rootKey === navigation.rootKey) navigation.save({ scale, left: viewport.scrollLeft, top: viewport.scrollTop, selectedKey })
+  if (svg && displayedView?.view.rootKey === navigation.rootKey) navigation.save({ scale, left: viewport.scrollLeft, top: viewport.scrollTop, selectedKey, mode: cameraMode })
 }
 function navigate(action) {
   if (!model || dirty) return
@@ -102,26 +102,20 @@ function details(node) {
 }
 function resize(next) {
   if (!svg) return
-  scale = Math.max(.04, Math.min(4, next))
+  scale = Math.max(.001, Math.min(4, next))
+  $('fit').setAttribute('aria-pressed', String(cameraMode === 'fit'))
   svg.style.width = `${natural.width * scale}px`; svg.style.height = `${natural.height * scale}px`
 }
 function fit() {
-  if (!svg) return
-  const fitted = Math.min((viewport.clientWidth - 48) / natural.width, innerWidth < 700 ? 1.4 : (viewport.clientHeight - 48) / natural.height, 1.4)
-  // A wide fan-out must remain legible instead of becoming a miniature on a
-  // narrow screen. Pan horizontally from the focus root to inspect its children.
-  resize(navigation.rootKey === null ? fitted : Math.max(.8, fitted))
+  cameraMode = 'fit'; $('fit').setAttribute('aria-pressed', 'true')
+  if (!svg || viewport.clientWidth <= 48 || viewport.clientHeight <= 48) return
+  // Fit both axes, including narrow panels and hub subdiagrams. Users can zoom
+  // for readability; automatic observations must not replace that manual camera.
+  resize(Math.min((viewport.clientWidth - 48) / natural.width, (viewport.clientHeight - 48) / natural.height, 1.4))
   viewport.scrollTo({ left: 0, top: 0 })
-  if (navigation.rootKey !== null) {
-    const root = selectable().find(element => nodeId(element) === displayedView?.nodes.find(node => node.key === navigation.rootKey)?.uid)
-    if (root) {
-      const box = root.getBoundingClientRect(), bounds = viewport.getBoundingClientRect()
-      viewport.scrollTo({ left: viewport.scrollLeft + box.left + box.width / 2 - bounds.left - bounds.width / 2, top: viewport.scrollTop + box.top - bounds.top - 24 })
-    }
-  }
 }
 function clearGraph() {
-  hideReport(); epoch++; model = null; svg = null; svgText = ''; displayedView = null; displayedGeometry = ''; navigation.reset(); navigationMessage = ''; inventoryScope = null; diagram.replaceChildren(); details(null)
+  cameraMode = 'fit'; hideReport(); epoch++; model = null; svg = null; svgText = ''; displayedView = null; displayedGeometry = ''; navigation.reset(); navigationMessage = ''; inventoryScope = null; diagram.replaceChildren(); details(null)
   $('topology-main').hidden = true; $('topology-back').hidden = true; $('topology-path').textContent = 'Main'; $('topology-view-summary').textContent = ''; $('direction').disabled = false; $('direction').hidden = false; $('topology-direction').hidden = true
   $('empty').hidden = false; $('export').disabled = true; $('warnings').replaceChildren(); $('mermaid-source').value = ''
   $('rig-name').textContent = 'No valid topology'
@@ -220,7 +214,7 @@ function scheduleRender({ restoreCamera = false, focusNavigation = false } = {})
         element.addEventListener('keydown', event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); activateNode(node, projection, current) } })
       }
       details(projection.nodes.find(n => n.key === (camera?.selectedKey || selectedKey)) || projection.nodes.find(n => n.key === projection.view.rootKey) || projection.nodes[0])
-      if (camera) { resize(camera.scale); viewport.scrollTo({ left: camera.left, top: camera.top }) } else fit()
+      if (camera && camera.mode !== 'fit') { cameraMode = 'manual'; resize(camera.scale); viewport.scrollTo({ left: camera.left, top: camera.top }) } else fit()
       $('mermaid-source').value = code; updateMetadata(current, projection)
       if (focusNavigation) {
         const target = selectable().find(element => nodeId(element) === selected) || viewport
@@ -261,8 +255,8 @@ $('yaml-file').addEventListener('change', async event => {
   } finally { event.target.value = '' }
 })
 $('direction').addEventListener('change', () => { directionChosen = true; if (model) scheduleRender() })
-$('zoom-in').addEventListener('click', () => { resize(scale * 1.25); saveCamera() })
-$('zoom-out').addEventListener('click', () => { resize(scale / 1.25); saveCamera() })
+$('zoom-in').addEventListener('click', () => { cameraMode = 'manual'; resize(scale * 1.25); saveCamera() })
+$('zoom-out').addEventListener('click', () => { cameraMode = 'manual'; resize(scale / 1.25); saveCamera() })
 $('fit').addEventListener('click', () => { fit(); saveCamera() })
 $('export').addEventListener('click', async () => {
   if (!svgText || dirty) return
@@ -281,14 +275,14 @@ $('export').addEventListener('click', async () => {
 const themeChanged = () => { adoptNativeTheme(); if (model) { saveCamera(); scheduleRender({ restoreCamera: true }) } }
 window.orca?.on?.('theme', themeChanged)
 matchMedia('(prefers-color-scheme: dark)').addEventListener('change', themeChanged)
-let lastViewportWidth = 0
+let lastViewportWidth = 0, lastViewportHeight = 0
 new ResizeObserver(() => {
-  const width = viewport.clientWidth, preferred = innerWidth < 700 ? 'TB' : 'LR'
+  const width = viewport.clientWidth, height = viewport.clientHeight, preferred = innerWidth < 700 ? 'TB' : 'LR'
   if (navigation.rootKey === null && !directionChosen && $('direction').value !== preferred) { saveCamera(); $('direction').value = preferred; if (model) scheduleRender({ restoreCamera: true }) }
   // Layout settling (e.g. the breadcrumb wrapping) must not overwrite a user's
   // zoom or a camera just restored by Back to main.
-  else if (svg && width !== lastViewportWidth && !navigation.camera()) fit()
-  lastViewportWidth = width
+  else if (svg && cameraMode === 'fit' && (width !== lastViewportWidth || height !== lastViewportHeight)) fit()
+  lastViewportWidth = width; lastViewportHeight = height
 }).observe(document.querySelector('.map-card'))
 export function displayPodSnapshot(pod, seats = [], observedAt = Date.now(), relations = null, freshness = null, instanceKey = null) {
   loadEpoch++; observationFreshness = freshness

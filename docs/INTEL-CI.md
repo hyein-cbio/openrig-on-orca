@@ -40,7 +40,7 @@ The controller uses job-scoped **`actions: write`** solely to dispatch and cance
 
 The combined runner performs the candidate secret scan, functional tmux preflight, dependency installation, complete core and Orca tests, strict typecheck, Intel package staging/inspection, and the isolated first-install/SQLite/daemon/terminal/UI lifecycle. Its new Intel bootstrap downloads the pinned official x64 Orca into a private temporary directory, verifies checksum/signature/architecture/version, and removes its owned application download afterward. It does not replace the personal Orca app, authenticate providers or launch paid models.
 
-The original-source SHA-256 regression gate also runs, covering 195 upstream code/configuration files at refreshed main commit `dbf7191`. The upstream refresh is preserved; the additional Intel implementation does not modify those files.
+The reviewed shared-source SHA-256 regression gate also runs, covering 199 code/configuration files, including the shared report/TUI controls and refreshed generated assets. The manifest identifies its reviewed base and shared-feature evolution; the additional Intel implementation remains separate and must not alter the protected shared bytes.
 
 ### Cancellation and persistent-runner cleanup
 

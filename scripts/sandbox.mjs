@@ -3,7 +3,7 @@
 import assert from 'node:assert/strict'
 import { execFile } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
-import { mkdtemp, mkdir, writeFile, readdir, readFile, realpath, copyFile } from 'node:fs/promises'
+import { mkdtemp, mkdir, writeFile, readdir, readFile, realpath, copyFile, stat } from 'node:fs/promises'
 import { createServer } from 'node:net'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
@@ -139,6 +139,16 @@ try {
   daemonStarted = true
   await until(async () => { const data = await request('seats.list'); assert.deepEqual(data.seats, []) })
   check('daemon-no-agents', 'Isolated loopback daemon starts with no kernel or agents')
+  const consoleReview = await request('setup.prepare', { action: 'console', workspaceId: workspace.id, consoleSource: 'configured' })
+  assert.equal(consoleReview.console.port, config.daemonPort); assert.equal(consoleReview.console.source, 'configured'); assert.equal(consoleReview.command.includes('--shared'), false); assert.match(consoleReview.command, /OPENRIG_NO_KERNEL=1/)
+  const consoleReceipt = await request('setup.execute', { planId: consoleReview.id, workspaceId: workspace.id }); terminalId = consoleReceipt.terminalId
+  await until(async () => { const screen = await orca(['terminal', 'read', '--terminal', terminalId, '--screen']); assert.match(JSON.stringify(screen.result), /(?:No.{0,20}rigs|Topology|For You|Mission Control|Steering)/i) })
+  assert.equal((await stat(consoleReview.consoleRuntime)).isDirectory(), true)
+  assert.deepEqual((await request('seats.list')).seats, [], 'Opening the TUI must not create kernel or agent registrations')
+  await orca(['terminal', 'close', '--terminal', terminalId]); terminalId = null
+  await until(async () => assert.rejects(stat(consoleReview.consoleRuntime), { code: 'ENOENT' }))
+  assert.equal((await request('environment.scan')).daemon.status, 'reachable', 'Closing the TUI must preserve the daemon')
+  check('tui-console', 'The reviewed configured CLI opened a real standalone rig tui in an Orca PTY for an empty no-kernel instance; opening/closing it created no seats and left the daemon running')
   const demo = await executePlan('example-demo', workspace.id)
   rigName = demo.plan.example.rigName
   fixtureStarted = true
@@ -322,12 +332,13 @@ try {
   browserStep = 'user-report-controls'
   // A separate realm runs the shipped controller and actual DOM handlers, without
   // replacing the personal plugin or exposing any mutation through the test bridge.
+  const controlEnvironment = await request('environment.scan')
   const controlHtml = (await readFile(path.join(stage, 'src/visualizer/plugin.html'), 'utf8')).replace(/(src|href)="([^"]+)"/g, (_, attribute, value) => `${attribute}="${new URL(value, new URL('/visualizer/plugin.html', preview.url)).href}"`)
   await evaluate(`(()=>{
     const frame=document.createElement('iframe');frame.id='report-controls-fixture';frame.style.cssText='position:fixed;top:10px;left:10px;width:900px;height:900px;z-index:2000;background:white';document.body.append(frame);const d=frame.contentDocument;d.open();
-    const catalog=${JSON.stringify(inventory)},reports=${JSON.stringify(observedPodFixture.userReports)},relations=${JSON.stringify(relations)},environment=${JSON.stringify(state)};catalog.connection.source='tui';
+    const catalog=${JSON.stringify(inventory)},reports=${JSON.stringify(observedPodFixture.userReports)},relations=${JSON.stringify(relations)},environment=${JSON.stringify(controlEnvironment)},consolePlan=${JSON.stringify(consoleReview)};catalog.connection.source='tui';
     window.reportControlProbe={calls:[],fail:false};const probe=window.reportControlProbe;
-    frame.contentWindow.orca={plugin:{request:async(name,input)=>{probe.calls.push({name,input});if(name==='environment.scan')return environment;if(name==='examples.list')return {examples:[]};if(name==='pods.list')return catalog;if(name==='pods.edges')return relations;if(name==='seat.report')return {status:'none',detail:'Read-only fixture'};if(name==='user.reports')return probe.fail?{...reports,status:'unverified',reports:[]}:reports;throw Error('No mutation is available in the fixture bridge');}}};
+    frame.contentWindow.orca={plugin:{request:async(name,input)=>{probe.calls.push({name,input});if(name==='environment.scan')return environment;if(name==='examples.list')return {examples:[]};if(name==='pods.list')return {...catalog,seats:probe.startFixture?catalog.seats.map(s=>({...s,runtime:s.key===probe.startSeatKey?'pi':'modal-pi-middle',status:'detached',lifecycle:'detached',attention:false})):catalog.seats,connection:{...catalog.connection,source:input.source,matchesConfigured:probe.startFixture?probe.routingMatches:catalog.connection.matchesConfigured}};if(name==='pods.edges')return relations;if(name==='seat.report')return {status:'none',detail:'Read-only fixture'};if(name==='setup.prepare'&&input.action==='launch-seat'){const seat=catalog.seats.find(s=>s.key===input.seatKey);if(!seat)throw Error('Unknown fixture seat');return {id:'seat-start-controls-fixture',action:'launch-seat',expires:Date.now()+60000,workspaceId:input.workspaceId,title:'Start selected fixture seat',command:'Fixture review only; no execution',source:'https://openrig.dev',writes:[],warnings:['Agent startup may invoke models'],seatLaunch:{...seat,runtime:'pi',status:'detached',lifecycle:'detached'}};}if(name==='setup.prepare'&&input.action==='console')return {...consolePlan,id:'tui-controls-fixture',expires:Date.now()+60000,workspaceId:input.workspaceId,console:{...consolePlan.console,source:input.consoleSource||'configured'}};if(name==='user.reports')return probe.fail?{...reports,status:'unverified',reports:[]}:reports;throw Error('No mutation is available in the fixture bridge');}}};
     d.write(${JSON.stringify(controlHtml)});d.close();return JSON.stringify(true);
   })()`)
   const controlDoc = `document.getElementById('report-controls-fixture').contentDocument`
@@ -348,6 +359,26 @@ try {
   assert.equal(await evaluate(`JSON.stringify(${controlDoc}.querySelector('#user-report-list pre')===window.reportControlProbe.body && ${controlDoc}.querySelector('#user-report-list details').open)`), true)
   await evaluate(`(()=>{const d=${controlDoc},input=d.getElementById('user-report-sources');input.value='peer@fixture';input.dispatchEvent(new Event('input',{bubbles:true}));d.getElementById('load-user-reports').click();return JSON.stringify(true)})()`)
   assert.equal(await evaluate(`JSON.stringify(${controlDoc}.querySelectorAll('#user-report-list pre').length===0 && window.reportControlProbe.calls.filter(c=>c.name==='user.reports').length===2 && window.reportControlProbe.calls.every(c=>['environment.scan','examples.list','pods.list','pods.edges','user.reports','seat.report'].includes(c.name)))`), true)
+  await evaluate(`(()=>{const d=${controlDoc};d.getElementById('view-preparation').click();const workspace=d.getElementById('plugin-workspace');workspace.value=${JSON.stringify(workspace.id)};workspace.dispatchEvent(new Event('change',{bubbles:true}));d.querySelector('[data-operation="console"]').click();return JSON.stringify(true)})()`)
+  await until(async () => assert.equal(await evaluate(`JSON.stringify(!${controlDoc}.getElementById('plugin-review').hidden && ${controlDoc}.getElementById('review-target').textContent.includes(${JSON.stringify(consoleReview.console.home)}))`), true))
+  await evaluate(`(()=>{const d=${controlDoc};d.getElementById('cancel-operation').click();d.getElementById('go-dashboard').click();return JSON.stringify(true)})()`)
+  await until(async () => assert.equal(await evaluate(`JSON.stringify(${controlDoc}.getElementById('pod-instance-source').value==='configured' && !${controlDoc}.getElementById('open-observed-tui').disabled && ${controlDoc}.getElementById('dashboard-pod').value==='')`), true))
+  await evaluate(`JSON.stringify((${controlDoc}.getElementById('open-observed-tui').click(),true))`)
+  await until(async () => assert.equal(await evaluate(`JSON.stringify(!${controlDoc}.getElementById('plugin-review').hidden)`), true))
+  assert.deepEqual(await evaluate(`JSON.stringify((()=>{const c=window.reportControlProbe.calls.filter(c=>c.name==='setup.prepare').at(-1);return {source:c.input.consoleSource,key:c.input.instanceKey,workspaceId:c.input.workspaceId,executed:window.reportControlProbe.calls.some(c=>c.name==='setup.execute'||c.name==='config.save')};})())`), { source: 'configured', key: inventory.connection.key, workspaceId: workspace.id, executed: false })
+  check('tui-controls', 'Prominent configured/observed TUI buttons prepare exact instance-bound reviews; configured Dashboard handoff changes observations only and TUI review works without a selected pod or automatic execution')
+  await evaluate(`(()=>{const d=${controlDoc};d.getElementById('cancel-operation').click();window.reportControlProbe.startFixture=true;window.reportControlProbe.routingMatches=false;window.reportControlProbe.startSeatKey=${JSON.stringify(observedPodFixture.seats[0].key)};const workspace=d.getElementById('plugin-workspace');workspace.value='';workspace.dispatchEvent(new Event('change',{bubbles:true}));d.getElementById('refresh-pods').click();return JSON.stringify(true)})()`)
+  await until(async () => assert.equal(await evaluate(`JSON.stringify(!${controlDoc}.getElementById('refresh-pods').disabled)`), true))
+  await evaluate(`(()=>{const d=${controlDoc},pod=d.getElementById('dashboard-pod');pod.value=${JSON.stringify(observedPodFixture.pod.key)};pod.dispatchEvent(new Event('change',{bubbles:true}));return JSON.stringify(true)})()`)
+  await until(async () => assert.equal(await evaluate(`JSON.stringify(!${controlDoc}.getElementById('pod-start-controls').hidden && !${controlDoc}.getElementById('refresh-pods').disabled)`), true))
+  assert.equal(await evaluate(`JSON.stringify((()=>{const d=${controlDoc},panel=d.getElementById('pod-start-controls'),buttons=d.querySelectorAll('#seat-start-list button');return buttons.length===1&&buttons[0].disabled&&!d.getElementById('seat-start-connection').hidden&&d.getElementById('workspace-destination-control').parentElement.id==='seat-start-destination'&&Boolean(panel.compareDocumentPosition(d.getElementById('user-report-panel'))&4)&&Boolean(panel.compareDocumentPosition(d.querySelector('.topology-scope'))&4)&&d.documentElement.scrollWidth<=d.documentElement.clientWidth+1;})())`), true)
+  await evaluate(`JSON.stringify((window.reportControlProbe.routingMatches=true,${controlDoc}.getElementById('refresh-pods').click(),true))`)
+  await until(async () => assert.equal(await evaluate(`JSON.stringify(!${controlDoc}.getElementById('refresh-pods').disabled && ${controlDoc}.getElementById('seat-start-connection').hidden)`), true))
+  assert.equal(await evaluate(`JSON.stringify(${controlDoc}.querySelector('#seat-start-list button').disabled)`), true, 'A result workspace is still required')
+  await evaluate(`(()=>{const d=${controlDoc},workspace=d.getElementById('plugin-workspace');workspace.value=${JSON.stringify(workspace.id)};workspace.dispatchEvent(new Event('change',{bubbles:true}));d.querySelector('#seat-start-list button').click();return JSON.stringify(true)})()`)
+  await until(async () => assert.equal(await evaluate(`JSON.stringify(!${controlDoc}.getElementById('plugin-review').hidden)`), true))
+  assert.equal(await evaluate(`JSON.stringify((()=>{const d=${controlDoc},call=window.reportControlProbe.calls.filter(c=>c.name==='setup.prepare').at(-1);return call.input.action==='launch-seat'&&call.input.seatKey===window.reportControlProbe.startSeatKey&&call.input.podKey===${JSON.stringify(observedPodFixture.pod.key)}&&call.input.instanceKey===${JSON.stringify(inventory.connection.key)}&&!d.getElementById('startup-consent').hidden&&!d.getElementById('startup-risk').checked&&d.getElementById('confirm-operation').disabled&&!window.reportControlProbe.calls.some(c=>c.name==='setup.execute'||c.name==='config.save'||c.name==='pods.connect');})())`), true)
+  check('seat-start-controls', 'Pod selection exposes per-seat start reviews above reports/DAG, with visible routing/workspace prerequisites at 274px; unsupported runtimes have no start button and risk consent remains required; no agent or mutation was executed')
   await evaluate(`JSON.stringify((document.getElementById('report-controls-fixture').remove(),delete window.reportControlProbe,true))`)
   check('user-report-controls', 'Shipped browser controls select exact context and load only on click; expanded text survives roster refresh/failure and 274px dark layout without horizontal overflow, clears on source edits, and uses a read-only fixture bridge')
   await evaluate(`(()=>{const frame=document.createElement('iframe');frame.id='visibility-fixture';frame.src='/visualizer/plugin.html';frame.style.cssText='position:fixed;top:10px;left:10px;width:500px;height:300px;z-index:2000;background:white';document.body.append(frame);return JSON.stringify(true)})()`)

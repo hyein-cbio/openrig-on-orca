@@ -1,6 +1,8 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtemp, writeFile, rm } from 'node:fs/promises'
+import { mkdtemp, writeFile, rm, mkdir, stat, readFile } from 'node:fs/promises'
+import { execFile } from 'node:child_process'
+import { promisify } from 'node:util'
 import path from 'node:path'
 import { tmpdir } from 'node:os'
 import { buildPlan, fingerprint, PlanStore } from '../src/plans.mjs'
@@ -10,6 +12,19 @@ const config = configFrom({ root: '/private/plugin data' })
 const workspace = { id: 'workspace-1', path: '/project with spaces', hostId: null }
 const snapshot = { platform: 'darwin', installed: true, ready: false, tools: { node: process.execPath, npm: '/usr/local/bin/npm', op: '/usr/local/bin/op', brew: '/opt/homebrew/bin/brew' } }
 
+test('TUI sockets are short and private, created only by confirmation execution, cleaned on exit and collision-safe', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'openrig-tui-plan-')); let runtime, owned = false
+  try {
+    const rig = path.join(root, 'rig.js'); await writeFile(rig, 'console.log(JSON.stringify({arg:process.argv[2],socket:process.env.OPENRIG_TUI_SOCKET,noKernel:process.env.OPENRIG_NO_KERNEL}));process.exit(7)\n')
+    const plan = await buildPlan('console', configFrom({ root }), { ...snapshot, tools: { ...snapshot.tools, rig } }, workspace); runtime = plan.consoleRuntime
+    assert.match(runtime, /^\/tmp\/orca-tui-[a-f0-9]{32}$/); assert.ok(Buffer.byteLength(path.join(runtime, 'control.sock')) < 100); assert.ok(plan.writes.includes(runtime)); await assert.rejects(stat(runtime), { code: 'ENOENT' })
+    let failure
+    try { await promisify(execFile)('/bin/sh', ['-c', plan.command]) } catch (error) { failure = error }
+    assert.equal(failure.code, 7); const result = JSON.parse(failure.stdout); assert.equal(result.arg, 'tui'); assert.equal(result.noKernel, '1'); assert.equal(result.socket, path.join(runtime, 'control.sock')); await assert.rejects(stat(runtime), { code: 'ENOENT' })
+    await mkdir(runtime, { mode: 0o700 }); owned = true; await writeFile(path.join(runtime, 'sentinel'), 'Do not overwrite')
+    await assert.rejects(promisify(execFile)('/bin/sh', ['-c', plan.command])); assert.equal(await readFile(path.join(runtime, 'sentinel'), 'utf8'), 'Do not overwrite')
+  } finally { if (owned) await rm(runtime, { recursive: true, force: true }); await rm(root, { recursive: true, force: true }) }
+})
 test('OpenRig install is pinned, private, reviewed and does not run rig setup', async () => {
   const plan = await buildPlan('install-rig', config, snapshot, workspace)
   assert.match(plan.command, /@openrig\/cli@0\.7\.13/)

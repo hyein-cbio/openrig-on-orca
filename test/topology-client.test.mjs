@@ -2,6 +2,27 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { topologyClientFixture } from './topology-client-fixture.mjs'
 
+test('Fit is the default on both axes and follows viewport changes until manual zoom is chosen', async () => {
+  const f = await topologyClientFixture(); f.observe(); await f.flush()
+  assert.equal(f.element('fit').getAttribute('aria-pressed'), 'true')
+  f.observe({ stamp: 61000 }); await f.flush() // Saved Fit cameras still track panel size.
+  f.resizeViewport(200, 120)
+  assert.ok(parseFloat(f.svg.style.width) <= 152); assert.ok(parseFloat(f.svg.style.height) <= 72)
+  f.element('zoom-in').click(); const manual = f.svg.style.width
+  assert.equal(f.element('fit').getAttribute('aria-pressed'), 'false')
+  f.resizeViewport(400, 240); assert.equal(f.svg.style.width, manual)
+  f.element('fit').click(); f.resizeViewport(200, 120)
+  assert.ok(parseFloat(f.svg.style.width) <= 152); assert.ok(parseFloat(f.svg.style.height) <= 72)
+  assert.equal(f.element('fit').getAttribute('aria-pressed'), 'true')
+})
+test('a new hub subdiagram defaults to full Fit rather than a forced 80-percent scale', async () => {
+  const f = await topologyClientFixture(); f.resizeViewport(200, 120); f.observe(); await f.flush()
+  f.nodes.find(n => n.getAttribute('aria-label').startsWith('View downstream structure of hub hub;')).click(); await f.flush()
+  assert.equal(f.element('topology-path').textContent, 'Main → hub')
+  assert.ok(parseFloat(f.svg.style.width) <= 152); assert.ok(parseFloat(f.svg.style.height) <= 72)
+  assert.equal(f.element('fit').getAttribute('aria-pressed'), 'true')
+})
+
 for (const [event, key] of [['click'], ['keydown', 'Enter'], ['keydown', ' ']]) {
   test(`a removed hub's old ${key ? `${event}/${JSON.stringify(key)}` : event} cannot cancel an in-flight membership refresh`, async () => {
     const f = await topologyClientFixture()

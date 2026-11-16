@@ -66,7 +66,7 @@ export async function topologyClientFixture() {
   const themeListeners = new Map(), exported = [], renderCalls = []
   const window = { addEventListener() {}, orca: { on: (name, callback) => themeListeners.set(name, callback),
     files: { saveAs: async value => { exported.push(value); return { status: 'cancelled' } } } } }
-  let gate = null
+  let gate = null, resizeViewportListener = null
   const mermaid = { initialize() {}, async render(id, code) {
     const paused = gate; gate = null; renderCalls.push({ id, code })
     if (paused) { paused.started.resolve(); await paused.released.promise }
@@ -84,7 +84,7 @@ export async function topologyClientFixture() {
   const module = { exports: {} }
   runInNewContext(await compiled, { module, document, window, __mermaid: mermaid, __purify: { sanitize: value => value }, DOMParser,
     getComputedStyle: () => ({ getPropertyValue: () => '' }), CSS: { supports: () => false },
-    matchMedia: () => ({ matches: false, addEventListener() {} }), ResizeObserver: class { observe() {} },
+    matchMedia: () => ({ matches: false, addEventListener() {} }), ResizeObserver: class { constructor(listener) { resizeViewportListener = listener } observe() {} },
     innerWidth: 1200, innerHeight: 900, TextEncoder, TextDecoder, console }, { filename: 'topology-client-fixture.cjs' })
   const ids = ['root', 'hub', ...Array.from({ length: 7 }, (_, i) => `worker${i}`)]
   const seats = ids.map(id => ({ key: JSON.stringify(['rig-fixture', id]), rigId: 'rig-fixture', rigName: 'Fixture', logicalId: id,
@@ -96,6 +96,7 @@ export async function topologyClientFixture() {
   ] }
   return {
     element: id => elements.get(id),
+    resizeViewport(width, height) { const viewport = elements.get('viewport'); viewport.clientWidth = width; viewport.clientHeight = height; resizeViewportListener() },
     get svg() { return elements.get('diagram').querySelector('svg') },
     get nodes() { return elements.get('diagram').querySelectorAll('g.node') },
     exported, renderCalls, seats, relations,

@@ -158,7 +158,9 @@ export function createPluginSession(request, changed = () => {}, options = {}) {
     if (action === 'login-codex') return Boolean(tools.codex)
     if (['example-claude', 'example-codex'].includes(action)) return Boolean(tools.node)
     if (!snapshot.installed) return false
-    if (action === 'console') return state.env.daemon?.status === 'reachable'
+    if (action === 'console') return extra.instanceKey !== undefined
+      ? Boolean(state.inventory && !state.observation.seatsError && extra.instanceKey === state.inventory.connection.key && extra.consoleSource === state.inventory.connection.source && state.diagramSource === 'inventory')
+      : (!extra.consoleSource || extra.consoleSource === 'configured') && state.env.daemon?.status === 'reachable'
     if (action === 'start-daemon') return !state.env.config.instanceHome
     if (action === 'example-demo') return true
     if (action === 'launch-team') return Boolean(snapshot.ready && state.input.spec.trim())
@@ -302,6 +304,12 @@ export function createPluginSession(request, changed = () => {}, options = {}) {
         try { state.examples = (await request('examples.list')).examples } catch { state.warning = 'Example records could not be refreshed.' }
         await loadPods()
       })
+    },
+    async viewConfiguredDashboard() {
+      if (state.busy || dirty()) { state.error = 'Save configuration and finish the current operation before viewing the configured instance.'; emit(); return false }
+      if (!session.switchView('dashboard')) return false
+      await session.selectInventorySource('configured')
+      return true
     },
     async refreshSeats() {
       await work(async () => {

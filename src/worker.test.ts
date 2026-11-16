@@ -89,6 +89,38 @@ test('daemon checks and dashboard preparation cannot start a missing daemon', as
   } finally { await worker.deactivate(); await rm(fixture.root, { recursive: true, force: true }) }
 })
 
+test('TUI reviews bind an empty no-agent instance and refuse a changed CLI version', async () => {
+  const f = await daemonFixture(), host = mockHost({ results: { 'workspace.list': { workspaces: [workspace], truncated: false } }, storage: { 'config.v1': f.config } }), worker = await mountWorker(workerModule, { host })
+  try {
+    await f.online()
+    const plan = await worker.request('setup.prepare', { action: 'console', workspaceId: workspace.id, consoleSource: 'configured' })
+    assert.equal(plan.console?.source, 'configured'); assert.equal(plan.console?.home, await import('node:fs/promises').then(fs => fs.realpath(path.join(f.root, 'instance')))); assert.equal(plan.console?.version, '0.7.13')
+    assert.match(plan.command, /export OPENRIG_NO_KERNEL=1/); assert.match(plan.command, /tui/); assert.equal(plan.command.includes('--shared'), false); assert.equal(host.callsOf('terminal.create').length, 0)
+    const rig = await readFile(f.config.rigPath, 'utf8'); await writeFile(f.config.rigPath, rig.replace('0.7.13', '0.7.16'), { mode: 0o700 })
+    await assert.rejects(worker.request('setup.execute', { planId: plan.id, workspaceId: workspace.id }), /CLI, version or native connection changed/)
+    assert.equal(host.callsOf('terminal.create').length, 0)
+  } finally { await worker.deactivate(); await rm(f.root, { recursive: true, force: true }) }
+})
+test('observed-instance TUI review never retargets configured operations and rejects a changed daemon record', async () => {
+  const f = await daemonFixture(), host = mockHost({ results: { 'workspace.list': { workspaces: [workspace], truncated: false } }, storage: { 'config.v1': f.config } }), worker = await mountWorker(workerModule, { host })
+  try {
+    await f.online(); await mkdir(path.join(f.root, '.openrig')); await writeFile(path.join(f.root, '.openrig/daemon.json'), JSON.stringify({ host: '127.0.0.1', port: 17433 }))
+    const plan = await worker.request('setup.prepare', { action: 'console', workspaceId: workspace.id, consoleSource: 'tui' })
+    assert.equal(plan.console?.port, '17433'); assert.equal(plan.console?.source, 'tui'); assert.match(plan.command, /127\.0\.0\.1:17433/)
+    assert.equal(host.callsOf('storage.set').length, 0)
+    await writeFile(path.join(f.root, '.openrig/daemon.json'), JSON.stringify({ host: '127.0.0.1', port: 17434 }))
+    await assert.rejects(worker.request('setup.execute', { planId: plan.id, workspaceId: workspace.id }), /TUI instance changed/)
+    assert.equal(host.callsOf('terminal.create').length, 0)
+  } finally { await worker.deactivate(); await rm(f.root, { recursive: true, force: true }) }
+})
+test('a missing observed TUI instance cannot fall back to the healthy configured instance', async () => {
+  const f = await daemonFixture(), host = mockHost({ results: { 'workspace.list': { workspaces: [workspace], truncated: false } }, storage: { 'config.v1': f.config } }), worker = await mountWorker(workerModule, { host })
+  try {
+    await f.online()
+    await assert.rejects(worker.request('setup.prepare', { action: 'console', workspaceId: workspace.id, consoleSource: 'tui' }), /No alternate instance/)
+    assert.equal(host.callsOf('terminal.create').length, 0); assert.equal(host.callsOf('storage.set').length, 0)
+  } finally { await worker.deactivate(); await rm(f.root, { recursive: true, force: true }) }
+})
 test('instruction review is read-only and stale or retargeted seats cannot execute it', async () => {
   const row = { rigId: 'rig-1', rigName: 'demo', logicalId: 'dev.worker', canonicalSessionName: 'dev-worker@demo', runtime: 'pi', sessionStatus: 'running', agentActivity: { state: 'idle' } }
   const fixture = await daemonFixture([row])

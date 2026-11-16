@@ -57,7 +57,7 @@ function npmCommand(snapshot, args) {
 export async function buildPlan(action, config, snapshot, workspace, input = {}, options = {}) {
   if (!workspace || (workspace.hostId && workspace.hostId !== 'local')) throw fail('local_workspace_required', 'Choose a local Orca workspace; remote execution is not supported yet')
   const env = commandEnvironment(config, snapshot, options.baseEnv)
-  let command, title, source, example, launchReview, instruction, seatLaunch, queueTask, writes = [], warnings = []
+  let command, title, source, example, launchReview, instruction, seatLaunch, queueTask, consoleRuntime, writes = [], warnings = []
   const root = config.root
   if (['install-rig', 'install-claude', 'install-codex'].includes(action) && snapshot.tools.op && config.npmPath) {
     const selectedEnv = environment({ ...config, nodePath: snapshot.tools.node }, options.baseEnv)
@@ -182,10 +182,14 @@ export async function buildPlan(action, config, snapshot, workspace, input = {},
       command = rigCmd(['daemon', 'start', '--no-kernel', '--host', '127.0.0.1', '--port', config.daemonPort])
       warnings.push('Starts no kernel or agent team. No agent login is required. Closing this terminal does not stop the daemon.')
     } else if (action === 'console') {
-      title = 'Open OpenRig dashboard in Orca'
+      title = `Open TUI in Orca · 127.0.0.1:${config.daemonPort}`
       // --shared attaches a kernel-owned terminal, which a no-kernel daemon lacks.
-      command = rigCmd(['tui'])
-      warnings.push('Use the dashboard to inspect and manage OpenRig. Any kernel/agent launch remains a separate user choice inside OpenRig.')
+      consoleRuntime = path.join('/tmp', `orca-tui-${randomUUID().replaceAll('-', '')}`)
+      writes.push(consoleRuntime)
+      // Reserve exclusively only after confirmation. A short per-view socket avoids macOS
+      // sun_path failures without moving the selected native home, database or tmux server.
+      command = `/bin/mkdir -m 700 ${quote(consoleRuntime)} && (trap ${quote(`/bin/rm -rf -- ${quote(consoleRuntime)}`)} EXIT; export OPENRIG_NO_KERNEL=1; export OPENRIG_TUI_SOCKET=${quote(path.join(consoleRuntime, 'control.sock'))}; ${rigCmd(['tui'])})`
+      warnings.push(`Opens the selected CLI's standalone rig tui against ${instanceDirectory(config)} at http://127.0.0.1:${config.daemonPort}, not a kernel-owned --shared terminal. No daemon, kernel or agent is started by this action.`, 'Native TUI actions can modify teams or start models only when you separately choose them there. Closing this TUI tab closes the view, not the daemon or team.')
     } else {
       if (!snapshot.ready || config.provider === 'none') throw fail('agent_setup_required', 'Select and authenticate your provider before launching a team')
       if (action === 'launch-example') {
@@ -207,5 +211,5 @@ export async function buildPlan(action, config, snapshot, workspace, input = {},
   const terminalCommand = shellCommand('/bin/sh', ['-c', `${env} ${command}`])
   if (terminalCommand.length > 12000) throw fail('plan_display_too_large', 'The exact command cannot be displayed completely. Shorten the message or executable/environment paths before preparing a new plan.')
   return { action, title, source, writes, warnings, workspaceId: workspace.id,
-    command: terminalCommand, ...(example ? { example } : {}), ...(launchReview ? { launchReview } : {}), ...(instruction ? { instruction } : {}), ...(seatLaunch ? { seatLaunch } : {}), ...(queueTask ? { queueTask } : {}) }
+    command: terminalCommand, ...(example ? { example } : {}), ...(launchReview ? { launchReview } : {}), ...(instruction ? { instruction } : {}), ...(seatLaunch ? { seatLaunch } : {}), ...(queueTask ? { queueTask } : {}), ...(consoleRuntime ? { consoleRuntime } : {}) }
 }

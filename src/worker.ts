@@ -8,6 +8,7 @@ import { canInstruct, instructionTextError } from './seat-instructions.mjs'
 import { canStartSeat, canQueueTask, taskTextError, sameSeatDefinition } from './seat-tasks.mjs'
 import { stageTaskBody, taskHash, validTaskId, checkTask } from './task-files.mjs'
 import { readPodInventory, connectedPodConfig, assertPodInstance } from './pod-inventory.mjs'
+import { resolveTuiConsole, recheckTuiConsole } from './tui-console.mjs'
 import { readUserReports } from './user-reports.mjs'
 import { readSeatReport } from './seat-reports.mjs'
 import { readPodRelations } from './pod-relations.mjs'
@@ -76,7 +77,8 @@ export default function activate(orca: OrcaWorkerApi): void {
     const config = await getConfig()
     const target = await workspace(input.workspaceId)
     if (input.podKey !== undefined) await assertPodInstance(config, input.instanceKey)
-    const snapshot = await discover(config)
+    const snapshot = await discover(input.action === 'console' ? { ...config, provider: 'none' } : config)
+    const consoleTarget = input.action === 'console' ? await resolveTuiConsole(config, snapshot, input.consoleSource ?? 'configured', input.instanceKey) : null
     let example, instructionSeat
     if (input.action === 'send-instruction') {
       const problem = instructionTextError(input.message)
@@ -92,15 +94,15 @@ export default function activate(orca: OrcaWorkerApi): void {
       if (typeof input.seatKey !== 'string' || !input.seatKey || input.seatKey.length > 1000) throw fail('seat_unavailable', 'Choose one registered seat from the refreshed list')
       instructionSeat = (await listInstructionSeats(config, snapshot)).find((seat: Seat) => seat.key === input.seatKey)
     }
-    if (['console', 'example-demo', 'stop-example', 'launch-example', 'launch-team'].includes(input.action)) await listSeats(config, snapshot)
+    if (['example-demo', 'stop-example', 'launch-example', 'launch-team'].includes(input.action)) await listSeats(config, snapshot)
     if (input.action === 'stop-example' || input.action === 'launch-example') {
       if (!/^[a-f0-9]{12}$/.test(input.exampleId || '')) throw fail('example_unowned', 'Choose a recorded demo')
       example = await orca.storage.get(`example:${input.exampleId}`)
     }
     if (input.podKey !== undefined && (typeof input.podKey !== 'string' || input.podKey.length > 1000 || !instructionSeat || podKeyOf(instructionSeat) !== input.podKey)) throw fail('pod_changed', 'The selected seat is not in the reviewed pod of this configured instance. Refresh pods; no operation was prepared.')
-    const plan = await buildPlan(input.action, config, snapshot, target, { spec: input.spec, example, seat: instructionSeat, message: input.message, summary: input.summary, body: input.body }, { signal })
+    const plan = await buildPlan(input.action, consoleTarget?.config || config, snapshot, target, { spec: input.spec, example, seat: instructionSeat, message: input.message, summary: input.summary, body: input.body }, { signal })
     const scoped = input.podKey ? { ...plan, pod: { key: input.podKey, rigId: instructionSeat.rigId, podId: instructionSeat.podId, namespace: instructionSeat.podNamespace, instanceKey: input.instanceKey!, endpoint: `http://127.0.0.1:${config.daemonPort}` } } : plan
-    return plans.add(scoped, fingerprint(config, target))
+    return plans.add(consoleTarget ? { ...scoped, console: consoleTarget.scope } : scoped, fingerprint(config, target))
   })
   orca.panels.handle('setup.execute', async input => {
     const config = await getConfig()
@@ -108,7 +110,10 @@ export default function activate(orca: OrcaWorkerApi): void {
     // Never accept a shell command supplied by the panel: consume the exact server-side plan.
     const plan = plans.consume(input.planId, fingerprint(config, target))
     if (plan.pod) await assertPodInstance(config, plan.pod.instanceKey)
-    if (plan.action === 'console') await listSeats(config, await discover(config))
+    if (plan.action === 'console') {
+      if (!plan.console) throw fail('console_changed', 'The TUI review is not instance-bound. Prepare a new review.')
+      await recheckTuiConsole(config, await discover({ ...config, provider: 'none' }), plan.console)
+    }
     if (plan.action === 'send-instruction') {
       const target = plan.instruction
       const current = target && (await listInstructionSeats(config, await discover(config))).find((seat: Seat) => seat.key === target.key)

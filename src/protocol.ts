@@ -28,7 +28,7 @@ export interface TaskStatus { id: string; destination: string; registration: 'un
 export interface NoOpReceipt { noOp: true; detail: string }
 export interface Plan {
   id: string; expires: number; action: string; title: string; source: string
-  writes: string[]; warnings: string[]; command: string; workspaceId: string; pod?: { key: string; rigId: string; podId: string | null; namespace: string | null; instanceKey: string; endpoint: string }; instruction?: Instruction; seatLaunch?: Seat; queueTask?: QueueTask; example?: ExampleRecord; launchReview?: { display: Record<string, unknown> }
+  writes: string[]; warnings: string[]; command: string; workspaceId: string; consoleRuntime?: string; console?: { source: 'tui' | 'configured'; key: string; home: string; port: string; endpoint: string; cli: string; node: string; version: string }; pod?: { key: string; rigId: string; podId: string | null; namespace: string | null; instanceKey: string; endpoint: string }; instruction?: Instruction; seatLaunch?: Seat; queueTask?: QueueTask; example?: ExampleRecord; launchReview?: { display: Record<string, unknown> }
 }
 export interface TerminalReceipt {
   terminalId: string; task?: TaskStatus; warning?: string; workspaceName?: string; workspaceId?: string; title?: string
@@ -43,7 +43,7 @@ declare module 'orca' {
   interface PluginRequests {
     'environment.scan': { output: State }
     'config.save': { input: Config; output: State }
-    'setup.prepare': { input: { action: string; workspaceId: string; spec?: string; exampleId?: string; seatKey?: string; message?: string; summary?: string; body?: string; podKey?: string; instanceKey?: string }; output: Plan }
+    'setup.prepare': { input: { action: string; workspaceId: string; spec?: string; exampleId?: string; seatKey?: string; message?: string; summary?: string; body?: string; podKey?: string; instanceKey?: string; consoleSource?: 'tui' | 'configured' }; output: Plan }
     'examples.list': { output: { examples: ExampleRecord[] } }
     'setup.execute': { input: { planId: string; workspaceId: string; acceptStartupRisk?: boolean }; output: TerminalReceipt | NoOpReceipt }
     'task.check': { input: { id: string }; output: TaskStatus }

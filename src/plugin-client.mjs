@@ -2,7 +2,7 @@ import { createPluginSession, CONFIG_FIELDS } from './plugin-state.mjs'
 import { EXAMPLE_STEPS } from './example-story.mjs'
 import { workspaceLabel, workspaceOptions } from './workspace-labels.mjs'
 import { canInstruct } from './seat-instructions.mjs'
-import { canQueueTask } from './seat-tasks.mjs'
+import { canQueueTask, canStartSeat, managedAgent } from './seat-tasks.mjs'
 import { watchPanelVisibility } from './refresh-loop.mjs'
 import { displayPodSnapshot, observeTopologySource, setReportReader, updateObservationFreshness } from './topology-client.mjs'
 
@@ -50,17 +50,20 @@ $('plugin-workspace').addEventListener('change', event => session.selectWorkspac
 $('plugin-provider').addEventListener('change', event => session.editConfig('provider', event.target.value))
 $('seat-read-only').addEventListener('change', event => session.selectReadOnly(event.target.checked))
 $('startup-risk').addEventListener('change', event => session.acknowledge(event.target.checked))
-for (const button of document.querySelectorAll('[data-operation]')) button.addEventListener('click', () => session.prepare(button.dataset.operation))
+for (const button of document.querySelectorAll('[data-operation]')) button.addEventListener('click', () => session.prepare(button.dataset.operation, button.dataset.consoleSource ? { consoleSource: button.dataset.consoleSource } : {}))
 $('scan-environment').addEventListener('click', session.scan)
 $('save-provider').addEventListener('click', session.save)
 $('save-paths').addEventListener('click', session.save)
-$('go-dashboard').addEventListener('click', () => session.switchView('dashboard'))
+$('go-dashboard').addEventListener('click', session.viewConfiguredDashboard)
+$('view-configured-instance').addEventListener('click', session.viewConfiguredDashboard)
+$('open-observed-tui').addEventListener('click', () => { const c = session.state.inventory?.connection; if (c) void session.prepare('console', { consoleSource: c.source, instanceKey: c.key }) })
 $('refresh-seats').addEventListener('click', session.refreshPods)
 $('refresh-pods').addEventListener('click', session.refreshPods)
 $('auto-refresh').addEventListener('change', event => session.setAutoRefresh(event.target.checked))
 $('dashboard-pod').addEventListener('change', event => { if (session.selectPod(event.target.value)) void session.refreshRelations() })
 $('pod-instance-source').addEventListener('change', event => { void session.selectInventorySource(event.target.value) })
 $('connect-pod-instance').addEventListener('click', session.connectInventory)
+$('seat-start-connect').addEventListener('click', session.connectInventory)
 $('reporting-seat').addEventListener('change', event => session.selectReportingSeat(event.target.value))
 $('user-report-sources').addEventListener('input', event => session.editRequestSources(event.target.value))
 $('load-user-reports').addEventListener('click', session.loadUserReports)
@@ -79,6 +82,34 @@ $('review-source').addEventListener('click', event => {
 function actionButton(label, action, extra) {
   const button = element('button', label); button.type = 'button'; button.disabled = !session.canPrepare(action, extra)
   button.addEventListener('click', () => session.prepare(action, extra)); return button
+}
+function renderSeatStarts(state) {
+  const pod = session.selectedPod(), rows = session.podSeats(), candidates = rows.filter(canStartSeat)
+  show('pod-start-controls', Boolean(pod && !state.plan))
+  if (!pod) { $('seat-start-list').replaceChildren(); return }
+  text('seat-start-heading', `Start seats · ${pod.label}`)
+  const reasons = []
+  if (!state.host) reasons.push('Standalone preview: operations unavailable.')
+  if (state.diagramSource !== 'inventory') reasons.push('Return to native pod inventory before starting a seat.')
+  if (session.dirty()) reasons.push('Save configuration first.')
+  if (state.observation.seatsError || state.observation.missing) reasons.push('Refresh the stale/unavailable native seat snapshot first.')
+  const mismatch = !state.inventory.connection.matchesConfigured
+  if (mismatch) reasons.push('Connect this observed instance for operations below.')
+  if (!state.workspaceId) reasons.push('Choose the result terminal workspace below.')
+  if (!state.env?.snapshot.installed) reasons.push('Verify Node, OpenRig, tmux and SQLite first.')
+  if (state.busy || state.autoRefresh?.inFlight) reasons.push('Wait for the current operation or observation.')
+  text('seat-start-status', `${candidates.length} registered seats support single-seat start review. ${reasons.join(' ')}`)
+  show('seat-start-connection', mismatch)
+  $('seat-start-connect').disabled = !state.host || state.busy || session.dirty() || Boolean(state.observation.seatsError)
+  $('seat-start-list').replaceChildren(...rows.map(seat => {
+    const row = element('div', undefined, 'seat-start-row')
+    row.append(element('strong', seat.logicalId), element('small', `Recorded state: ${seat.status} · ${seat.runtime}`))
+    if (canStartSeat(seat)) {
+      const start = actionButton(`Review start · ${seat.logicalId}`, 'launch-seat', { seatKey: seat.key })
+      start.classList.add('primary'); start.dataset.seatKey = seat.key; row.append(start)
+    } else row.append(element('small', !managedAgent(seat) ? 'No GUI start: reserved/unknown seat or unsupported runtime.' : seat.attention || seat.lifecycle === 'attention_required' ? 'Attention is required; inspect the native TUI.' : seat.status === 'running' || seat.lifecycle === 'running' ? 'Already running; no restart is offered.' : 'This recorded state cannot be safely started from this control.'))
+    return row
+  }))
 }
 function renderSeats(state) {
   const pod = session.selectedPod(), rows = session.podSeats()
@@ -147,6 +178,7 @@ function renderReview(state) {
   text('review-declarations', plan.launchReview ? JSON.stringify(plan.launchReview.display, null, 2) : '')
   show('review-declarations', Boolean(plan.launchReview))
   let recipient = '', content = ''
+  if (plan.console) { const c = plan.console; recipient = `TUI instance: ${c.source} · ${c.endpoint}\nOpenRig home: ${c.home}\nCLI: ${c.cli} · version ${c.version}\nNode: ${c.node}\nPrivate view socket directory: ${plan.consoleRuntime}\nView only: no daemon, kernel or agent startup is requested.` }
   if (plan.instruction) { recipient = `Agent: ${plan.instruction.session} · ${plan.instruction.runtime}`; content = plan.instruction.text }
   if (plan.seatLaunch) { const seat = plan.seatLaunch; recipient = `Registered seat: ${seat.rigId} / ${seat.logicalId}\nRuntime: ${seat.runtime}\nModel: ${seat.model || 'UNVERIFIED native selection'}\nCwd: ${seat.cwd || 'UNVERIFIED native seat cwd'}` }
   if (plan.queueTask) { const task = plan.queueTask; recipient = `Request ID (not proof of registration): ${task.id}\nDestination: ${task.destination}\nTitle: ${task.summary}`; content = task.body }
@@ -175,7 +207,8 @@ function render(state) {
   show('plugin-preview', !hosted); show('plugin-progress', waiting)
   for (const [id, message] of [['plugin-error', state.error], ['plugin-notice', state.notice], ['plugin-warning', state.warning]]) { text(id, message); show(id, Boolean(message)) }
   show('plugin-dirty', dirty)
-  const destination = $('workspace-destination-control'), destinationHost = $(state.view === 'dashboard' ? 'dashboard-destination' : 'preparation-destination')
+  const destination = $('workspace-destination-control'), destinationHost = $(state.view === 'dashboard' ? session.selectedPod() ? 'seat-start-destination' : 'dashboard-destination' : 'preparation-destination')
+  show('dashboard-terminal-destination', !session.selectedPod())
   if (destination.parentElement !== destinationHost) destinationHost.append(destination)
   choices('plugin-workspace', workspaceOptions(env?.workspaces || []), state.workspaceId, 'Choose only when an operation needs a terminal'); $('plugin-workspace').disabled = waiting || !env
   choices('dashboard-pod', (state.inventory?.pods || []).map(pod => ({ value: pod.key, label: `${pod.label} · ${pod.seatCount} seats` })), state.podKey, state.inventory ? 'Choose an actual OpenRig rig / pod' : 'No verified native pod inventory')
@@ -184,6 +217,8 @@ function render(state) {
   inputValue('pod-instance-source', state.inventorySource); $('pod-instance-source').disabled = !hosted || waiting || dirty
   text('pod-error', state.podError); show('pod-error', Boolean(state.podError))
   const connection = state.inventory?.connection
+  $('open-observed-tui').disabled = !connection || !session.canPrepare('console', { consoleSource: connection.source, instanceKey: connection.key })
+  $('view-configured-instance').disabled = !hosted || waiting || dirty || !env
   text('pod-connection', connection ? `${connection.source === 'tui' ? 'Default local TUI' : 'Plugin-configured'} instance: ${connection.endpoint}\nOpenRig home: ${connection.home}` : 'No verified instance observation. Nothing was started, and no other endpoint was silently queried.')
   const guidance = state.diagramSource === 'yaml' ? 'YAML declaration preview active; return to pod inventory before operations.' : session.selectedPod() ? connection?.matchesConfigured ? 'Choose a result terminal destination only to use operations.' : 'Read-only observation; explicitly connect this instance before operations.' : 'Select one pod; an Orca workspace is not an OpenRig target.'
   text('pod-observation', state.inventory ? `${state.inventory.pods.length} pods observed at ${new Date(state.inventory.observedAt).toLocaleString()}. ${guidance}` : 'Refresh native pods to inspect the TUI inventory. Unavailable is not an empty list.')
@@ -204,17 +239,17 @@ function render(state) {
   text('provider-status', snapshot?.providers.map(p => `${p.provider}: ${p.status}`).join(' · ') || 'No coding agent is required for initial setup or the declared topology viewer.')
   const daemon = `Daemon: ${env?.daemon?.status || 'not checked'}. ${env?.daemon?.detail || 'Use a read-only environment check to inspect this configured instance.'}`
   text('daemon-state', daemon)
-  text('configured-instance', env ? `Plugin operation routing: ${env.config.instanceHome || `${env.config.root}/instance`} · http://127.0.0.1:${env.config.daemonPort}${env.config.instanceHome ? ' · existing instance; managed daemon start is disabled' : ''}` : '')
+  text('configured-instance', env ? `Plugin operation routing: ${env.config.instanceHome || `${env.config.root}/instance`} · http://127.0.0.1:${env.config.daemonPort}\nCLI: ${snapshot?.tools.rig || 'unavailable'} · ${snapshot?.rigVersion || 'unverified version'}${env.config.instanceHome ? ' · existing instance; managed daemon start is disabled' : ''}` : '')
   text('dashboard-daemon', connection ? `${connection.endpoint} · ${connection.matchesConfigured ? 'Operations route to this instance' : 'Operations locked: plugin connection differs'}` : 'No verified pod inventory.')
-  $('go-dashboard').disabled = waiting && state.busyKind !== 'read'
+  $('go-dashboard').disabled = !hosted || waiting || dirty || !env
   $('refresh-seats').disabled = !hosted || waiting || dirty || !env
   $('refresh-examples').disabled = !hosted || waiting || dirty || !snapshot?.installed
   $('seat-read-only').checked = state.readOnly; $('seat-read-only').disabled = waiting
   choices('instruction-recipient', session.podSeats().map(s => ({ value: s.key, label: `${s.rigName} / ${s.logicalId} · ${s.runtime} · ${s.activity}`, disabled: !canInstruct(s) })), state.input.instructionSeat, 'Choose one existing idle agent')
   choices('task-recipient', session.podSeats().map(s => ({ value: s.key, label: `${s.rigName} / ${s.logicalId} · ${s.runtime}`, disabled: !canQueueTask(s) })), state.input.taskSeat, 'Choose one existing running agent')
   for (const [id, key] of Object.entries(inputBindings)) { if (!id.endsWith('recipient')) inputValue(id, state.input[key]); $(id).disabled = waiting || dirty || !hosted }
-  for (const button of document.querySelectorAll('[data-operation]')) button.disabled = !session.canPrepare(button.dataset.operation)
-  renderSeats(state); renderUserReports(state); renderExamples(state); renderReview(state)
+  for (const button of document.querySelectorAll('[data-operation]')) button.disabled = !session.canPrepare(button.dataset.operation, button.dataset.consoleSource ? { consoleSource: button.dataset.consoleSource } : {})
+  renderSeatStarts(state); renderSeats(state); renderUserReports(state); renderExamples(state); renderReview(state)
   show('plugin-receipt', Boolean(state.receipt && !state.plan))
   if (state.receipt) {
     const receipt = state.receipt
