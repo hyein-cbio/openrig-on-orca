@@ -1,5 +1,15 @@
 import { mkdir, readdir, writeFile } from 'node:fs/promises'
 import path from 'node:path'
+import { configFrom } from '../src/runtime.mjs'
+
+export function sandboxConfig(root, { install = false, rigPath, daemonPort, nodePath = process.execPath }) {
+  const data = path.join(root, 'data')
+  return configFrom({ provider: 'none', root: data, homePath: install ? '' : path.join(root, 'home'),
+    // Pin the future private installation even before it exists. An empty rigPath would
+    // discover a global rig through PATH and invalidate the first-install test.
+    rigPath: install ? path.join(data, 'runtime', 'node_modules', '.bin', 'rig') : path.resolve(rigPath),
+    nodePath, daemonPort: String(daemonPort) })
+}
 
 // Orca v1.4.258 upstream fixture contract. This is not a general --skip-onboarding flag.
 // https://github.com/stablyai/orca/blob/v1.4.258/tests/e2e/helpers/orca-app.ts

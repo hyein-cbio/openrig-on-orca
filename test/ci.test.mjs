@@ -1,12 +1,77 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { access, mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { tmpdir } from 'node:os'
-import { assertLiveReport, cleanCiEnvironment, isolatedProfileSeed, LIVE_CHECKS, optionValue, processSampleState, seedFreshOrcaProfile } from '../scripts/ci-support.mjs'
+import { assertLiveReport, cleanCiEnvironment, isolatedProfileSeed, LIVE_CHECKS, optionValue, processSampleState, sandboxConfig, seedFreshOrcaProfile } from '../scripts/ci-support.mjs'
+import { configFrom, discover } from '../src/runtime.mjs'
 import { verifyArtifact, verifySignature } from '../ci/bootstrap-orca.mjs'
 import { validateCell, junitForSteps } from '../ci/run-ci.mjs'
 import { ORCA } from '../ci/settings.mjs'
+
+test('first-install sandbox ignores an available external rig before and after its private install', async () => {
+  const root = await realpath(await mkdtemp(path.join(tmpdir(), 'sandbox-rig-isolation-')))
+  try {
+    const external = path.join(root, 'external'), bin = path.join(external, 'bin')
+    await mkdir(bin, { recursive: true })
+    await symlink(process.execPath, path.join(bin, 'node'))
+    await writeFile(path.join(bin, 'tmux'), '#!/bin/sh\n', { mode: 0o755 })
+    await writeFile(path.join(bin, 'rig'), '#!/usr/bin/env node\n', { mode: 0o755 })
+    await writeFile(path.join(external, 'package.json'), JSON.stringify({ name: '@openrig/cli' }))
+    const config = sandboxConfig(root, { install: true, rigPath: path.join(bin, 'rig'), daemonPort: 43811, nodePath: path.join(bin, 'node') })
+    const probes = []
+    let sqliteOk = true
+    const options = { baseEnv: { HOME: root, PATH: bin }, platform: 'darwin', arch: 'x64',
+      execute: async (file, args) => {
+        probes.push({ file, args })
+        if (args[0] === '-p') return { ok: true, stdout: JSON.stringify({ version: 'v22.23.4', electron: false }) }
+        if (args[0] === '-V') return { ok: true, stdout: 'tmux 3.8\n' }
+        if (args.includes('--version')) return { ok: true, stdout: '0.7.13 (fixture)\n' }
+        if (args[0] === '-e') return { ok: sqliteOk, stdout: '' }
+        throw new Error('Unexpected discovery probe')
+      } }
+    // Control: the external fixture is discoverable and would satisfy the old empty-path setup.
+    assert.equal((await discover(configFrom({ ...config, rigPath: '' }), options)).installed, true)
+    probes.length = 0
+    const before = await discover(config, options)
+    assert.equal(before.tools.rig, null)
+    assert.equal(before.installed, false)
+    await assert.rejects(access(config.root), { code: 'ENOENT' })
+    assert.equal(probes.some(p => p.args.includes('--version') || p.args[0] === '-e'), false)
+
+    const pkg = path.join(config.root, 'runtime', 'node_modules', '@openrig', 'cli')
+    await mkdir(path.join(pkg, 'bin'), { recursive: true })
+    await mkdir(path.dirname(config.rigPath), { recursive: true })
+    await writeFile(path.join(pkg, 'package.json'), JSON.stringify({ name: '@openrig/cli' }))
+    const entry = path.join(pkg, 'bin', 'rig.mjs')
+    await writeFile(entry, '#!/usr/bin/env node\n', { mode: 0o755 })
+    await symlink(entry, config.rigPath)
+    // Match the real harness's switch to its isolated HOME after installation.
+    const installedConfig = configFrom({ ...config, homePath: path.join(root, 'home') })
+    const installed = await discover(installedConfig, options)
+    assert.equal(installed.tools.rig, config.rigPath)
+    assert.equal(installed.installed, true)
+    assert.equal(installed.ready, false)
+    assert.equal(installed.stage, 'installed-agent-deferred')
+    assert.ok(probes.some(p => p.args.includes(entry) && p.args.includes('--version')))
+    assert.equal(probes.some(p => p.args.includes(path.join(bin, 'rig')) || p.args.some(a => a.includes(path.join(external, 'package.json')))), false)
+
+    sqliteOk = false
+    const broken = await discover(installedConfig, options)
+    assert.equal(broken.installed, false)
+    assert.equal(broken.tools.rig, config.rigPath)
+    await rm(config.rigPath)
+    assert.equal((await discover(installedConfig, options)).tools.rig, null)
+  } finally { await rm(root, { recursive: true, force: true }) }
+})
+
+test('sandbox without install uses only the explicitly selected existing rig', () => {
+  const config = sandboxConfig('/sandbox', { rigPath: './chosen-rig', daemonPort: 43811 })
+  assert.equal(config.rigPath, path.resolve('./chosen-rig'))
+  assert.equal(config.homePath, '/sandbox/home')
+  assert.equal(config.provider, 'none')
+  assert.equal(config.nodePath, process.execPath)
+})
 
 test('onboarding uses a fresh-profile migration seed with telemetry disabled, not a TCC/DB edit', async () => {
   const directory = await mkdtemp(path.join(tmpdir(), 'orca-profile-seed-'))

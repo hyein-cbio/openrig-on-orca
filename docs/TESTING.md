@@ -42,7 +42,9 @@ Validation environment:
 node scripts/sandbox.mjs --install --approve-plugin --output ci-results/local-live
 ```
 
-Skip the download using an existing installation:
+First-install mode pins `rigPath` to the disposable sandbox's `data/runtime/node_modules/.bin/rig` before installation and keeps that same path afterward. Global or user-installed `rig` executables are not selected, even when present on PATH; Node, npm and tmux discovery is unchanged. A missing or broken private installation fails validation rather than falling back to a global rig.
+
+Skip the download using an explicitly selected existing installation:
 
 ```sh
 OPENRIG_TEST_RIG=/absolute/path/to/rig node scripts/sandbox.mjs --approve-plugin --output ci-results/local-live

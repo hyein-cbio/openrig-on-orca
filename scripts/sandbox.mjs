@@ -13,7 +13,7 @@ import { configFrom, environment, OPENRIG_VERSION, rigInvocation } from '../src/
 import { stagePlugin } from './stage.mjs'
 import { exampleBundle, writeExampleCommand } from '../src/examples.mjs'
 import { prepareLaunchReview, stageLaunchProgram } from '../src/launch-review.mjs'
-import { optionValue, processSampleState, seedFreshOrcaProfile } from './ci-support.mjs'
+import { optionValue, processSampleState, sandboxConfig, seedFreshOrcaProfile } from './ci-support.mjs'
 import { startTopologyPreview } from './preview-topology.mjs'
 import { checkTopologyDrilldown } from './topology-browser-checks.mjs'
 import { messageRequest } from '../src/seat-tasks.mjs'
@@ -87,8 +87,7 @@ try {
   if (!rigPath && !install) throw new Error('Set OPENRIG_TEST_RIG to an existing rig executable, or use --install to test the first-run installer in an Orca terminal')
   // Installation reuses the real npm/1Password environment; no provider/daemon runs until HOME
   // is switched to the isolated home below. Only npm cache and the private prefix are written.
-  let config = configFrom({ provider: 'none', root: path.join(root, 'data'), homePath: install ? '' : home,
-    rigPath: install ? '' : path.resolve(rigPath), nodePath: process.execPath, daemonPort: String(await availablePort()) })
+  let config = sandboxConfig(root, { install, rigPath, daemonPort: await availablePort() })
   // Add the fixture's working directory as a folder workspace in the isolated Orca only.
   const opened = await orca(['open'])
   report.versions.orca = opened.result.runtime.appVersion
