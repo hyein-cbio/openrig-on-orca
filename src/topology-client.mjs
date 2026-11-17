@@ -9,6 +9,15 @@ const $ = id => document.getElementById(id)
 const sourceObservers = new Set()
 const sourceChanged = kind => { hideReport(); for (const listener of sourceObservers) listener(kind) }
 export function observeTopologySource(listener) { sourceObservers.add(listener); return () => sourceObservers.delete(listener) }
+let piExportAction = null, piExportAvailable = () => false
+export function setPiExportAction(action, available) { piExportAction = action; piExportAvailable = available; updatePiExportControl() }
+function updatePiExportControl() {
+  const node = model?.nodes.find(n => n.key === selectedKey), button = $('topology-pi-export')
+  button.hidden = !(model?.source === 'inventory' && node?.runtime === 'pi' && piExportAction)
+  button.disabled = dirty || !node || !piExportAvailable(node.key)
+  button.title = button.disabled ? 'Select a local browser destination and a fresh Native Pi seat.' : 'Review a read-only Pi HTML snapshot'
+}
+$('topology-pi-export').addEventListener('click', () => { const node = model?.nodes.find(n => n.key === selectedKey); if (!dirty && model?.source === 'inventory' && node && piExportAction && piExportAvailable(node.key)) piExportAction(node.key) })
 let reportReader = null, reportEpoch = 0, reportAnchor = null
 export function setReportReader(reader) { reportReader = typeof reader === 'function' ? reader : null; hideReport() }
 function hideReport() {
@@ -99,6 +108,7 @@ function details(node) {
   const shown = node && model?.source === 'inventory' ? { ...node, podId: node.podNamespace } : node
   for (const [element, field] of [['detail-pod', 'podId'], ['detail-role', 'role'], ['detail-runtime', 'runtime'], ['detail-model', 'model'], ['detail-reference', 'agentRef'], ['detail-lifecycle', 'status'], ['detail-activity', 'activity'], ['detail-attention', 'attention']]) $(element).textContent = shown?.[field] ?? '—'
   for (const item of selectable()) item.classList.toggle('selected', nodeId(item) === selected)
+  updatePiExportControl()
 }
 function resize(next) {
   if (!svg) return
@@ -123,7 +133,7 @@ function clearGraph() {
 }
 function markDirty() {
   sourceChanged('yaml')
-  loadEpoch++; epoch++; dirty = true; $('export').disabled = true
+  loadEpoch++; epoch++; dirty = true; $('export').disabled = true; updatePiExportControl()
   $('topology-main').disabled = true; $('topology-back').disabled = true
   notice('Source changed · Render diagram to apply it. The map below is the previous snapshot.')
 }

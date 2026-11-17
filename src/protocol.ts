@@ -1,4 +1,6 @@
 import type { DEFAULT_CONFIG } from './runtime.mjs'
+export type PiExportPlan = Awaited<ReturnType<typeof import('./pi-html-export.mjs').preparePiExport>>
+export interface PiHtmlReceipt { kind: 'pi-html'; id: string; root: string; workspaceId: string; file: string; url: string; session: string; sessionId: string; seatKey: string; snapshotAt: number; bytes: number; omittedTailBytes: number; sha256: string; htmlHash: string; browser: 'opened' | 'unverified'; browserPageId?: string; recoverable?: boolean; detail: string }
 export type Config = typeof DEFAULT_CONFIG
 export interface Tool { path: string; version: string; compatible: boolean }
 export interface Snapshot {
@@ -28,7 +30,7 @@ export interface TaskStatus { id: string; destination: string; registration: 'un
 export interface NoOpReceipt { noOp: true; detail: string }
 export interface Plan {
   id: string; expires: number; action: string; title: string; source: string
-  writes: string[]; warnings: string[]; command: string; workspaceId: string; consoleRuntime?: string; console?: { source: 'tui' | 'configured'; key: string; home: string; port: string; endpoint: string; cli: string; node: string; version: string }; pod?: { key: string; rigId: string; podId: string | null; namespace: string | null; instanceKey: string; endpoint: string }; instruction?: Instruction; seatLaunch?: Seat; queueTask?: QueueTask; example?: ExampleRecord; launchReview?: { display: Record<string, unknown> }
+  writes: string[]; warnings: string[]; command: string; workspaceId: string; piExport?: PiExportPlan; consoleRuntime?: string; console?: { source: 'tui' | 'configured'; key: string; home: string; port: string; endpoint: string; cli: string; node: string; version: string }; pod?: { key: string; rigId: string; podId: string | null; namespace: string | null; instanceKey: string; endpoint: string }; instruction?: Instruction; seatLaunch?: Seat; queueTask?: QueueTask; example?: ExampleRecord; launchReview?: { display: Record<string, unknown> }
 }
 export interface TerminalReceipt {
   terminalId: string; task?: TaskStatus; warning?: string; workspaceName?: string; workspaceId?: string; title?: string
@@ -43,9 +45,10 @@ declare module 'orca' {
   interface PluginRequests {
     'environment.scan': { output: State }
     'config.save': { input: Config; output: State }
-    'setup.prepare': { input: { action: string; workspaceId: string; spec?: string; exampleId?: string; seatKey?: string; message?: string; summary?: string; body?: string; podKey?: string; instanceKey?: string; consoleSource?: 'tui' | 'configured' }; output: Plan }
+    'setup.prepare': { input: { action: string; workspaceId: string; spec?: string; exampleId?: string; seatKey?: string; message?: string; summary?: string; body?: string; podKey?: string; instanceKey?: string; consoleSource?: 'tui' | 'configured'; exportSource?: 'tui' | 'configured' }; output: Plan }
     'examples.list': { output: { examples: ExampleRecord[] } }
-    'setup.execute': { input: { planId: string; workspaceId: string; acceptStartupRisk?: boolean }; output: TerminalReceipt | NoOpReceipt }
+    'setup.execute': { input: { planId: string; workspaceId: string; acceptStartupRisk?: boolean }; output: TerminalReceipt | NoOpReceipt | PiHtmlReceipt }
+    'pi-html.open': { input: { id: string }; output: PiHtmlReceipt }
     'task.check': { input: { id: string }; output: TaskStatus }
     'terminal.reveal': { input: { terminalId: string }; output: TerminalReceipt }
     'pods.list': { input: { source: 'tui' | 'configured' } | undefined; output: PodInventory }

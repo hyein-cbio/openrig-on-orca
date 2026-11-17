@@ -37,6 +37,7 @@
     <div class="toolbar"><button id="confirm-operation" type="button" class="primary">Confirm and open in Orca terminal</button><button id="cancel-operation" type="button">Cancel review</button></div>
   </section>
   <section id="plugin-receipt" class="operation-card" aria-label="Existing result terminal" hidden><h2>Result terminal</h2><p id="receipt-summary"></p><p id="receipt-warning"></p><pre id="receipt-recovery"></pre><button id="reveal-terminal" type="button">Reveal existing result terminal</button><small>Do not repeat an operation to recover its view. A terminal is not proof of success.</small></section>
+  <section id="pi-html-result" class="operation-card" hidden><h2>Pi HTML snapshot</h2><p id="pi-html-status"></p><code id="pi-html-path"></code><p id="pi-html-snapshot"></p><button id="pi-html-open" type="button">Open exported HTML in Orca</button></section>
   <section id="plugin-task" class="operation-card" aria-label="Task registration snapshot" hidden><h2>Request status and reply</h2><code id="task-id"></code><p id="task-state"></p><p id="task-detail"></p><button id="check-task" type="button">Check request / reply</button><div id="task-resolution-card" hidden><p id="task-resolution-meta"></p><pre id="task-resolution"></pre></div><small>This check never creates, nudges or retries. Recorded done is not independent proof of correct results.</small></section>
 
   <section id="preparation-view" role="tabpanel" aria-labelledby="view-preparation">

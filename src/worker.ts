@@ -1,3 +1,4 @@
+import { realpath } from 'node:fs/promises'
 import type { OrcaWorkerApi } from 'orca/worker'
 import { buildPlan, fingerprint, PlanStore } from './plans.mjs'
 import { stageAction } from './action-files.mjs'
@@ -5,15 +6,16 @@ import { stageLaunchProgram } from './launch-review.mjs'
 import { createTerminalView, persistTerminalReceipt, revealTerminal } from './terminal-receipt.mjs'
 import { commandEnvironment, configFrom, daemonState, discover, fail, listInstructionSeats, listSeats, rigInvocation, shellCommand, run } from './runtime.mjs'
 import { canInstruct, instructionTextError } from './seat-instructions.mjs'
-import { canStartSeat, canQueueTask, taskTextError, sameSeatDefinition } from './seat-tasks.mjs'
+import { canStartSeat, canQueueTask, canExportPiSeat, taskTextError, sameSeatDefinition } from './seat-tasks.mjs'
 import { stageTaskBody, taskHash, validTaskId, checkTask } from './task-files.mjs'
 import { readPodInventory, connectedPodConfig, assertPodInstance } from './pod-inventory.mjs'
 import { resolveTuiConsole, recheckTuiConsole } from './tui-console.mjs'
 import { readUserReports } from './user-reports.mjs'
 import { readSeatReport } from './seat-reports.mjs'
 import { readPodRelations } from './pod-relations.mjs'
-import { podKeyOf } from './pods.mjs'
-import type { Config, ExampleRecord, Seat, Workspace } from './protocol'
+import { preparePiExport, createPiExport, openPiExport } from './pi-html-export.mjs'
+import { podKeyOf, seatInPod } from './pods.mjs'
+import type { Config, ExampleRecord, Seat, Workspace, Snapshot, PiHtmlReceipt } from './protocol'
 
 const CONFIG = 'config.v1'
 
@@ -30,6 +32,13 @@ export default function activate(orca: OrcaWorkerApi): void {
     const found = (await workspaces()).find(w => w.id === id)
     if (!found || (found.hostId && found.hostId !== 'local')) throw fail('local_workspace_required', 'Choose an existing local Orca workspace; remote/WSL host bridging is not supported yet')
     return found
+  }
+  async function piSeat(config: Config, snapshot: Snapshot, input: { exportSource?: 'tui' | 'configured'; instanceKey?: string; podKey?: string; seatKey?: string }) {
+    if (!['tui', 'configured'].includes(input.exportSource || '') || typeof input.seatKey !== 'string' || input.seatKey.length > 1000) throw fail('pi_seat_required', 'Select one Pi seat from Native topology.')
+    const catalog = await readPodInventory(config, snapshot, input.exportSource)
+    const pod = catalog.pods.find(p => p.key === input.podKey), seat = catalog.seats.find(s => s.key === input.seatKey && seatInPod(s, pod))
+    if (catalog.connection.key !== input.instanceKey || !pod || !seat || !canExportPiSeat(seat)) throw fail('pi_seat_changed', 'The selected Native Pi seat, pod or instance is unavailable or changed. No session was guessed.')
+    return { catalog, seat }
   }
   async function state() {
     const config = await getConfig()
@@ -76,10 +85,15 @@ export default function activate(orca: OrcaWorkerApi): void {
   orca.panels.handle('setup.prepare', async (input, { signal }) => {
     const config = await getConfig()
     const target = await workspace(input.workspaceId)
-    if (input.podKey !== undefined) await assertPodInstance(config, input.instanceKey)
-    const snapshot = await discover(input.action === 'console' ? { ...config, provider: 'none' } : config)
+    if (input.podKey !== undefined && input.action !== 'export-pi-html') await assertPodInstance(config, input.instanceKey)
+    const snapshot = await discover(['console', 'export-pi-html'].includes(input.action) ? { ...config, provider: 'none' } : config)
     const consoleTarget = input.action === 'console' ? await resolveTuiConsole(config, snapshot, input.consoleSource ?? 'configured', input.instanceKey) : null
-    let example, instructionSeat
+    let example, instructionSeat, piExport, piConnection
+    if (input.action === 'export-pi-html') {
+      const found = await piSeat(config, snapshot, input)
+      instructionSeat = found.seat; piConnection = found.catalog.connection
+      piExport = await preparePiExport(config, snapshot, piConnection, instructionSeat, { signal })
+    }
     if (input.action === 'send-instruction') {
       const problem = instructionTextError(input.message)
       if (problem) throw fail('invalid_instruction', problem)
@@ -100,16 +114,28 @@ export default function activate(orca: OrcaWorkerApi): void {
       example = await orca.storage.get(`example:${input.exampleId}`)
     }
     if (input.podKey !== undefined && (typeof input.podKey !== 'string' || input.podKey.length > 1000 || !instructionSeat || podKeyOf(instructionSeat) !== input.podKey)) throw fail('pod_changed', 'The selected seat is not in the reviewed pod of this configured instance. Refresh pods; no operation was prepared.')
-    const plan = await buildPlan(input.action, consoleTarget?.config || config, snapshot, target, { spec: input.spec, example, seat: instructionSeat, message: input.message, summary: input.summary, body: input.body }, { signal })
-    const scoped = input.podKey ? { ...plan, pod: { key: input.podKey, rigId: instructionSeat.rigId, podId: instructionSeat.podId, namespace: instructionSeat.podNamespace, instanceKey: input.instanceKey!, endpoint: `http://127.0.0.1:${config.daemonPort}` } } : plan
+    const plan = await buildPlan(input.action, consoleTarget?.config || config, snapshot, target, { spec: input.spec, example, seat: instructionSeat, message: input.message, summary: input.summary, body: input.body, piExport }, { signal })
+    const scoped = input.podKey ? { ...plan, pod: { key: input.podKey, rigId: instructionSeat.rigId, podId: instructionSeat.podId, namespace: instructionSeat.podNamespace, instanceKey: input.instanceKey!, endpoint: piConnection?.endpoint || `http://127.0.0.1:${config.daemonPort}` } } : plan
     return plans.add(consoleTarget ? { ...scoped, console: consoleTarget.scope } : scoped, fingerprint(config, target))
   })
-  orca.panels.handle('setup.execute', async input => {
+  orca.panels.handle('setup.execute', async (input, { signal }) => {
     const config = await getConfig()
     const target = await workspace(input.workspaceId)
     // Never accept a shell command supplied by the panel: consume the exact server-side plan.
     const plan = plans.consume(input.planId, fingerprint(config, target))
-    if (plan.pod) await assertPodInstance(config, plan.pod.instanceKey)
+    if (plan.pod && !plan.piExport) await assertPodInstance(config, plan.pod.instanceKey)
+    if (plan.piExport) {
+      const reviewed = plan.piExport
+      const found = await piSeat(config, await discover({ ...config, provider: 'none' }), { exportSource: reviewed.source, instanceKey: reviewed.instanceKey, podKey: plan.pod?.key, seatKey: reviewed.seatKey })
+      if (found.seat.session !== reviewed.target.session) throw fail('pi_seat_changed', 'The reviewed Pi session changed. Prepare a new export.')
+      const receipt = { ...await createPiExport(reviewed, { signal }), workspaceId: target.id } as PiHtmlReceipt
+      try { await orca.storage.set(`pi-html:${receipt.id}`, { ...receipt }) }
+      catch { return { ...receipt, recoverable: false, detail: 'HTML exported, but its ownership metadata could not be saved. Browser opening was not attempted; the private file path is shown below.' } }
+      if (signal.aborted) return receipt
+      const opened = await openPiExport(receipt)
+      try { await orca.storage.set(`pi-html:${receipt.id}`, { ...opened }) } catch { /* The file and accepted browser receipt remain valid. */ }
+      return opened as PiHtmlReceipt
+    }
     if (plan.action === 'console') {
       if (!plan.console) throw fail('console_changed', 'The TUI review is not instance-bound. Prepare a new review.')
       await recheckTuiConsole(config, await discover({ ...config, provider: 'none' }), plan.console)
@@ -142,6 +168,16 @@ export default function activate(orca: OrcaWorkerApi): void {
     const receipt = plan.example && plan.action !== 'stop-example'
       ? await persistTerminalReceipt(orca.storage, `example:${plan.example.id}`, plan.example, accepted) : accepted
     return receipt
+  })
+  orca.panels.handle('pi-html.open', async input => {
+    if (!/^[a-f0-9]{32}$/.test(input.id || '')) throw fail('pi_export_unowned', 'Choose an HTML export created by this plugin.')
+    const record = await orca.storage.get(`pi-html:${input.id}`)
+    const config = await getConfig()
+    if (!record || typeof record !== 'object' || Array.isArray(record) || record.kind !== 'pi-html' || record.id !== input.id || typeof record.workspaceId !== 'string' || record.root !== await realpath(config.root)) throw fail('pi_export_unowned', 'The saved export or its configured directory is unavailable.')
+    await workspace(record.workspaceId)
+    const result = await openPiExport(record)
+    try { await orca.storage.set(`pi-html:${input.id}`, { ...result }) } catch { /* Reopening is not repeated merely to repair secondary metadata. */ }
+    return result as PiHtmlReceipt
   })
   orca.panels.handle('task.check', async input => {
     if (!validTaskId(input.id)) throw fail('task_unowned', 'Choose a task ID prepared by this plugin')

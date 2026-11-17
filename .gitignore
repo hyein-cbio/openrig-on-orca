@@ -45,6 +45,9 @@ src/.visualizer-build-*/
 /actions/
 /launches/
 
+# Explicit Pi HTML snapshots are private, even under a custom nested data root.
+pi-html/
+
 # Process/log files and SQLite sidecars can contain local paths or private content.
 *.log
 *.log.*

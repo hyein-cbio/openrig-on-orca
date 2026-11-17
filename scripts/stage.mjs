@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url'
 import { visualizerInputs } from './visualizer-inputs.mjs'
 
 const source = path.dirname(path.dirname(fileURLToPath(import.meta.url)))
-const runtimeFiles = ['action-files.mjs', 'seat-instructions.mjs', 'seat-tasks.mjs', 'task-files.mjs', 'runtime.mjs', 'native-read.mjs', 'report-preview.mjs', 'seat-reports.mjs', 'user-reports.mjs', 'user-report-projection.mjs', 'tui-console.mjs', 'pod-inventory.mjs', 'pod-relations.mjs', 'pods.mjs', 'plans.mjs', 'launch-review.mjs', 'examples.mjs', 'example-story.mjs', 'protocol.ts', 'terminal-receipt.mjs', 'workspace-labels.mjs', 'worker.ts']
+const runtimeFiles = ['pi-html-export.mjs', 'pi-session-native.mjs', 'action-files.mjs', 'seat-instructions.mjs', 'seat-tasks.mjs', 'task-files.mjs', 'runtime.mjs', 'native-read.mjs', 'report-preview.mjs', 'seat-reports.mjs', 'user-reports.mjs', 'user-report-projection.mjs', 'tui-console.mjs', 'pod-inventory.mjs', 'pod-relations.mjs', 'pods.mjs', 'plans.mjs', 'launch-review.mjs', 'examples.mjs', 'example-story.mjs', 'protocol.ts', 'terminal-receipt.mjs', 'workspace-labels.mjs', 'worker.ts']
 
 export async function verifyVisualizerSources(assets, directory) {
   if (!assets.inputs || JSON.stringify(Object.keys(assets.inputs).sort()) !== JSON.stringify(visualizerInputs)) throw new Error('Unrecognized visualizer source inventory; rebuild it first')
@@ -16,6 +16,8 @@ export async function verifyVisualizerSources(assets, directory) {
     if (hash !== assets.inputs[file]) throw new Error(`Visualizer source changed: ${file}; run node scripts/build-visualizer.mjs before packaging`)
   }
 }
+
+export const shipDocumentationPath = relative => !relative.split(path.sep).includes('pi-html')
 
 /** Allowlist shipping files: never package node_modules, indexes, sockets or local state. */
 export async function stagePlugin(destination) {
@@ -44,7 +46,7 @@ export async function stagePlugin(destination) {
   }
   // Copy only inventoried artifacts: a stray local YAML or dependency file never enters the package.
   await cp(assetsFile, path.join(destination, 'src', 'visualizer', 'assets.json'))
-  await cp(path.join(source, 'docs'), path.join(destination, 'docs'), { recursive: true })
+  await cp(path.join(source, 'docs'), path.join(destination, 'docs'), { recursive: true, filter: file => shipDocumentationPath(path.relative(path.join(source, 'docs'), file)) })
   return destination
 }
 

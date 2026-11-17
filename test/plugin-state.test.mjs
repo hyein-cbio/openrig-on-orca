@@ -107,6 +107,23 @@ test('disposal discards in-flight outbound preview content and prevents further 
   const result = await pending; assert.equal(result.status, 'unverified'); assert.equal(result.preview, undefined)
   await f.session.readReport(seat.key); assert.equal(f.calls.filter(c => c.name === 'seat.report').length, 1)
 })
+test('Pi HTML export uses explicit Native scope without connecting operations and reopens only the owned artifact', async () => {
+  const id = 'f'.repeat(32), html = { kind: 'pi-html', id, file: '/fixture/private/report.html', browser: 'unverified', detail: 'Exported fixture', session: seat.session, sessionId: 'native-session', snapshotAt: 1, bytes: 12, omittedTailBytes: 0 }
+  const f = fixture({ 'setup.prepare': input => plan({ action: input.action, piExport: { target: { session: seat.session } } }), 'setup.execute': () => html, 'pi-html.open': () => ({ ...html, browser: 'opened' }) }); await ready(f)
+  f.state.inventory.connection.matchesConfigured = false; f.session.editInput('instruction', 'Preserve message'); f.session.editInput('body', 'Preserve task')
+  assert.equal(f.session.canPrepare('send-message'), false); assert.equal(f.session.canPrepare('export-pi-html', { seatKey: seat.key }), true)
+  f.session.selectWorkspace(''); assert.equal(f.session.canPrepare('export-pi-html', { seatKey: seat.key }), false); f.session.selectWorkspace('work')
+  await f.session.prepare('export-pi-html', { seatKey: seat.key }); const input = f.calls.filter(c => c.name === 'setup.prepare').at(-1).input
+  assert.equal(input.exportSource, 'tui'); assert.equal(input.instanceKey, f.state.inventory.connection.key); assert.equal(input.podKey, f.state.podKey); assert.equal(f.calls.some(c => c.name === 'setup.execute'), false)
+  await f.session.confirm(); assert.equal(f.state.piHtml.id, id); assert.equal(f.state.receipt, null); assert.equal(f.state.input.instruction, 'Preserve message'); assert.equal(f.state.input.body, 'Preserve task')
+  await f.session.openPiHtml(); assert.equal(f.state.piHtml.browser, 'opened'); assert.deepEqual(f.calls.filter(c => c.name === 'pi-html.open').at(-1).input, { id })
+  assert.equal(f.calls.filter(c => c.name === 'setup.execute').length, 1); assert.equal(f.calls.some(c => c.name === 'pods.connect' || c.name === 'config.save'), false); f.session.dispose(); assert.equal(f.state.piHtml, null)
+})
+test('a late Pi HTML receipt is ignored after panel disposal', async () => {
+  let finish
+  const f = fixture({ 'setup.prepare': input => plan({ action: input.action, piExport: {} }), 'setup.execute': () => new Promise(resolve => { finish = resolve }) }); await ready(f)
+  await f.session.prepare('export-pi-html', { seatKey: seat.key }); const pending = f.session.confirm(); f.session.dispose(); finish({ kind: 'pi-html', id: 'f'.repeat(32), detail: 'Late export' }); await pending; assert.equal(f.state.piHtml, null)
+})
 test('request reply reads reject changed IDs and oversized or unverified bodies', async () => {
   const id = `qitem-orca-${'d'.repeat(32)}`
   for (const extra of [{ id: 'other' }, { resolution: { body: 'x'.repeat(16385), bytes: 16385, totalBytes: 16385, truncated: false } }, { registration: 'unverified', resolution: { body: 'x', bytes: 1, totalBytes: 1, truncated: false } }]) {

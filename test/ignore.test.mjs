@@ -19,9 +19,9 @@ test('ignore private runtime/test state but retain intentional source and prebui
       'profiles/account.json', 'browser-profiles/session.json', 'artifacts/private.txt', 'screenshots/personal.png', 'recordings/session.mp4',
       'runtime/rig.mjs', 'providers/login.json', 'instance/daemon.json', 'actions/private/run.sh', 'launches/review/manifest.json',
       'debug.log', 'debug.log.1', 'daemon.pid', 'daemon.pid.lock', 'transport.sock', 'transport.socket', 'state.sqlite', 'state.sqlite-wal', 'state.db-shm',
-      'src/.visualizer-build-interrupted/app.mjs', '.tmp/private.yaml']
+      'src/.visualizer-build-interrupted/app.mjs', '.tmp/private.yaml', 'pi-html/private/report.html', 'docs/pi-html/snapshot/session.jsonl', 'custom-data/pi-html/private/report.html']
     const retained = ['.env.example', '.env.sample', '.env.template', '.circleci/config.yml', 'package-lock.json',
-      'src/plugin-client.mjs', 'src/visualizer/assets.json', 'src/visualizer/app.mjs', 'src/visualizer/plugin.html',
+      'src/pi-export-guard.mjs', 'src/visualizer/pi-export-guard.js', 'src/plugin-client.mjs', 'src/visualizer/assets.json', 'src/visualizer/app.mjs', 'src/visualizer/plugin.html',
       'src/visualizer/mermaid/chunks/mermaid.esm.min/chunk-example.mjs', 'src/visualizer/licenses/mermaid/LICENSE',
       'docs/images/openrig-dashboard.png', 'specs/rig.yaml', 'examples/public/rig.yaml', '.cocoindex_code/settings.yml']
     const result = await exec('git', ['-c', 'core.excludesFile=/dev/null', 'check-ignore', '--no-index', ...ignored, ...retained], { cwd: directory })

@@ -4,7 +4,7 @@ import { workspaceLabel, workspaceOptions } from './workspace-labels.mjs'
 import { instructionTextError } from './seat-instructions.mjs'
 import { canQueueTask, canStartSeat, managedAgent } from './seat-tasks.mjs'
 import { watchPanelVisibility } from './refresh-loop.mjs'
-import { displayPodSnapshot, observeTopologySource, setReportReader, updateObservationFreshness } from './topology-client.mjs'
+import { displayPodSnapshot, observeTopologySource, setReportReader, setPiExportAction, updateObservationFreshness } from './topology-client.mjs'
 
 const $ = id => document.getElementById(id)
 const VIEWS = ['preparation', 'dashboard', 'messages']
@@ -50,6 +50,7 @@ for (const view of VIEWS) {
 $('plugin-workspace').addEventListener('change', event => session.selectWorkspace(event.target.value))
 $('plugin-provider').addEventListener('change', event => session.editConfig('provider', event.target.value))
 $('seat-read-only').addEventListener('change', event => session.selectReadOnly(event.target.checked))
+$('pi-html-open').addEventListener('click', session.openPiHtml)
 $('startup-risk').addEventListener('change', event => session.acknowledge(event.target.checked))
 for (const button of document.querySelectorAll('[data-operation]')) button.addEventListener('click', () => session.prepare(button.dataset.operation, button.dataset.consoleSource ? { consoleSource: button.dataset.consoleSource } : {}))
 $('scan-environment').addEventListener('click', session.scan)
@@ -84,7 +85,7 @@ $('review-source').addEventListener('click', event => {
   if (window.orca?.shell?.openExternal) { event.preventDefault(); void window.orca.shell.openExternal(event.currentTarget.href).catch(() => {}) }
 })
 function actionButton(label, action, extra) {
-  const button = element('button', label); button.type = 'button'; button.disabled = !session.canPrepare(action, extra)
+  const button = element('button', label); button.type = 'button'; button.dataset.operation = action; Object.assign(button.dataset, extra || {}); button.disabled = !session.canPrepare(action, extra)
   button.addEventListener('click', () => session.prepare(action, extra)); return button
 }
 function renderSeatStarts(state) {
@@ -126,7 +127,7 @@ function renderSeats(state) {
     const actions = element('div', undefined, 'toolbar'), attach = element('button', 'Open seat view'); attach.type = 'button'
     attach.disabled = state.busy || session.dirty() || !state.workspaceId || !session.podConnected() || seat.status !== 'running'
     attach.addEventListener('click', () => session.attach(seat.key))
-    actions.append(actionButton('Review seat start', 'launch-seat', { seatKey: seat.key }), attach); card.append(actions); return card
+    actions.append(actionButton('Review seat start', 'launch-seat', { seatKey: seat.key }), attach); if (seat.runtime === 'pi') actions.append(actionButton('Export HTML and open in Orca…', 'export-pi-html', { seatKey: seat.key })); card.append(actions); return card
   }))
 }
 function renderUserReports(state) {
@@ -193,11 +194,16 @@ function renderReview(state) {
   const plan = state.plan
   show('plugin-review', Boolean(plan)); show('preparation-actions', !plan); show('dashboard-actions', !plan); show('messages-actions', !plan)
   if (!plan) { renderedReviewId = null; return }
-  if (renderedReviewId !== plan.id) { $('review-effects').open = !plan.instruction; renderedReviewId = plan.id }
+  if (renderedReviewId !== plan.id) { $('review-effects').open = !plan.instruction && !plan.piExport; renderedReviewId = plan.id }
   text('review-title', plan.instruction ? 'Review message' : `Review · ${plan.title}`)
   text('review-intro', plan.instruction ? 'Check the recipient and message, then send. Review valid for 5 minutes.' : 'No execution has been requested. Launch preparation may have created a private frozen bundle. This one-use review expires after five minutes.')
   text('review-essential', plan.instruction ? `${plan.queueTask ? 'Creates a Native queue request. ' : ''}Sending may invoke a model and allow file edits.` : ''); show('review-essential', Boolean(plan.instruction))
   $('confirm-operation').textContent = plan.instruction ? 'Send message' : 'Confirm and open in Orca terminal'
+  if (plan.piExport) {
+    text('review-title', 'Export Pi session HTML'); text('review-intro', 'Create a fixed read-only snapshot and open it in Orca. Review valid for 5 minutes.')
+    text('review-essential', 'The private HTML may contain conversation and tool data. No input is sent to the running agent.'); show('review-essential', true)
+    $('confirm-operation').textContent = 'Export HTML and open in Orca'
+  }
   const target = state.env?.workspaces.find(w => w.id === plan.workspaceId)
   text('review-instance-detail', `${plan.pod ? `OpenRig pod: ${plan.pod.namespace || plan.pod.podId || '[unassigned]'} · rig ID ${plan.pod.rigId}\nInstance: ${plan.pod.endpoint}\n` : ''}Result terminal destination: ${workspaceLabel(target)} · ${target?.path || 'unavailable'}`)
   text('review-workspace', plan.instruction ? `${plan.pod ? `${plan.pod.namespace || plan.pod.podId || 'pod'} · ${plan.pod.endpoint}\n` : ''}Result: ${workspaceLabel(target)}` : $('review-instance-detail').textContent)
@@ -211,6 +217,7 @@ function renderReview(state) {
   let recipient = '', content = ''
   if (plan.console) { const c = plan.console; recipient = `TUI instance: ${c.source} · ${c.endpoint}\nOpenRig home: ${c.home}\nCLI: ${c.cli} · version ${c.version}\nNode: ${c.node}\nPrivate view socket directory: ${plan.consoleRuntime}\nView only: no daemon, kernel or agent startup is requested.` }
   if (plan.instruction) { recipient = `Agent: ${plan.instruction.session} · ${plan.instruction.runtime}`; content = plan.instruction.text }
+  if (plan.piExport) { const p = plan.piExport; recipient = `Pi seat: ${p.target.session}\nSession ID: ${p.native.sessionId}\nExact Native history: ${p.native.file}\nPi exporter: ${p.exporter.path}\nSnapshot directory: ${p.directory}` }
   if (plan.seatLaunch) { const seat = plan.seatLaunch; recipient = `Registered seat: ${seat.rigId} / ${seat.logicalId}\nRuntime: ${seat.runtime}\nModel: ${seat.model || 'UNVERIFIED native selection'}\nCwd: ${seat.cwd || 'UNVERIFIED native seat cwd'}` }
   if (plan.queueTask) { const task = plan.queueTask; recipient = `Request ID: ${task.id}\nSource: orca-gui@external\nDestination: ${task.destination}\nTitle: ${task.summary}`; content = plan.instruction ? plan.instruction.text : task.body }
   text('review-target', recipient); text('review-content', content); show('review-target', Boolean(recipient)); show('review-content', Boolean(content))
@@ -241,8 +248,8 @@ function render(state) {
   const destination = $('workspace-destination-control'), destinationHost = $(state.view === 'messages' ? 'messages-destination' : state.view === 'dashboard' ? session.selectedPod() ? 'seat-start-destination' : 'dashboard-destination' : 'preparation-destination')
   show('dashboard-terminal-destination', !session.selectedPod())
   if (destination.parentElement !== destinationHost) destinationHost.append(destination)
-  text('plugin-workspace-label', state.view === 'messages' ? 'Workspace for send result (required)' : 'Result terminal destination · Orca workspace')
-  choices('plugin-workspace', workspaceOptions(env?.workspaces || []), state.workspaceId, state.view === 'messages' ? 'Required: choose result workspace' : 'Choose only when an operation needs a terminal'); $('plugin-workspace').disabled = waiting || !env
+  text('plugin-workspace-label', state.view === 'messages' ? 'Workspace for send result (required)' : 'Terminal / browser destination · Orca workspace')
+  choices('plugin-workspace', workspaceOptions(env?.workspaces || []), state.workspaceId, state.view === 'messages' ? 'Required: choose result workspace' : 'Choose a workspace for views or exports'); $('plugin-workspace').disabled = waiting || !env
   choices('dashboard-pod', (state.inventory?.pods || []).map(pod => ({ value: pod.key, label: `${pod.label} · ${pod.seatCount} seats` })), state.podKey, state.inventory ? 'Choose an actual OpenRig rig / pod' : 'No verified native pod inventory')
   $('dashboard-pod').disabled = waiting || !state.inventory || dirty
   $('refresh-pods').disabled = !hosted || waiting || dirty || !env
@@ -280,7 +287,8 @@ function render(state) {
   choices('instruction-recipient', session.podSeats().map(s => ({ value: s.key, label: `${s.rigName} / ${s.logicalId} · ${s.runtime} · ${s.activity}`, disabled: !canQueueTask(s) })), state.input.instructionSeat, 'Choose one existing running agent')
   choices('task-recipient', session.podSeats().map(s => ({ value: s.key, label: `${s.rigName} / ${s.logicalId} · ${s.runtime}`, disabled: !canQueueTask(s) })), state.input.taskSeat, 'Choose one existing running agent')
   for (const [id, key] of Object.entries(inputBindings)) { if (!id.endsWith('recipient')) inputValue(id, state.input[key]); $(id).disabled = waiting || dirty || !hosted }
-  for (const button of document.querySelectorAll('[data-operation]')) button.disabled = !session.canPrepare(button.dataset.operation, button.dataset.consoleSource ? { consoleSource: button.dataset.consoleSource } : {})
+  for (const button of document.querySelectorAll('[data-operation]')) button.disabled = !session.canPrepare(button.dataset.operation, button.dataset)
+  setPiExportAction(key => session.prepare('export-pi-html', { seatKey: key }), key => session.canPrepare('export-pi-html', { seatKey: key }))
   renderSeatStarts(state); renderSeats(state); renderUserReports(state); renderMessages(state); renderExamples(state); renderReview(state)
   show('plugin-receipt', Boolean(state.receipt && !state.plan))
   if (state.receipt) {
@@ -290,6 +298,9 @@ function render(state) {
     text('receipt-recovery', receipt.recoveryCommand || 'Use Reveal existing result terminal; do not repeat the original action.')
   }
   $('reveal-terminal').disabled = waiting || !hosted
+  show('pi-html-result', Boolean(state.piHtml && !state.plan))
+  if (state.piHtml) { const p = state.piHtml; text('pi-html-status', p.detail); text('pi-html-path', p.file); text('pi-html-snapshot', `${p.session} · session ${p.sessionId} · captured ${new Date(p.snapshotAt).toLocaleString()} · ${p.bytes} bytes${p.omittedTailBytes ? ` · ${p.omittedTailBytes} incomplete tail bytes omitted` : ''}`) }
+  $('pi-html-open').disabled = waiting || !hosted || !state.piHtml || state.piHtml.recoverable === false
   show('plugin-task', Boolean(state.task && !state.plan))
   if (state.task) { text('task-id', state.task.id); text('task-state', `Destination: ${state.task.destination} · Registration: ${state.task.registration} · Recorded state: ${state.task.state}`); text('task-detail', state.task.detail) }
   const reply = state.task?.registration === 'verified' ? state.task.resolution : null

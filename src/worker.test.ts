@@ -206,6 +206,20 @@ test('message preparation uses a Native queue request for a busy seat and rechec
   } finally { await worker.deactivate(); await rm(fixture.root, { recursive: true, force: true }) }
 })
 
+test('Pi HTML requests reject wrong Native scope, other runtimes and unowned artifacts before any execution', async () => {
+  const row = { rigId: 'rig-1', rigName: 'demo', logicalId: 'dev.worker', podId: 'pod-1', podNamespace: 'dev', canonicalSessionName: 'dev-worker@demo', runtime: 'codex', sessionStatus: 'running', agentActivity: { state: 'working' } }
+  const fixture = await daemonFixture([row]), host = mockHost({ results: { 'workspace.list': { workspaces: [workspace], truncated: false } }, storage: { 'config.v1': fixture.config } }), worker = await mountWorker(workerModule, { host })
+  try {
+    await fixture.online(); const inventory = await worker.request('pods.list', { source: 'configured' })
+    const input = { action: 'export-pi-html', workspaceId: workspace.id, exportSource: 'configured' as const, instanceKey: inventory.connection.key, podKey: JSON.stringify([row.rigId, row.podId]), seatKey: JSON.stringify([row.rigId, row.logicalId]) }
+    await assert.rejects(worker.request('setup.prepare', input), /Native Pi seat/)
+    await assert.rejects(worker.request('setup.prepare', { ...input, instanceKey: 'b'.repeat(64) }), /Native Pi seat/)
+    await assert.rejects(worker.request('pi-html.open', { id: 'f'.repeat(32) }), /saved export/)
+    await assert.rejects(worker.request('pi-html.open', { id: '../other' }), /created by this plugin/)
+    assert.equal(host.callsOf('terminal.create').length, 0); assert.equal(host.callsOf('terminal.sendText').length, 0); assert.equal(host.callsOf('storage.set').length, 0)
+  } finally { await worker.deactivate(); await rm(fixture.root, { recursive: true, force: true }) }
+})
+
 test('native pod observation and explicit connection affect only plugin-owned routing', async () => {
   const row = { rigId: 'rig-1', rigName: 'demo', logicalId: 'dev.worker', podId: 'pod-1', podNamespace: 'dev', canonicalSessionName: 'dev-worker@demo', runtime: 'pi', sessionStatus: 'running', agentActivity: { state: 'idle' } }
   const fixture = await daemonFixture([row])

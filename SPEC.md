@@ -102,6 +102,14 @@ Real sandbox Orca integration:
 
 Actual billable Claude/Codex execution, Linux package-manager installation, Orca account export, remote connectivity, hosted CircleCI execution, and pixel-baseline UI regression testing are separate acceptance scopes. Never report unverified behavior as complete.
 
+## Explicit Pi HTML observations
+
+A selected Native Pi seat may be reviewed and exported as a fixed HTML snapshot, then opened by the official Orca CLI in the exact local destination workspace/default built-in browser profile. No global permissions/settings or manifest grants change. The original RPC agent is never resumed, prompted, stopped or restarted.
+
+Resolve only the selected instance/rig/pod/canonical seat from fresh projected inventory and read-only Native SQLite metadata. Match its current occupant and exact Pi file token to its account-switch-aware runner sidecar and JSONL header; missing/ambiguous/personal/changed paths fail with no directory scan or cwd/latest fallback. Freeze the source identity into a one-use review and recheck around a bounded stable-prefix snapshot. Copy only complete records; disclose an incomplete append tail and reject rewrites/corrupt complete records.
+
+Use supported Pi --export against the private copy with isolated HOME, not the original history. Final HTML remains private and bounded, displays snapshot time/session identity, is sandboxed/offline with sanitized untrusted Markdown, and never exposes a directory server or uploads content. Browser failure preserves the same artifact for an explicit reopen, not re-export. No automatic export or history watch is allowed.
+
 ## 9. One panel, preparation, dashboard and messages
 
 Messages create Native queue requests through the shared reviewed task path, with a fixed random ID, declared orca-gui@external source, exact destination and exclusive confirmed body file. Native default nudges deliver work, including to busy running agents; no second rig send or agent-side self-registration is requested. A short completion note names the existing qitem and asks for truthful state, short result summary and full resolution. User input remains a bounded 2000-character single line; the generated title/body fit Native task bounds. The concise review exposes the ID, message and completion note. Manual request checks verify immutable identity/source/body despite mutable summaries, and may return at most 16 KiB UTF-8 of the original stored resolution as inert text. There is no reply polling or synthesized result. The same source/destination permits Reports for you to read the resolution. Existing expiry, routing, one-use and ambiguous-outcome guards remain.

@@ -16,22 +16,23 @@
   },
   "inputs": {
     "package-lock.json": "19216f08c74f3f979025b15fac80a585dfed7d999a3ddce0ea84dec4b5ded33c",
-    "scripts/build-visualizer.mjs": "d84cd4919a2f453e8ba46062ef03cb51eccea42514e82af97d806c03e7d3afa2",
-    "scripts/visualizer-inputs.mjs": "aef4d5273779c1cda9b6ac82e9b5e4b76d9bc207d326573c3c6797c8ec24f216",
+    "scripts/build-visualizer.mjs": "55d653f821f56fd249647796a5c3ab48486643b05011499c2dac4698f36e4223",
+    "scripts/visualizer-inputs.mjs": "a782d2e73baf745e22bae635ce577b73a2b6fa1b6989f8f499d627bace189038",
     "src/example-story.mjs": "a384d642674d6becf1df0a7054038fdb43c5d5c37ed669f224e1f06a161d5f2f",
-    "src/plugin-client.mjs": "cd81177c823c083865bb5347409f2b225d36178049f21848c0a55501df8bc51d",
-    "src/plugin-state.mjs": "11331c8deb6031c100e0ec36934b4b11fe65689b00441ab7ddbf3452a8c71d20",
+    "src/pi-export-guard.mjs": "376844cab5e6f26973ed7acf6ecc5cb84d4d8361ef026ce8dfa8e787190b62c5",
+    "src/plugin-client.mjs": "c3e7351593b932846f3bf9ab9874dfc669a91f96eeb5df8bebbd915b31003f46",
+    "src/plugin-state.mjs": "e97498ebed0b9d8df3108e8eb2c460f1af108609f75779b5f22772cc09927e10",
     "src/plugin.css": "7b1d86bdd3edb51dae8212c7c807dfc374dff10bca789ac5695dd267f31ab043",
-    "src/plugin.html": "6ddc0c66a519ca942da0975da1146ac92eb8a3293c94bccd46b028c75a5343a9",
+    "src/plugin.html": "376f67d379ec7957f160c4933ad653fe87441bd2ff9ea5e138f724cd7a20353e",
     "src/pods.mjs": "0edc45a435123c4b9f75fe5aad682d6cdcb6772e9b5b317d833847f20c24f0c4",
     "src/refresh-loop.mjs": "cd7466eb5154e3f995bf84fcb8d98071440bef0fb76dc6bffa47041740c18bc7",
     "src/report-preview.mjs": "e477a0598d0e2f7c3b8063edf5b831ab5501f7d0bd8f75978aa44e74700d5604",
     "src/seat-instructions.mjs": "02a2ffe828246f42bc08614f99f867ff48a42d21cbb9251577b66cbab889b31e",
-    "src/seat-tasks.mjs": "9e1ad0c46a6e32833d6bf1823690bffc7665a102fdb41f574656a79d75267ec1",
-    "src/topology-client.mjs": "215e874f869a1cdf9ff749b8417f36e205b26942feff4955537a8ed33051e4c4",
+    "src/seat-tasks.mjs": "6e77f46f44ad19b31d6afddd42bad2ea386ead67d860c40527b94cce90781512",
+    "src/topology-client.mjs": "29f2198af40903651f7744758993437e5aa478bb1bd582a4cb113db84b0ab004",
     "src/topology-view.mjs": "b59c35fb4099e07df4eeec0cd64293cc28930ec86dd437c80d8e0eb0f638294c",
     "src/topology.css": "a3f61ae1faefbbfa64f7479fc2123d8ea838363e33d8356a0a1398b1c8826b06",
-    "src/topology.html": "90b0e19c137bf36e5f7ef481248eed1ae8aebd7b157d0e0118f0eb7980ae31bb",
+    "src/topology.html": "7f7707dc9a19b00a00e0bf06d04f5e9fb87c7ff6c4065784d37ba4e55b8965f7",
     "src/topology.mjs": "7ae3e8b782d2e52566b16ebd81d6b395586375f2524e7a0d7a38bb396c1ac788",
     "src/user-report-projection.mjs": "8f8e96a6375a459ea7f19dbbbd4a5a8dc1761e94417561f658475d31aed821ed",
     "src/workspace-labels.mjs": "8328b2fbb4c79221bfdbcdbba524e2c2f53ca48974cf5b548edaa943658ef6ec"
@@ -39,16 +40,16 @@
   "files": [
     {
       "path": "app.mjs",
-      "bytes": 175,
-      "sha256": "da5310c3807667b1a4355eabc223e98015dafa5f3cb56326e3911dfd96174262"
+      "bytes": 205,
+      "sha256": "82f258f4b0d23afcc5e46eccba16993883507ecf68a00da2781cf9c97ae57715"
     },
     {
-      "path": "chunk-MSSYILCV.mjs",
-      "bytes": 52242,
-      "sha256": "fdf3012602d2b571d81de15035577b0d6cc553717c88d0c4724401ea0642f7a4"
+      "path": "chunk-CEHGYYZ3.mjs",
+      "bytes": 52747,
+      "sha256": "332beeec69a925cc9751449088dac1743232bba5274f4079b1e62578b0a3ad6c"
     },
     {
-      "path": "chunk-MSSYILCV.mjs.LEGAL.txt",
+      "path": "chunk-CEHGYYZ3.mjs.LEGAL.txt",
       "bytes": 417,
       "sha256": "4245c420f535f6b11e3f590606105d70565d76e4ba670d1f1497c1f39c57800a"
     },
@@ -1183,9 +1184,19 @@
       "sha256": "7825d4f50b7725798246bddd67ea229d12e0bd1a0e9edc67ba0c9ca9ff2e4e2b"
     },
     {
+      "path": "pi-export-guard.js",
+      "bytes": 31545,
+      "sha256": "6f82e4a371d7b34ab3e2bd8d5c85f578e3060e11db03383db260f49028a00d34"
+    },
+    {
+      "path": "pi-export-guard.js.LEGAL.txt",
+      "bytes": 417,
+      "sha256": "4245c420f535f6b11e3f590606105d70565d76e4ba670d1f1497c1f39c57800a"
+    },
+    {
       "path": "plugin.html",
-      "bytes": 23995,
-      "sha256": "1b12998b2b883eeb57cb87398aed5f23b664940a136d1e68ce30cb045e2747cc"
+      "bytes": 24356,
+      "sha256": "a08694796883c6ce94c5af87b40606aec81df51bb02882d67cd3dbd28b5b9a5f"
     },
     {
       "path": "topology.mjs",
@@ -1194,8 +1205,8 @@
     },
     {
       "path": "workspace.mjs",
-      "bytes": 51675,
-      "sha256": "2a21784eb4bd7969ef0fd38574e6d15bfc4e6804475e96b3e75f3d5c4748410b"
+      "bytes": 53551,
+      "sha256": "6cd2be607cc8489b2dc7aea5cd66d9a0581f8fce2ff55b46fad4563bcb98ef1d"
     }
   ]
 }

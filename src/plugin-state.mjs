@@ -1,5 +1,5 @@
 import { canInstruct, instructionTextError } from './seat-instructions.mjs'
-import { canStartSeat, canQueueTask, taskTextError } from './seat-tasks.mjs'
+import { canStartSeat, canQueueTask, canExportPiSeat, taskTextError } from './seat-tasks.mjs'
 import { EXAMPLE_STEPS } from './example-story.mjs'
 import { createRefreshLoop, REFRESH_MS } from './refresh-loop.mjs'
 import { DEFAULT_REQUEST_SOURCES, reportingSeatDefault, requestSources } from './user-report-projection.mjs'
@@ -21,7 +21,7 @@ export function createPluginSession(request, changed = () => {}, options = {}) {
   const state = { view: 'preparation', host: typeof request === 'function', env: null, draft: null, workspaceId: '',
     seats: null, inventory: null, relations: null, inventorySource: 'tui', diagramSource: 'inventory', podKey: '', podError: '', examples: [], input: { ...EMPTY_INPUT }, plan: null, startupRisk: false, receipt: null,
     reportSeatKey: '', reportSeatPinned: false, requestSourceText: DEFAULT_REQUEST_SOURCES.join(', '), userReports: null, userReportError: '',
-    observation: emptyObservation(), autoRefresh: null, task: null, readOnly: true, busy: false, busyKind: null, error: '', notice: '', warning: '', step: 0 }
+    observation: emptyObservation(), autoRefresh: null, task: null, piHtml: null, readOnly: true, busy: false, busyKind: null, error: '', notice: '', warning: '', step: 0 }
   const reportCache = new Map(); let reportReads = 0, refreshLoop = null, disposed = false
   const emit = () => { if (!disposed) { refreshLoop?.sync(); changed(state) } }
   const inventoryKey = value => value && JSON.stringify({ ...value, observedAt: 0 })
@@ -166,6 +166,7 @@ export function createPluginSession(request, changed = () => {}, options = {}) {
     if (action === 'launch-team') return Boolean(snapshot.ready && state.input.spec.trim())
     if (action === 'stop-example') return state.examples.some(e => e.id === extra.exampleId && e.kind === 'demo' && e.instance === operationInstance(state.env.config))
     if (action === 'launch-example') return Boolean(snapshot.ready && state.examples.some(e => e.id === extra.exampleId && e.kind !== 'demo'))
+    if (action === 'export-pi-html') return Boolean(selectedPod() && state.diagramSource === 'inventory' && !state.observation.seatsError && !state.observation.missing && canExportPiSeat(findSeat(extra.seatKey)))
     if (action === 'launch-seat') return podConnected() && canStartSeat(findSeat(extra.seatKey))
     if (action === 'send-message') return podConnected() && canQueueTask(findSeat(state.input.instructionSeat)) && !instructionTextError(state.input.instruction)
     if (action === 'send-instruction') return podConnected() && canInstruct(findSeat(state.input.instructionSeat)) && !instructionTextError(state.input.instruction)
@@ -208,7 +209,7 @@ export function createPluginSession(request, changed = () => {}, options = {}) {
         relationsStale: !o.relationsAt || Boolean(o.relationsError) || state.relations?.status !== 'complete' || now() - o.relationsAt >= REFRESH_MS }
     },
     tickObservationClock() { emit() },
-    dispose() { disposed = true; refreshLoop.dispose(); reportCache.clear(); state.userReports = null; state.reportSeatKey = ''; state.task = null; invalidate() },
+    dispose() { disposed = true; refreshLoop.dispose(); reportCache.clear(); state.userReports = null; state.reportSeatKey = ''; state.task = null; state.piHtml = null; invalidate() },
     setDiagramSource(source) {
       if (!['inventory', 'yaml'].includes(source) || state.diagramSource === source) return
       state.diagramSource = source; invalidate(); emit()
@@ -325,8 +326,9 @@ export function createPluginSession(request, changed = () => {}, options = {}) {
       await work(async () => {
         invalidate()
         const input = { action, workspaceId: state.workspaceId, spec: state.input.spec, ...extra }
-        if (['launch-seat', 'send-instruction', 'send-message', 'create-task'].includes(action)) Object.assign(input, { podKey: selectedPod().key, instanceKey: state.inventory.connection.key })
+        if (['launch-seat', 'send-instruction', 'send-message', 'create-task', 'export-pi-html'].includes(action)) Object.assign(input, { podKey: selectedPod().key, instanceKey: state.inventory.connection.key })
         if (action === 'send-instruction' || action === 'send-message') Object.assign(input, { seatKey: state.input.instructionSeat, message: state.input.instruction })
+        if (action === 'export-pi-html') input.exportSource = state.inventory.connection.source
         if (action === 'create-task') Object.assign(input, { seatKey: state.input.taskSeat, summary: state.input.summary, body: state.input.body })
         state.plan = await request('setup.prepare', input, { timeoutMs: 120000 })
       })
@@ -341,6 +343,7 @@ export function createPluginSession(request, changed = () => {}, options = {}) {
         if (plan.queueTask) state.task = { id: plan.queueTask.id, destination: plan.queueTask.destination, registration: 'unverified', state: 'unknown', detail: 'Create requested. Reconcile this ID before retrying; an ID is not proof of persistence.' }
         const result = await request('setup.execute', { planId: plan.id, workspaceId: state.workspaceId, ...(plan.seatLaunch ? { acceptStartupRisk: state.startupRisk } : {}) })
         state.startupRisk = false
+        if (result?.kind === 'pi-html') { if (!disposed) { state.piHtml = result; state.notice = result.detail }; return }
         if (result?.noOp === true) { state.notice = result.detail; return }
         if (typeof result?.terminalId !== 'string') throw new Error('No terminal receipt was returned. The outcome is unknown; inspect before retrying.')
         state.receipt = result
@@ -365,6 +368,11 @@ export function createPluginSession(request, changed = () => {}, options = {}) {
     },
     async reveal() {
       await work(async () => { if (state.receipt) state.receipt = await request('terminal.reveal', { terminalId: state.receipt.terminalId }) })
+    },
+    async openPiHtml() {
+      await work(async () => {
+        if (state.piHtml) { const receipt = await request('pi-html.open', { id: state.piHtml.id }, { timeoutMs: 120000 }); if (!disposed) state.piHtml = receipt }
+      })
     },
     async checkTask() {
       await work(async () => {

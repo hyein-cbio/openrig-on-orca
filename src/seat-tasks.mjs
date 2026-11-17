@@ -9,6 +9,9 @@ export function managedAgent(seat) {
     typeof seat.rigName === 'string' && seat.rigName.trim().toLowerCase() !== 'kernel' &&
     ['claude-code', 'codex', 'pi'].includes(seat.runtime))
 }
+export function canExportPiSeat(seat) {
+  return managedAgent(seat) && seat.runtime === 'pi' && typeof seat.session === 'string' && seat.session.length <= 200 && /^[a-zA-Z0-9][a-zA-Z0-9._-]*@[a-zA-Z0-9][a-zA-Z0-9._-]*$/.test(seat.session)
+}
 export function canStartSeat(seat) {
   return managedAgent(seat) && !seat.attention && seat.lifecycle !== 'running' && seat.lifecycle !== 'attention_required' &&
     ['stopped', 'exited', 'detached', 'not-started', 'recoverable'].includes(seat.status)

@@ -18,6 +18,7 @@ export async function buildVisualizer() {
   const temporary = await mkdtemp(path.join(root, 'src', '.visualizer-build-'))
   try {
     await build({ absWorkingDir: root, entryPoints: { app: 'src/topology-client.mjs', topology: 'src/topology.mjs', workspace: 'src/plugin-client.mjs' }, bundle: true, splitting: true, platform: 'browser', format: 'esm', target: 'es2022', minify: true, charset: 'ascii', legalComments: 'linked', outdir: temporary, outExtension: { '.js': '.mjs' }, external: ['./mermaid/mermaid.esm.min.mjs', './topology.mjs'] })
+    await build({ absWorkingDir: root, entryPoints: ['src/pi-export-guard.mjs'], bundle: true, platform: 'browser', format: 'iife', target: 'es2022', minify: true, charset: 'ascii', legalComments: 'linked', outfile: path.join(temporary, 'pi-export-guard.js') })
     const shell = await readFile(path.join(root, 'src', 'plugin.html'), 'utf8')
     const topology = await readFile(path.join(root, 'src', 'topology.html'), 'utf8')
     const body = /<body>([\s\S]*?)<\/body>/.exec(topology)?.[1]?.replace('<main class="studio">', '<section class="studio">').replace('</main>', '</section>')

@@ -8,6 +8,7 @@ import { exampleBundle, writeExampleCommand } from './examples.mjs'
 import { canInstruct, instructionEndpoint, instructionTextError } from './seat-instructions.mjs'
 import { canStartSeat, canQueueTask, taskTextError, messageRequest } from './seat-tasks.mjs'
 import { taskBodyPath } from './task-files.mjs'
+import { piExportCommand } from './pi-html-export.mjs'
 
 export const SOURCES = {
   rig: 'https://github.com/mvschwarz/openrig',
@@ -57,7 +58,7 @@ function npmCommand(snapshot, args) {
 export async function buildPlan(action, config, snapshot, workspace, input = {}, options = {}) {
   if (!workspace || (workspace.hostId && workspace.hostId !== 'local')) throw fail('local_workspace_required', 'Choose a local Orca workspace; remote execution is not supported yet')
   const env = commandEnvironment(config, snapshot, options.baseEnv)
-  let command, title, source, example, launchReview, instruction, seatLaunch, queueTask, consoleRuntime, writes = [], warnings = []
+  let command, title, source, example, launchReview, instruction, seatLaunch, queueTask, piExport, consoleRuntime, writes = [], warnings = []
   const root = config.root
   if (['install-rig', 'install-claude', 'install-codex'].includes(action) && snapshot.tools.op && config.npmPath) {
     const selectedEnv = environment({ ...config, nodePath: snapshot.tools.node }, options.baseEnv)
@@ -66,7 +67,14 @@ export async function buildPlan(action, config, snapshot, workspace, input = {},
       throw fail('npm_override_conflict', '1Password runs npm by command name. Choose the npm that resolves on the selected Node PATH, or clear the npm override; no different npm was run.')
     }
   }
-  if (['example-demo', 'example-claude', 'example-codex'].includes(action)) {
+  if (action === 'export-pi-html') {
+    if (!input.piExport) throw fail('pi_seat_required', 'Choose a Pi seat from Native topology before reviewing an export.')
+    piExport = input.piExport
+    title = `Export Pi history: ${piExport.target.session}`; source = 'https://pi.dev'
+    command = piExportCommand(piExport)
+    writes = [piExport.directory, 'A private HTML snapshot; temporary copied JSONL and exporter HOME are removed after export']
+    warnings = ['Reads only the exact Native Pi history named below. No personal-session search, session resume, RPC input, agent restart or global configuration change.', 'Exports the complete-record snapshot at confirmation, not a live watch. The HTML can contain sensitive tools and conversation text and remains in the private plugin export directory.', 'Opens only the resulting local file in the selected Orca workspace using its built-in browser/default profile; no external browser or upload. Untrusted markup and external content are blocked.']
+  } else if (['example-demo', 'example-claude', 'example-codex'].includes(action)) {
     if (!snapshot.tools.node) throw fail('node_required', 'Choose compatible Node before creating example files')
     const kind = action.slice(8)
     if (kind === 'demo' && !snapshot.installed) throw fail('dependencies_missing', 'Install OpenRig and tmux, then start the no-agent daemon in Setup')
@@ -213,5 +221,5 @@ export async function buildPlan(action, config, snapshot, workspace, input = {},
   const terminalCommand = shellCommand('/bin/sh', ['-c', `${env} ${command}`])
   if (terminalCommand.length > 12000) throw fail('plan_display_too_large', 'The exact command cannot be displayed completely. Shorten the message or executable/environment paths before preparing a new plan.')
   return { action, title, source, writes, warnings, workspaceId: workspace.id,
-    command: terminalCommand, ...(example ? { example } : {}), ...(launchReview ? { launchReview } : {}), ...(instruction ? { instruction } : {}), ...(seatLaunch ? { seatLaunch } : {}), ...(queueTask ? { queueTask } : {}), ...(consoleRuntime ? { consoleRuntime } : {}) }
+    command: terminalCommand, ...(example ? { example } : {}), ...(launchReview ? { launchReview } : {}), ...(instruction ? { instruction } : {}), ...(seatLaunch ? { seatLaunch } : {}), ...(queueTask ? { queueTask } : {}), ...(piExport ? { piExport } : {}), ...(consoleRuntime ? { consoleRuntime } : {}) }
 }

@@ -2,6 +2,14 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { topologyClientFixture } from './topology-client-fixture.mjs'
 
+test('Pi export is explicit, Native-only and disabled for stale/YAML or non-Pi selections', async () => {
+  const f = await topologyClientFixture(), calls = []; let allowed = false
+  f.piExportAction(key => calls.push(key), () => allowed); f.observe(); await f.flush()
+  const button = f.element('topology-pi-export'); assert.equal(button.hidden, false); assert.equal(button.disabled, true); assert.equal(calls.length, 0)
+  allowed = true; f.piExportAction(key => calls.push(key), () => allowed); button.click(); assert.equal(calls.length, 1); assert.equal(calls[0], f.seats[0].key)
+  f.element('yaml-source').fire('input'); assert.equal(button.disabled, true); button.click(); assert.equal(calls.length, 1)
+  f.observe({ members: f.seats.map(s => ({ ...s, runtime: 'codex' })) }); await f.flush(); assert.equal(button.hidden, true)
+})
 test('Fit is the default on both axes and follows viewport changes until manual zoom is chosen', async () => {
   const f = await topologyClientFixture(); f.observe(); await f.flush()
   assert.equal(f.element('fit').getAttribute('aria-pressed'), 'true')

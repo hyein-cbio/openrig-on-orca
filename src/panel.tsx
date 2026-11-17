@@ -87,6 +87,7 @@ async function execute() {
     if (pending.queueTask) set(taskResult, { id: pending.queueTask.id, destination: pending.queueTask.destination, registration: 'unverified', state: 'unknown', detail: 'Create requested; registration is not confirmed. Reconcile this ID before any retry.' })
     const result = await plugin.request('setup.execute', { planId: pending.id, workspaceId: read(workspaceId), ...(pending.seatLaunch ? { acceptStartupRisk: read(startupRisk) } : {}) })
     if ('noOp' in result) { set(notice, result.detail); return }
+    if (!('terminalId' in result)) { set(notice, result.detail); return }
     set(receipt, result)
     if (result.task) set(taskResult, result.task)
     if (pending.queueTask) { set(taskRecipient, ''); set(taskSummary, ''); set(taskBody, '') }

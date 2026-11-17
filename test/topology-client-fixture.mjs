@@ -100,6 +100,7 @@ export async function topologyClientFixture() {
     get svg() { return elements.get('diagram').querySelector('svg') },
     get nodes() { return elements.get('diagram').querySelectorAll('g.node') },
     exported, renderCalls, seats, relations,
+    piExportAction(action, available) { module.exports.setPiExportAction(action, available) },
     observe({ members = seats, status = 'complete', notes = [], stamp = 1000, instance = 'fixture-instance' } = {}) {
       module.exports.displayPodSnapshot(pod, members, stamp, { ...relations, status, notes, observedAt: stamp }, null, instance)
     },

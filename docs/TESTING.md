@@ -156,6 +156,20 @@ npm run test:topology-browser -- --narrow --dark
 
 The runner opens/closes only its own allowlisted loopback preview and browser tab. Shared `scripts/topology-browser-checks.mjs` is also used by the disposable live suite, which requires a `topology-drilldown` report entry. Checks cover actual rendered root/child coordinates, mouse and keyboard-event activation, nested/Back to main navigation, camera restoration, unchanged SVG identity, reordered refreshes, partial markers, scoped SVG export through a cancelled save stub, a vanished hub, changed instance, obsolete render disposal and dirty/new YAML behavior. These tests use synthetic observations, no daemon/agent/model/terminal operations. Programmatically dispatched keyboard events do not claim OS-level keyboard or native save-dialog validation.
 
+## Pi HTML snapshots
+
+`test/pi-html-export.test.mjs` covers exact Native identity (including committed account-switch directories), newer-sibling decoys, non-Pi/personal/missing/ambiguous files, runner/header mismatches, complete-record snapshots, append/rewrite/truncation handling, isolated exporter HOME/argv, original-byte/mtime preservation, export/tool changes, offline sandbox policy, encoded special-character paths and browser failure/reuse without re-export. Controller/worker tests bind the selected observed instance/pod/Pi seat without connecting operation routing, preserve drafts and reject unowned artifacts. The real browser control fixture performs only simulated export/reopen receipts; the Native topology controller has separate explicit-action/YAML/staleness coverage.
+
+For the optional installed-tool smoke (no agents or model calls), set explicit tools and, optionally, an exact local browser destination:
+
+```sh
+OPENRIG_TEST_RIG=/absolute/path/to/rig OPENRIG_TEST_PI=/absolute/path/to/pi \
+OPENRIG_PI_BROWSER_WORKSPACE=identity:exact-local-workspace \
+node --test test/pi-html-export.test.mjs
+```
+
+`src/pi-html-worker.test.ts` also verifies successful prepare/execute/reopen through Orca's actual worker loader when the two tool paths are supplied to `orca plugin test`; its mock workspace cannot open an unrelated real browser tab. Both installed-tool smokes create only synthetic managed Pi seats/databases under private temporary directories. It uses the actual SQLite binding, supported Pi CLI export and native Orca file-URL browser, verifies original bytes/mtime, and closes only its own browser page. The opaque iframe intentionally is not readable through the outer page's AX snapshot; screenshot review verifies the rendered tool call/result. The optional smoke is skipped when tool paths are absent; CI does not install/authenticate Pi silently.
+
 ## Messages tab
 
 Controller cases preserve message draft/recipient/pod across all three tabs, invalidate reviews on navigation and pause automatic observations outside Dashboard. Successful message and durable-task confirmations clear only the submitted form, preserving the other form's draft. A busy recipient is accepted by send-message but not legacy send-instruction. An ambiguous confirmation retains the original request ID and does not resubmit; manual reply reads reject wrong IDs, oversized bodies and unverified resolution projections. The real 274px/dark browser fixture checks keyboard navigation, adjacent workspace prerequisites, the exact request ID and short completion guidance, then simulates one confirmation receipt and one explicit reply check. Stored reply HTML remains inert. Disposal regressions start with a retained private reply, close during a pending check, then resolve or reject it; no reply, error callback or new read is accepted. Pending outbound previews are also discarded after disposal. Packaging assertions verify the exact project MIT license and security policy are included, with MIT metadata in package.json and the root lockfile entry. The fixture never forwards an actual queue mutation or model call.
