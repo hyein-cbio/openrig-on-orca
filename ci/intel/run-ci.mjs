@@ -76,6 +76,8 @@ export async function runIntelCi(argv) {
           downloadDirectory = await mkdtemp(path.join(tmpdir(), 'openrig-orca-ci-app-'))
           const installed = await installIntelOrca(downloadDirectory, {
             execute: (file, args, options = {}) => exec(file, args, { env, ...options }),
+            cacheDirectory: process.env.OPENRIG_INTEL_DMG_CACHE,
+            onCache: message => { log.push(`Intel Orca DMG cache: ${message}`); console.log(`CI: Intel Orca DMG cache ${message}`) },
             onRetry: message => { log.push(message); console.log(`CI: ${message}; retrying once`) }
           })
           env.ORCA_CLI_COMMAND = installed.cli

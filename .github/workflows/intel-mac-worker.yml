@@ -53,6 +53,8 @@ jobs:
           node -e 'if (process.platform !== "darwin" || process.arch !== "x64" || process.version !== "v22.23.4") process.exit(1)'
       - name: Run full additive Intel validation
         shell: bash
+        env:
+          OPENRIG_INTEL_DMG_CACHE: ${{ runner.tool_cache }}/openrig-on-orca-intel-dmg
         run: node ci/intel/run-ci.mjs --suite orca --node-version 22.23.4 --output ci-results/intel-github
       - name: Preserve allowlisted Intel evidence
         if: always()

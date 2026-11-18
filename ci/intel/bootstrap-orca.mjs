@@ -11,6 +11,7 @@ import { promisify } from 'node:util'
 import { fileURLToPath } from 'node:url'
 import { verifySignature } from '../bootstrap-orca.mjs'
 import { ORCA_INTEL, requireIntelMac } from './settings.mjs'
+import { stageIntelDmg } from './dmg-cache.mjs'
 const exec = promisify(execFile)
 
 export function verifyIntelArtifact(actual) {
@@ -54,12 +55,12 @@ export async function downloadIntelArtifact(dmg, { fetcher = fetch, timeoutMs = 
   }
 }
 
-export async function installIntelOrca(destination, { execute = exec, fetcher = fetch, onRetry, platform = process.platform, arch = process.arch } = {}) {
+export async function installIntelOrca(destination, { execute = exec, fetcher = fetch, onRetry, cacheDirectory, onCache, platform = process.platform, arch = process.arch } = {}) {
   requireIntelMac(platform, arch)
   await mkdir(destination, { recursive: true })
   if ((await readdir(destination)).length) throw new Error('Orca bootstrap destination must be empty')
   const dmg = path.join(destination, 'orca.dmg'), mount = path.join(destination, 'mount')
-  const transfer = await downloadIntelArtifact(dmg, { fetcher, onRetry })
+  const transfer = await stageIntelDmg(dmg, { cacheDirectory, sha256: ORCA_INTEL.sha256, onCache, download: () => downloadIntelArtifact(dmg, { fetcher, onRetry }) })
   verifyIntelArtifact(transfer.sha256)
   await mkdir(mount)
   let mounted = false
@@ -73,7 +74,7 @@ export async function installIntelOrca(destination, { execute = exec, fetcher = 
     await execute('/usr/bin/lipo', [path.join(app, 'Contents', 'MacOS', 'Orca'), '-verify_arch', 'x86_64'])
     const cli = path.join(app, 'Contents', 'Resources', 'bin', 'orca')
     if ((await execute(cli, ['--version'])).stdout.trim() !== ORCA_INTEL.version) throw new Error('Installed Orca version differs from the Intel pin')
-    return { cli, version: ORCA_INTEL.version, sha256: ORCA_INTEL.sha256, arch: 'x64', teamId: ORCA_INTEL.teamId, transfer: { bytes: transfer.bytes, attempts: transfer.attempts } }
+    return { cli, version: ORCA_INTEL.version, sha256: ORCA_INTEL.sha256, arch: 'x64', teamId: ORCA_INTEL.teamId, transfer: { bytes: transfer.bytes, attempts: transfer.attempts, cache: transfer.cache } }
   } finally {
     if (mounted) await execute('/usr/bin/hdiutil', ['detach', mount], { timeout: 30000 })
   }
