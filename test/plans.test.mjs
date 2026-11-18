@@ -1,16 +1,19 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtemp, writeFile, rm, mkdir, stat, readFile } from 'node:fs/promises'
+import { mkdtemp, writeFile, rm, mkdir, stat, readFile, realpath } from 'node:fs/promises'
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import path from 'node:path'
 import { tmpdir } from 'node:os'
 import { buildPlan, fingerprint, PlanStore } from '../src/plans.mjs'
 import { configFrom } from '../src/runtime.mjs'
+import { resolveDaemonStart } from '../src/daemon-start.mjs'
+
+const daemonOptions = { portFree: async () => true, execute: async (_file, _args, { env }) => ({ ok: true, stdout: JSON.stringify({ value: path.join(env.OPENRIG_HOME, 'openrig.sqlite') }) }) }
 
 const config = configFrom({ root: '/private/plugin data' })
 const workspace = { id: 'workspace-1', path: '/project with spaces', hostId: null }
-const snapshot = { platform: 'darwin', installed: true, ready: false, tools: { node: process.execPath, npm: '/usr/local/bin/npm', op: '/usr/local/bin/op', brew: '/opt/homebrew/bin/brew' } }
+const snapshot = { platform: 'darwin', installed: true, rigVersion: '0.7.13', ready: false, tools: { node: process.execPath, npm: '/usr/local/bin/npm', op: '/usr/local/bin/op', brew: '/opt/homebrew/bin/brew' } }
 
 test('TUI sockets are short and private, created only by confirmation execution, cleaned on exit and collision-safe', async () => {
   const root = await mkdtemp(path.join(tmpdir(), 'openrig-tui-plan-')); let runtime, owned = false
@@ -51,7 +54,10 @@ test('no agent is required to start a daemon but no kernel or team starts with i
   try {
     const rig = path.join(dir, 'rig.js')
     await writeFile(rig, '#!/usr/bin/env node\n')
-    const plan = await buildPlan('start-daemon', config, { ...snapshot, tools: { ...snapshot.tools, rig } }, workspace)
+    const tools = { ...snapshot, tools: { ...snapshot.tools, rig } }, local = configFrom({ root: dir })
+    await assert.rejects(buildPlan('start-daemon', local, tools, workspace), { code: 'daemon_target_required' })
+    const daemon = await resolveDaemonStart(local, tools, 'configured', undefined, undefined, daemonOptions)
+    const plan = await buildPlan('start-daemon', daemon.config, tools, workspace, { daemon: daemon.scope })
     assert.match(plan.command, /--no-kernel/)
     assert.ok(plan.warnings.some(w => w.includes('OPENRIG_HOME alone')))
     const dashboard = await buildPlan('console', config, { ...snapshot, tools: { ...snapshot.tools, rig } }, workspace)
@@ -62,6 +68,22 @@ test('no agent is required to start a daemon but no kernel or team starts with i
     assert.doesNotMatch(dashboard.command, /'daemon'|'start'|'up'/)
     await assert.rejects(buildPlan('launch-team', config, { ...snapshot, tools: { ...snapshot.tools, rig } }, workspace, { spec: 'starter' }), { code: 'agent_setup_required' })
   } finally { await rm(dir, { recursive: true, force: true }) }
+})
+
+test('a fresh daemon review refuses a database that appears before terminal execution', async () => {
+  const root = await realpath(await mkdtemp(path.join(tmpdir(), 'openrig fresh launch '))), run = promisify(execFile)
+  try {
+    const home = path.join(root, 'instance'), database = path.join(home, 'openrig.sqlite'), rig = path.join(root, 'rig.mjs')
+    await mkdir(home); await writeFile(rig, `if (process.argv[2] === 'config') console.log(JSON.stringify({ value: ${JSON.stringify(database)} }));\nelse console.log('UNEXPECTED RIG INVOCATION');\n`)
+    const local = configFrom({ root, homePath: root })
+    const tools = { ...snapshot, tools: { ...snapshot.tools, rig } }
+    const daemon = await resolveDaemonStart(local, tools, 'configured', undefined, undefined, daemonOptions)
+    const plan = await buildPlan('start-daemon', daemon.config, tools, workspace, { daemon: daemon.scope })
+    const original = Buffer.concat([Buffer.from('SQLite format 3\0'), Buffer.alloc(84)])
+    await writeFile(database, original)
+    await assert.rejects(run('/bin/sh', ['-c', plan.command]), error => /database or its files changed after review/.test(error.stderr) && !error.stdout.includes('UNEXPECTED'))
+    assert.deepEqual(await readFile(database), original)
+  } finally { await rm(root, { recursive: true, force: true }) }
 })
 
 test('provider package is resolved to an exact official registry version', async () => {

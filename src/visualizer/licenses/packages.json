@@ -1042,6 +1042,16 @@
     ]
   },
   {
+    "name": "orca-native-chat",
+    "version": "1.4.263",
+    "license": "MIT",
+    "repository": "https://github.com/stablyai/orca",
+    "distribution": "Adapted prompt layout only (see SOURCE.md)",
+    "licenses": [
+      "LICENSE"
+    ]
+  },
+  {
     "name": "package-manager-detector",
     "version": "1.9.0",
     "license": "MIT",
@@ -1057,6 +1067,16 @@
     "license": "MIT",
     "repository": "git+https://github.com/pshihn/path-data-parser.git",
     "distribution": "https://www.npmjs.com/package/path-data-parser/v/0.1.0",
+    "licenses": [
+      "LICENSE"
+    ]
+  },
+  {
+    "name": "pi-esp",
+    "version": "0.1.0",
+    "license": "MIT",
+    "repository": "https://github.com/phiat/pi-esp",
+    "distribution": "Vendored browser snapshot (see SOURCE.md)",
     "licenses": [
       "LICENSE"
     ]

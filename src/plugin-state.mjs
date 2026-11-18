@@ -19,7 +19,7 @@ export function createPluginSession(request, changed = () => {}, options = {}) {
   const now = options.clock?.now || Date.now
   const emptyObservation = () => ({ seatsAt: 0, relationsAt: 0, lastSuccessAt: 0, seatsError: '', relationsError: '', missing: false, identityChanged: false })
   const state = { view: 'preparation', host: typeof request === 'function', env: null, draft: null, workspaceId: '',
-    seats: null, inventory: null, relations: null, inventorySource: 'tui', diagramSource: 'inventory', podKey: '', podError: '', examples: [], input: { ...EMPTY_INPUT }, plan: null, startupRisk: false, receipt: null,
+    seats: null, inventory: null, relations: null, inventorySource: 'tui', daemonTarget: null, tuiPort: '', checkedTuiPort: '', tuiPortEditable: false, daemonCheckError: '', diagramSource: 'inventory', podKey: '', podError: '', examples: [], input: { ...EMPTY_INPUT }, plan: null, startupRisk: false, receipt: null,
     reportSeatKey: '', reportSeatPinned: false, requestSourceText: DEFAULT_REQUEST_SOURCES.join(', '), userReports: null, userReportError: '',
     observation: emptyObservation(), autoRefresh: null, task: null, piHtml: null, readOnly: true, busy: false, busyKind: null, error: '', notice: '', warning: '', step: 0 }
   const reportCache = new Map(); let reportReads = 0, refreshLoop = null, disposed = false
@@ -41,7 +41,7 @@ export function createPluginSession(request, changed = () => {}, options = {}) {
   function apply(env) {
     reportCache.clear(); state.observation = emptyObservation(); state.reportSeatKey = ''; state.reportSeatPinned = false; state.userReports = null; state.userReportError = ''
     if (state.task && JSON.stringify(state.env?.config) !== JSON.stringify(env.config)) state.task = { ...state.task, registration: 'unverified', state: 'unknown', resolution: undefined, detail: 'Instance configuration changed. Reconcile at the original endpoint before retrying.' }
-    state.env = env; state.draft = { ...env.config }; state.seats = null; state.examples = []; state.inventory = null; state.relations = null; state.diagramSource = 'inventory'; state.podKey = ''; state.podError = ''
+    state.env = env; state.draft = { ...env.config }; state.seats = null; state.examples = []; state.inventory = null; state.relations = null; state.daemonTarget = null; state.tuiPort = ''; state.checkedTuiPort = ''; state.tuiPortEditable = false; state.daemonCheckError = ''; state.diagramSource = 'inventory'; state.podKey = ''; state.podError = ''
     state.input.instructionSeat = ''; state.input.taskSeat = ''
     if (!env.workspaces.some(w => w.id === state.workspaceId)) state.workspaceId = ''
     invalidate()
@@ -76,10 +76,44 @@ export function createPluginSession(request, changed = () => {}, options = {}) {
     if (state.reportSeatKey && !reportingSeats().some(s => s.key === state.reportSeatKey)) { state.reportSeatKey = ''; state.userReports = null; state.userReportError = 'Reporting seat changed or disappeared. Choose it explicitly before another report read.'; return }
     if (!state.reportSeatKey && !state.reportSeatPinned) state.reportSeatKey = reportingSeatDefault(state.inventory, selectedPod(), state.relations)
   }
+  const tuiPortDraftChanged = () => state.inventorySource === 'tui' && state.tuiPortEditable && state.tuiPort !== state.checkedTuiPort
+  const tuiPortNeedsCheck = () => tuiPortDraftChanged() || (state.inventorySource === 'tui' && state.tuiPortEditable && Boolean(state.inventory && String(Number(state.checkedTuiPort)) !== state.inventory.connection.port))
+  const selectedReachable = () => Boolean(state.inventory?.connection.source === state.inventorySource && !state.observation.seatsError && !tuiPortNeedsCheck())
+  const matchesSelectedDaemon = () => state.daemonTarget?.source === state.inventorySource && !tuiPortDraftChanged()
+  function daemonStartReason() {
+    if (!state.host) return 'Open this panel inside Orca.'
+    if (state.busy || state.autoRefresh?.inFlight) return 'Wait for the current operation or observation.'
+    if (dirty()) return 'Save configuration before reviewing a start.'
+    if (!state.env?.snapshot.installed) return 'Verify Node, OpenRig, tmux and SQLite first.'
+    if (selectedReachable()) return 'The selected instance is reachable. No restart is offered.'
+    if (state.daemonCheckError || !matchesSelectedDaemon()) return state.daemonCheckError || 'Check the selected instance and port before reviewing a start.'
+    if (state.daemonTarget.status !== 'startable') return state.daemonTarget.detail
+    if (!state.workspaceId) return 'Choose a local Orca workspace for the result terminal.'
+    return ''
+  }
+  async function inspectSelectedInstance() {
+    const source = state.inventorySource, port = state.tuiPort
+    state.daemonCheckError = ''
+    try {
+      const target = await request('instance.inspect', { source, ...(source === 'tui' && port ? { tuiPort: port } : {}) })
+      if (disposed) return
+      if (target?.source !== source || !/^[a-f0-9]{64}$/.test(target.key) || !['startable', 'port-required', 'blocked'].includes(target.status)) throw new Error('Unexpected instance metadata')
+      state.daemonTarget = target; state.checkedTuiPort = port; state.tuiPortEditable = source === 'tui' && target.portRequired === true
+    } catch {
+      if (disposed) return
+      // Keep a previously shown port field editable without reusing its old review key.
+      if (source === 'tui' && state.tuiPortEditable) state.checkedTuiPort = null
+      else state.daemonTarget = null
+      state.daemonCheckError = 'Could not check the selected instance. Try Check instance before starting.'
+    }
+  }
   async function loadPods(keepKey = '') {
     reportCache.clear()
     const previous = state.inventory, previousPod = state.podKey
     state.diagramSource = 'inventory'; state.podError = ''; invalidate(); emit()
+    // Let the latest native inventory read determine reachability after the startup check.
+    await inspectSelectedInstance()
+    if (disposed) return
     try {
       const inventory = await request('pods.list', { source: state.inventorySource }, { timeoutMs: 120000 })
       if (!validInventory(inventory)) throw new Error('Native pod observation is incomplete; no target was guessed.')
@@ -158,10 +192,12 @@ export function createPluginSession(request, changed = () => {}, options = {}) {
     if (action === 'login-codex') return Boolean(tools.codex)
     if (['example-claude', 'example-codex'].includes(action)) return Boolean(tools.node)
     if (!snapshot.installed) return false
-    if (action === 'console') return extra.instanceKey !== undefined
-      ? Boolean(state.inventory && !state.observation.seatsError && extra.instanceKey === state.inventory.connection.key && extra.consoleSource === state.inventory.connection.source && state.diagramSource === 'inventory')
-      : (!extra.consoleSource || extra.consoleSource === 'configured') && state.env.daemon?.status === 'reachable'
-    if (action === 'start-daemon') return !state.env.config.instanceHome
+    if (action === 'console') {
+      // The Preparation control does not belong to the Dashboard's YAML preview. Both bind the checked instance key.
+      if (extra.instanceKey !== undefined) return selectedReachable() && extra.instanceKey === state.inventory.connection.key && extra.consoleSource === state.inventorySource && (state.view === 'preparation' || state.diagramSource === 'inventory')
+      return (!extra.consoleSource || extra.consoleSource === 'configured') && state.env.daemon?.status === 'reachable'
+    }
+    if (action === 'start-daemon') return !daemonStartReason()
     if (action === 'example-demo') return true
     if (action === 'launch-team') return Boolean(snapshot.ready && state.input.spec.trim())
     if (action === 'stop-example') return state.examples.some(e => e.id === extra.exampleId && e.kind === 'demo' && e.instance === operationInstance(state.env.config))
@@ -174,7 +210,11 @@ export function createPluginSession(request, changed = () => {}, options = {}) {
     return false
   }
   const session = {
-    state, dirty, canPrepare, selectedPod, podSeats, podConnected, reportingSeats,
+    state, dirty, canPrepare, daemonStartReason, selectedReachable, tuiPortNeedsCheck, tuiPortDraftChanged, selectedPod, podSeats, podConnected, reportingSeats,
+    editTuiPort(value) {
+      if (state.busy || state.inventorySource !== 'tui' || !state.tuiPortEditable) return
+      state.tuiPort = String(value).slice(0, 5); state.daemonCheckError = ''; invalidate(); emit()
+    },
     selectReportingSeat(key) {
       if (state.busy || (key && !reportingSeats().some(s => s.key === key))) return false
       state.reportSeatKey = key; state.reportSeatPinned = true; state.userReports = null; state.userReportError = ''; emit(); return true
@@ -256,7 +296,9 @@ export function createPluginSession(request, changed = () => {}, options = {}) {
     async selectInventorySource(source) {
       if (!['tui', 'configured'].includes(source) || state.busy) return
       if (dirty()) { state.error = 'Save configuration before selecting another observed instance.'; emit(); return }
-      state.inventorySource = source; state.inventory = null; state.relations = null; state.podKey = ''; state.observation = emptyObservation(); state.reportSeatKey = ''; state.reportSeatPinned = false; state.userReports = null; state.userReportError = ''; reportCache.clear()
+      if (state.inventorySource === source) return
+      state.inventorySource = source; state.daemonTarget = null; state.daemonCheckError = ''; state.inventory = null; state.relations = null; state.podKey = ''; state.observation = emptyObservation(); state.reportSeatKey = ''; state.reportSeatPinned = false; state.userReports = null; state.userReportError = ''; reportCache.clear()
+      state.input.instructionSeat = ''; state.input.taskSeat = ''
       await session.refreshPods(false)
     },
     async refreshPods(keep = true) {
@@ -308,12 +350,7 @@ export function createPluginSession(request, changed = () => {}, options = {}) {
         await loadPods()
       })
     },
-    async viewConfiguredDashboard() {
-      if (state.busy || dirty()) { state.error = 'Save configuration and finish the current operation before viewing the configured instance.'; emit(); return false }
-      if (!session.switchView('dashboard')) return false
-      await session.selectInventorySource('configured')
-      return true
-    },
+    viewSelectedDashboard() { if (!session.switchView('dashboard')) return false; session.setDiagramSource('inventory'); return true },
     async refreshSeats() {
       await work(async () => {
         if (dirty()) throw new Error('Save configuration before reading seats from another instance.')
@@ -329,6 +366,10 @@ export function createPluginSession(request, changed = () => {}, options = {}) {
         if (['launch-seat', 'send-instruction', 'send-message', 'create-task', 'export-pi-html'].includes(action)) Object.assign(input, { podKey: selectedPod().key, instanceKey: state.inventory.connection.key })
         if (action === 'send-instruction' || action === 'send-message') Object.assign(input, { seatKey: state.input.instructionSeat, message: state.input.instruction })
         if (action === 'export-pi-html') input.exportSource = state.inventory.connection.source
+        if (action === 'start-daemon') {
+          Object.assign(input, { daemonSource: state.inventorySource, daemonKey: state.daemonTarget.key })
+          if (state.inventorySource === 'tui' && state.tuiPort) input.tuiPort = state.tuiPort
+        }
         if (action === 'create-task') Object.assign(input, { seatKey: state.input.taskSeat, summary: state.input.summary, body: state.input.body })
         state.plan = await request('setup.prepare', input, { timeoutMs: 120000 })
       })
@@ -340,6 +381,7 @@ export function createPluginSession(request, changed = () => {}, options = {}) {
       if (plan.seatLaunch && !state.startupRisk) { state.error = 'Acknowledge unverified native startup settings before confirming.'; emit(); return }
       await work(async () => {
         state.plan = null // Consume the visible review before the potentially ambiguous operation. Never auto-retry.
+        if (plan.action === 'start-daemon') { state.daemonTarget = null; state.checkedTuiPort = null; state.daemonCheckError = 'Check the selected instance after inspecting the result terminal. Do not repeat an unverified start.' }
         if (plan.queueTask) state.task = { id: plan.queueTask.id, destination: plan.queueTask.destination, registration: 'unverified', state: 'unknown', detail: 'Create requested. Reconcile this ID before retrying; an ID is not proof of persistence.' }
         const result = await request('setup.execute', { planId: plan.id, workspaceId: state.workspaceId, ...(plan.seatLaunch ? { acceptStartupRisk: state.startupRisk } : {}) })
         state.startupRisk = false

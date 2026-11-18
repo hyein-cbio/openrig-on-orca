@@ -88,7 +88,10 @@ test('generated assets are pinned, current, licensed, integrity-listed and stand
   const directory = path.join(root, 'src', 'visualizer')
   const assets = JSON.parse(await readFile(path.join(directory, 'assets.json'), 'utf8'))
   const pkg = JSON.parse(await readFile(path.join(root, 'package.json'), 'utf8'))
-  for (const [name, info] of Object.entries(assets.dependencies)) assert.equal(info.version, pkg.devDependencies[name])
+  for (const [name, info] of Object.entries(assets.dependencies)) {
+    if (name === 'pi-esp') assert.deepEqual(info, { version: '0.1.0', license: 'MIT' }) // Vendored, not an npm dependency.
+    else assert.equal(info.version, pkg.devDependencies[name])
+  }
   for (const [file, expected] of Object.entries(assets.inputs)) assert.equal(hash(await readFile(path.join(root, file))), expected, `Rebuild assets after changing ${file}`)
   for (const file of assets.files) {
     assert.ok(!file.path.includes('..') && !file.path.endsWith('.map'))

@@ -10,8 +10,12 @@ const env = { config: { provider: 'none', root: '/fixture/data', daemonPort: '43
 const seat = { key: '["rig-1","dev.worker"]', rigId: 'rig-1', rigName: 'demo', logicalId: 'dev.worker', podId: 'pod-1', podNamespace: 'dev', session: 'dev-worker@demo', runtime: 'pi', status: 'running', activity: 'idle', attention: false }
 function fixture(overrides = {}) {
   const calls = []
-  const handlers = { 'environment.scan': () => structuredClone(env), 'examples.list': () => ({ examples: [] }), 'seats.list': () => ({ seats: [structuredClone(seat)] }), ...overrides }
-  handlers['pods.list'] ||= async () => { const seats = (await handlers['seats.list']()).seats; return { connection: { source: 'tui', key: 'a'.repeat(64), home: '/fixture/native', port: '7433', endpoint: 'http://127.0.0.1:7433', matchesConfigured: true }, observedAt: Date.now(), pods: podsFromSeats(seats), seats } }
+  const handlers = { 'environment.scan': () => structuredClone(env), 'examples.list': () => ({ examples: [] }), 'seats.list': () => ({ seats: [structuredClone(seat)] }),
+    'instance.inspect': ({ source }) => ({ source, key: (source === 'configured' ? 'b' : 'a').repeat(64), status: 'blocked', portRequired: false, detail: 'Fixture daemon is reachable' }), ...overrides }
+  handlers['pods.list'] ||= async ({ source = 'tui' } = {}) => {
+    const seats = (await handlers['seats.list']()).seats, configured = source === 'configured', port = configured ? '43811' : '7433'
+    return { connection: { source, key: (configured ? 'b' : 'a').repeat(64), home: configured ? '/fixture/data/instance' : '/fixture/native', port, endpoint: `http://127.0.0.1:${port}`, matchesConfigured: true }, observedAt: Date.now(), pods: podsFromSeats(seats), seats }
+  }
   const session = createPluginSession(async (name, input, options) => { calls.push({ name, input, options }); if (!handlers[name]) throw new Error(`Unexpected request: ${name}`); return handlers[name](input) })
   return { session, state: session.state, calls }
 }
@@ -42,20 +46,60 @@ test('a late stored-report response cannot repopulate report bodies after dispos
   const pending = f.session.loadUserReports(); f.session.dispose(); finish(reportResult(context)); await pending
   assert.equal(f.state.userReports, null); assert.equal(f.state.reportSeatKey, '')
 })
-test('configured-instance handoff is explicit read-only navigation and TUI review does not require a pod', async () => {
+test('Preparation selects the observed instance, Dashboard navigation preserves it and TUI review needs no pod', async () => {
   const f = fixture({ 'setup.prepare': input => plan({ action: input.action }) }); await f.session.scan(); f.session.selectWorkspace('work')
-  await f.session.viewConfiguredDashboard(); assert.equal(f.state.view, 'dashboard'); assert.equal(f.state.inventorySource, 'configured'); assert.equal(f.state.podKey, '')
+  await f.session.selectInventorySource('configured'); const count = f.calls.length
+  assert.equal(f.session.viewSelectedDashboard(), true); assert.equal(f.calls.length, count); assert.equal(f.state.view, 'dashboard'); assert.equal(f.state.inventorySource, 'configured'); assert.equal(f.state.podKey, '')
+  assert.equal(f.state.inventory.connection.key, 'b'.repeat(64)); assert.equal(f.state.inventory.connection.source, 'configured')
   assert.equal(f.calls.filter(c => c.name === 'pods.list').at(-1).input.source, 'configured'); assert.equal(f.calls.some(c => c.name === 'config.save' || c.name === 'setup.execute'), false)
   assert.equal(f.session.canPrepare('console', { consoleSource: 'configured' }), true)
   const connection = f.state.inventory.connection
   assert.equal(f.session.canPrepare('console', { consoleSource: connection.source, instanceKey: connection.key }), true)
   await f.session.prepare('console', { consoleSource: connection.source, instanceKey: connection.key }); const input = f.calls.filter(c => c.name === 'setup.prepare').at(-1).input
-  assert.equal(input.instanceKey, connection.key); assert.equal(input.consoleSource, connection.source); assert.equal(input.podKey, undefined)
-  f.session.editConfig('daemonPort', '17459'); const count = f.calls.length; assert.equal(await f.session.viewConfiguredDashboard(), false); assert.equal(f.calls.length, count)
+  assert.equal(input.instanceKey, 'b'.repeat(64)); assert.equal(input.consoleSource, 'configured'); assert.equal(input.podKey, undefined)
+  f.session.setDiagramSource('yaml')
+  const checked = { consoleSource: 'configured', instanceKey: connection.key }
+  assert.equal(f.session.canPrepare('console', checked), false)
+  f.session.switchView('preparation'); assert.equal(f.session.canPrepare('console', checked), true)
+  await f.session.prepare('console', checked); assert.equal(f.calls.at(-1).input.instanceKey, connection.key)
+  f.session.viewSelectedDashboard(); assert.equal(f.state.diagramSource, 'inventory'); assert.equal(f.state.inventorySource, 'configured')
+  f.session.editConfig('daemonPort', '17459'); const readCount = f.calls.length; await f.session.selectInventorySource('tui'); assert.equal(f.state.inventorySource, 'configured'); assert.equal(f.calls.length, readCount)
+})
+test('offline existing instance needs a checked port, workspace and one-use review; routing stays unchanged', async () => {
+  const f = fixture({ 'pods.list': () => { throw new Error('Offline') }, 'instance.inspect': ({ source, tuiPort }) => ({ source, home: source === 'tui' ? '/fixture/.openrig' : '/fixture/data/instance', port: source === 'tui' ? tuiPort || '' : '43811', portRequired: source === 'tui', key: 'c'.repeat(64), status: source === 'tui' && !tuiPort ? 'port-required' : 'startable', detail: 'Fixture check' }), 'setup.prepare': input => plan({ action: input.action }), 'setup.execute': () => ({ terminalId: 'fixture' }) })
+  await f.session.scan(); assert.equal(f.state.daemonTarget.status, 'port-required'); assert.equal(f.session.canPrepare('start-daemon'), false)
+  f.session.editTuiPort('7433'); assert.equal(f.session.canPrepare('start-daemon'), false)
+  await f.session.refreshPods(); assert.match(f.session.daemonStartReason(), /workspace/); f.session.selectWorkspace('work')
+  await f.session.prepare('start-daemon'); assert.deepEqual(f.calls.at(-1).input, { action: 'start-daemon', workspaceId: 'work', spec: '', daemonSource: 'tui', daemonKey: 'c'.repeat(64), tuiPort: '7433' })
+  await f.session.selectInventorySource('configured'); assert.equal(f.state.plan, null); await f.session.confirm()
+  assert.equal(f.calls.some(c => c.name === 'setup.execute'), false)
+  await f.session.selectInventorySource('tui'); await f.session.prepare('start-daemon'); await f.session.confirm()
+  assert.equal(f.calls.filter(c => c.name === 'setup.execute').length, 1); assert.equal(f.session.canPrepare('start-daemon'), false)
+  assert.equal(f.state.inventorySource, 'tui'); assert.deepEqual(f.state.env.config, env.config)
+  f.session.editTuiPort('7434'); assert.equal(f.state.tuiPort, '7434'); assert.equal(f.session.canPrepare('start-daemon'), false)
+  assert.equal(f.calls.some(c => c.name === 'config.save' || c.name === 'pods.connect'), false)
+})
+test('the TUI port remains editable after a failed check and its old review is unavailable', async () => {
+  let offline = false
+  const f = fixture({ 'pods.list': () => {
+    if (offline) throw new Error('Fixture daemon offline')
+    return { connection: { source: 'tui', key: 'a'.repeat(64), port: '7433', matchesConfigured: false }, pods: podsFromSeats([seat]), seats: [seat], observedAt: Date.now() }
+  }, 'instance.inspect': ({ source, tuiPort }) => {
+    if (tuiPort === 'bad') throw new Error('Fixture check failed')
+    return { source, portRequired: true, key: 'e'.repeat(64), status: tuiPort ? 'startable' : 'port-required', detail: 'Fixture' }
+  } }); await ready(f)
+  f.session.editTuiPort('bad')
+  assert.equal(f.session.canPrepare('console', { consoleSource: 'tui', instanceKey: 'a'.repeat(64) }), false)
+  await f.session.refreshPods(); assert.equal(f.state.daemonTarget.portRequired, true); assert.match(f.state.daemonCheckError, /Could not check/)
+  offline = true
+  f.session.editTuiPort('7444'); assert.equal(f.state.tuiPort, '7444'); assert.equal(f.session.canPrepare('start-daemon'), false)
+  await f.session.refreshPods(); assert.equal(f.calls.filter(c => c.name === 'instance.inspect').at(-1).input.tuiPort, '7444'); assert.equal(f.state.daemonCheckError, '')
+  assert.equal(f.session.canPrepare('console', { consoleSource: 'tui', instanceKey: 'a'.repeat(64) }), false, 'The retained inventory reports a different port')
+  assert.equal(f.session.canPrepare('start-daemon'), true, 'A stale inventory must not override a current checked start target')
 })
 test('one session has preparation/dashboard/messages navigation with no execution or extra requests', async () => {
   const f = fixture(); await ready(f)
-  assert.equal(f.state.view, 'preparation')
+  assert.equal(f.state.view, 'preparation'); assert.equal(f.state.daemonCheckError, '')
   f.session.editInput('instruction', 'Keep this draft')
   const count = f.calls.length
   assert.equal(f.session.switchView('dashboard'), true)
@@ -64,7 +108,7 @@ test('one session has preparation/dashboard/messages navigation with no executio
   f.session.switchView('preparation')
   assert.equal(f.state.input.instruction, 'Keep this draft')
   assert.equal(f.calls.length, count)
-  assert.deepEqual(f.calls.map(c => c.name), ['environment.scan', 'examples.list', 'pods.list'])
+  assert.deepEqual(f.calls.map(c => c.name), ['environment.scan', 'examples.list', 'instance.inspect', 'pods.list'])
 })
 test('message-tab navigation preserves target/draft, invalidates review and never sends or reconnects', async () => {
   const f = fixture({ 'setup.prepare': input => plan({ action: input.action, instruction: { key: input.seatKey, session: seat.session, text: input.message } }) }); await ready(f)
@@ -138,7 +182,7 @@ test('read-only environment discovery never blocks access to the dashboard', asy
   assert.equal(f.state.busyKind, 'read'); assert.equal(f.session.switchView('dashboard'), true)
   finish(structuredClone(env)); await scan
   assert.equal(f.state.view, 'dashboard'); assert.equal(f.state.busy, false)
-  assert.deepEqual(f.calls.map(c => c.name), ['environment.scan', 'examples.list', 'pods.list'])
+  assert.deepEqual(f.calls.map(c => c.name), ['environment.scan', 'examples.list', 'instance.inspect', 'pods.list'])
 })
 test('standalone preview cannot call a worker or enable mutations', async () => {
   const session = createPluginSession(null)

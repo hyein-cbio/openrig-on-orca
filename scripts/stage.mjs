@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url'
 import { visualizerInputs } from './visualizer-inputs.mjs'
 
 const source = path.dirname(path.dirname(fileURLToPath(import.meta.url)))
-const runtimeFiles = ['pi-html-export.mjs', 'pi-session-native.mjs', 'action-files.mjs', 'seat-instructions.mjs', 'seat-tasks.mjs', 'task-files.mjs', 'runtime.mjs', 'native-read.mjs', 'report-preview.mjs', 'seat-reports.mjs', 'user-reports.mjs', 'user-report-projection.mjs', 'tui-console.mjs', 'pod-inventory.mjs', 'pod-relations.mjs', 'pods.mjs', 'plans.mjs', 'launch-review.mjs', 'examples.mjs', 'example-story.mjs', 'protocol.ts', 'terminal-receipt.mjs', 'workspace-labels.mjs', 'worker.ts']
+const runtimeFiles = ['daemon-start.mjs', 'pi-html-export.mjs', 'pi-session-native.mjs', 'pi-live-session.ts', 'pi-live-tail.ts', 'action-files.mjs', 'seat-instructions.mjs', 'seat-tasks.mjs', 'task-files.mjs', 'runtime.mjs', 'native-read.mjs', 'report-preview.mjs', 'seat-reports.mjs', 'user-reports.mjs', 'user-report-projection.mjs', 'tui-console.mjs', 'pod-inventory.mjs', 'pod-relations.mjs', 'pods.mjs', 'plans.mjs', 'launch-review.mjs', 'examples.mjs', 'example-story.mjs', 'protocol.ts', 'terminal-receipt.mjs', 'workspace-labels.mjs', 'worker.ts']
 
 export async function verifyVisualizerSources(assets, directory) {
   if (!assets.inputs || JSON.stringify(Object.keys(assets.inputs).sort()) !== JSON.stringify(visualizerInputs)) throw new Error('Unrecognized visualizer source inventory; rebuild it first')
@@ -26,7 +26,7 @@ export async function stagePlugin(destination) {
   await mkdir(path.join(destination, 'src'))
   for (const file of ['orca-plugin.json', 'README.md', 'SPEC.md', 'LICENSE', 'SECURITY.md']) await cp(path.join(source, file), path.join(destination, file))
   for (const file of runtimeFiles) await cp(path.join(source, 'src', file), path.join(destination, 'src', file))
-  for (const file of ['topology.html', 'topology.css', 'plugin.css']) await cp(path.join(source, 'src', file), path.join(destination, 'src', file))
+  for (const file of ['topology.html', 'topology.css', 'plugin.css', 'pi-live.css']) await cp(path.join(source, 'src', file), path.join(destination, 'src', file))
   const assetsRoot = await realpath(path.join(source, 'src', 'visualizer'))
   const assetsFile = path.join(assetsRoot, 'assets.json')
   const assets = JSON.parse(await readFile(assetsFile, 'utf8'))

@@ -9,7 +9,7 @@ const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)))
 export async function startTopologyPreview(port = 0) {
   if (!Number.isInteger(port) || port < 0 || port > 65535) throw new Error('Use a port between 0 and 65535')
   const assets = JSON.parse(await readFile(path.join(root, 'src', 'visualizer', 'assets.json'), 'utf8'))
-  const routes = new Map([['/topology.html', path.join(root, 'src', 'topology.html')], ['/topology.css', path.join(root, 'src', 'topology.css')], ['/plugin.css', path.join(root, 'src', 'plugin.css')]])
+  const routes = new Map([['/topology.html', path.join(root, 'src', 'topology.html')], ['/topology.css', path.join(root, 'src', 'topology.css')], ['/plugin.css', path.join(root, 'src', 'plugin.css')], ['/pi-live.css', path.join(root, 'src', 'pi-live.css')]])
   for (const file of assets.files) routes.set(`/visualizer/${file.path}`, path.join(root, 'src', 'visualizer', file.path))
   const server = createServer(async (request, response) => {
     response.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'none'; font-src 'self'; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'")

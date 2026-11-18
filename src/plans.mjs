@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { realpath } from 'node:fs/promises'
 import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { commandEnvironment, environment, fail, findExecutable, instanceDirectory, OPENRIG_VERSION, quote, rigInvocation, shellCommand } from './runtime.mjs'
 import { operationInstance } from './pods.mjs'
 import { prepareLaunchReview } from './launch-review.mjs'
@@ -187,9 +188,15 @@ export async function buildPlan(action, config, snapshot, workspace, input = {},
     writes = [instanceDirectory(config), 'OpenRig-managed discovery skills under the effective HOME/.claude/skills and HOME/.agents/skills']
     warnings = ['OpenRig is third-party executable code. Startup can seed discovery skills; team/seat startup may also modify provider trust, hooks, plugins and project guidance. OPENRIG_HOME alone does not isolate those files.', 'No permission bypass, automatic approval, Herdr, cmux, Ghostty, or rig setup is requested by this plugin.']
     if (action === 'start-daemon') {
-      if (config.instanceHome) throw fail('existing_instance_start_refused', 'This connection uses an existing OpenRig home. Starting its daemon/kernel is not part of managed setup; inspect it separately.')
-      title = 'Start this OpenRig instance (no agents)'
-      command = rigCmd(['daemon', 'start', '--no-kernel', '--host', '127.0.0.1', '--port', config.daemonPort])
+      if (!input.daemon || input.daemon.home !== instanceDirectory(config) || input.daemon.port !== config.daemonPort || input.daemon.database !== path.join(input.daemon.home, 'openrig.sqlite')) throw fail('daemon_target_required', 'Choose and check the exact instance before preparing a daemon start.')
+      const { database, databaseExists, databaseKey, cliIdentity, nodeIdentity } = input.daemon
+      if (!cliIdentity || !nodeIdentity || (databaseExists ? !/^[a-f0-9]{64}$/.test(databaseKey || '') : databaseExists !== false || databaseKey !== null)) throw fail('daemon_target_required', 'Check the exact reviewed database and executables before preparing a daemon start.')
+      title = 'Start selected OpenRig daemon (no agents)'
+      const guard = shellCommand(nodeIdentity.file, [fileURLToPath(new URL('./daemon-start.mjs', import.meta.url)), 'check-reviewed-start', database, databaseKey ?? 'absent', JSON.stringify({ node: nodeIdentity, cli: cliIdentity })])
+      const reviewedRig = await rigInvocation(cliIdentity.file, nodeIdentity.file)
+      const native = shellCommand(reviewedRig.file, [...reviewedRig.args, 'daemon', 'start', '--no-kernel', '--host', '127.0.0.1', '--port', config.daemonPort, '--db', database])
+      command = `${guard} && (unset OPENRIG_ALLOW_DB_CONFLICT; OPENRIG_DAEMON_DB_CONFLICT=stop OPENRIG_DB=${quote(database)} ${native})`
+      if (databaseExists) warnings.push(`This OpenRig CLI may migrate or write the existing database at ${database}. Verify a backup and keep the file in place during startup. The CLI does not offer an existing-only database open.`)
       warnings.push('Starts no kernel or agent team. No agent login is required. Closing this terminal does not stop the daemon.')
     } else if (action === 'console') {
       title = `Open TUI in Orca · 127.0.0.1:${config.daemonPort}`
@@ -221,5 +228,5 @@ export async function buildPlan(action, config, snapshot, workspace, input = {},
   const terminalCommand = shellCommand('/bin/sh', ['-c', `${env} ${command}`])
   if (terminalCommand.length > 12000) throw fail('plan_display_too_large', 'The exact command cannot be displayed completely. Shorten the message or executable/environment paths before preparing a new plan.')
   return { action, title, source, writes, warnings, workspaceId: workspace.id,
-    command: terminalCommand, ...(example ? { example } : {}), ...(launchReview ? { launchReview } : {}), ...(instruction ? { instruction } : {}), ...(seatLaunch ? { seatLaunch } : {}), ...(queueTask ? { queueTask } : {}), ...(piExport ? { piExport } : {}), ...(consoleRuntime ? { consoleRuntime } : {}) }
+    command: terminalCommand, ...(action === 'start-daemon' ? { daemon: input.daemon } : {}), ...(example ? { example } : {}), ...(launchReview ? { launchReview } : {}), ...(instruction ? { instruction } : {}), ...(seatLaunch ? { seatLaunch } : {}), ...(queueTask ? { queueTask } : {}), ...(piExport ? { piExport } : {}), ...(consoleRuntime ? { consoleRuntime } : {}) }
 }

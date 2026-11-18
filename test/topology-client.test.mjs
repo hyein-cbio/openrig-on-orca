@@ -10,6 +10,18 @@ test('Pi export is explicit, Native-only and disabled for stale/YAML or non-Pi s
   f.element('yaml-source').fire('input'); assert.equal(button.disabled, true); button.click(); assert.equal(calls.length, 1)
   f.observe({ members: f.seats.map(s => ({ ...s, runtime: 'codex' })) }); await f.flush(); assert.equal(button.hidden, true)
 })
+test('metadata-only refresh cannot enable export for a pending diagram render', async () => {
+  const f = await topologyClientFixture(); f.observe(); await f.flush()
+  const pending = f.pauseNextRender(); let timeout
+  try {
+    f.element('direction').value = 'TB'; f.element('direction').fire('change')
+    await Promise.race([pending.started, new Promise((_, reject) => { timeout = setTimeout(() => reject(new Error('Direction-change render did not start')), 2000) })])
+    f.observe({ stamp: 61000 }); await f.flush()
+    assert.equal(f.element('export').disabled, true)
+    await Promise.all(f.element('export').fire('click')); assert.equal(f.exported.length, 0)
+  } finally { clearTimeout(timeout); pending.release(); await f.flush() }
+  assert.equal(f.element('export').disabled, false)
+})
 test('Fit is the default on both axes and follows viewport changes until manual zoom is chosen', async () => {
   const f = await topologyClientFixture(); f.observe(); await f.flush()
   assert.equal(f.element('fit').getAttribute('aria-pressed'), 'true')

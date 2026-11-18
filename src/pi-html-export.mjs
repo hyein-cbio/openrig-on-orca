@@ -11,7 +11,7 @@ export const PI_SESSION_LIMIT = 32 * 1024 * 1024
 export const PI_HTML_LIMIT = 64 * 1024 * 1024
 const hash = bytes => createHash('sha256').update(bytes).digest('hex')
 const escape = value => String(value).replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;')
-const sameIdentity = (a, b) => ['nodeId', 'occupantId', 'rigId', 'logicalId', 'podId', 'session', 'file', 'sessionsDir', 'sidecar', 'sessionId', 'launchId', 'dev', 'ino'].every(key => a[key] === b[key])
+export const samePiIdentity = (a, b) => ['nodeId', 'occupantId', 'rigId', 'logicalId', 'podId', 'session', 'file', 'sessionsDir', 'sidecar', 'sessionId', 'launchId', 'dev', 'ino', 'databaseDev', 'databaseIno'].every(key => a[key] === b[key])
 
 async function rigPackage(rig) {
   for (let dir = path.dirname(await realpath(rig)); dir !== path.dirname(dir); dir = path.dirname(dir)) {
@@ -20,11 +20,11 @@ async function rigPackage(rig) {
   }
   throw fail('pi_metadata_unavailable', 'Select the npm-installed OpenRig CLI to read exact Native Pi metadata.')
 }
-async function nativeIdentity(plan, options={}) {
+export async function readNativePiIdentity(plan, options={}) {
   if (options.identity) return options.identity(plan)
   const execute = options.execute || run
   const selectedEnv = environment(plan.config, options.base), env = { PATH: selectedEnv.PATH, HOME: selectedEnv.HOME, LANG: selectedEnv.LANG || 'en_US.UTF-8' }
-  const result = await execute(plan.node, [fileURLToPath(new URL('./pi-session-native.mjs', import.meta.url)), plan.packageFile, plan.home, JSON.stringify(plan.target)], { env, timeout: 12000, maxBuffer: 65536, signal: options.signal })
+  const result = await execute(plan.node, [fileURLToPath(new URL('./pi-session-native.mjs', import.meta.url)), plan.packageFile, plan.home, JSON.stringify(plan.target), String(plan.config.daemonPort)], { env, timeout: 12000, maxBuffer: 65536, signal: options.signal })
   if (!result.ok) {
     let detail = 'Exact Native Pi history is unavailable. No other conversation was selected.'
     try { const parsed = JSON.parse(result.stdout); if (typeof parsed.error === 'string' && parsed.error.length < 400) detail = parsed.error } catch { /* No raw process output crosses the panel bridge. */ }
@@ -39,14 +39,19 @@ async function exporter(config, node, base) {
   return { ...invocation, path: file, dev: String(info.dev), ino: String(info.ino), size: info.size, mtime: info.mtimeMs }
 }
 
-export async function preparePiExport(config, snapshot, connection, seat, options={}) {
+export async function preparePiSource(config, snapshot, connection, seat) {
   if (!canExportPiSeat(seat) || !snapshot.tools.node || !snapshot.tools.rig) throw fail('pi_seat_required', 'Choose one canonical Pi seat from Native topology; personal Pi sessions and other runtimes are not searched.')
-  const root = await realpath(config.root), node = await realpath(snapshot.tools.node), id = randomUUID().replaceAll('-', '')
+  const node = await realpath(snapshot.tools.node)
   const effective = { ...config, instanceHome: connection.home, daemonPort: connection.port, nodePath: node }
-  const plan = { id, root, node, packageFile: await rigPackage(snapshot.tools.rig), home: connection.home, config: effective,
-    source: connection.source, instanceKey: connection.key, target: { rigId: seat.rigId, logicalId: seat.logicalId, podId: seat.podId ?? null, session: seat.session },
-    seatKey: seat.key, directory: path.join(root, 'pi-html', id), exporter: await exporter(effective, node, options.base) }
-  const native = await nativeIdentity(plan, options)
+  return { node, packageFile: await rigPackage(snapshot.tools.rig), home: connection.home, config: effective,
+    source: connection.source, instanceKey: connection.key, target: { rigId: seat.rigId, logicalId: seat.logicalId, podId: seat.podId ?? null, session: seat.session }, seatKey: seat.key }
+}
+
+export async function preparePiExport(config, snapshot, connection, seat, options={}) {
+  const source = await preparePiSource(config, snapshot, connection, seat)
+  const root = await realpath(config.root), id = randomUUID().replaceAll('-', '')
+  const plan = { ...source, id, root, directory: path.join(root, 'pi-html', id), exporter: await exporter(source.config, source.node, options.base) }
+  const native = await readNativePiIdentity(plan, options)
   if (native.bytes > PI_SESSION_LIMIT) throw fail('pi_session_too_large', 'Pi history exceeds the 32 MiB snapshot limit; no truncated export was produced.')
   return { ...plan, native }
 }
@@ -103,8 +108,8 @@ export function securePiHtml(html, guard, label) {
 
 export async function createPiExport(plan, options={}) {
   if (options.signal?.aborted) throw fail('cancelled', 'Pi export was cancelled.')
-  const current = await nativeIdentity(plan, options)
-  if (!sameIdentity(plan.native, current)) throw fail('pi_session_changed', 'Native occupant, account path or Pi history changed since review. Prepare a new export.')
+  const current = await readNativePiIdentity(plan, options)
+  if (!samePiIdentity(plan.native, current)) throw fail('pi_session_changed', 'Native occupant, account path or Pi history changed since review. Prepare a new export.')
   const selected = await exporter(plan.config, plan.node, options.base)
   if (JSON.stringify(selected) !== JSON.stringify(plan.exporter)) throw fail('pi_exporter_changed', 'The reviewed Pi exporter changed. Prepare a new review.')
   const exportRoot = path.join(plan.root, 'pi-html')
@@ -116,13 +121,13 @@ export async function createPiExport(plan, options={}) {
   try {
     await mkdir(work, { mode: 0o700 }); await mkdir(path.join(work, 'home'), { mode: 0o700 })
     const captured = await copyPiSnapshot(current, path.join(work, 'snapshot.jsonl'))
-    if (!sameIdentity(current, await nativeIdentity(plan, options))) throw fail('pi_session_changed', 'Native Pi session changed during copying. No HTML was opened.')
+    if (!samePiIdentity(current, await readNativePiIdentity(plan, options))) throw fail('pi_session_changed', 'Native Pi session changed during copying. No HTML was opened.')
     const env = { PATH: environment(plan.config, options.base).PATH, HOME: path.join(work, 'home'), PI_CODING_AGENT_DIR: path.join(work, 'home', 'pi'), LANG: 'en_US.UTF-8', TERM: 'dumb' }
     const result = await (options.execute || run)(plan.exporter.file, [...plan.exporter.args, '--export', path.join(work, 'snapshot.jsonl'), path.join(work, 'raw.html')], { cwd: work, env, timeout: 45000, maxBuffer: 65536, signal: options.signal })
     if (!result.ok) throw fail('pi_export_failed', 'Pi HTML export failed. The source session and running agent were not changed; inspect the selected Pi CLI.')
     const rawPath = path.join(work, 'raw.html'), info = await stat(rawPath)
     if (!info.isFile() || info.size > PI_HTML_LIMIT) throw fail('pi_html_too_large', 'Pi output is missing or exceeds the HTML size limit.')
-    if (!sameIdentity(current, await nativeIdentity(plan, options))) throw fail('pi_session_changed', 'Native Pi occupant changed before publication. No HTML was opened.')
+    if (!samePiIdentity(current, await readNativePiIdentity(plan, options))) throw fail('pi_session_changed', 'Native Pi occupant changed before publication. No HTML was opened.')
     const notice = await readFile(new URL('./visualizer/pi-export-guard.js.LEGAL.txt', import.meta.url), 'utf8')
     const guard = `/* Bundled third-party notice: ${notice.replaceAll('*/', '* /')} */\n${await readFile(new URL('./visualizer/pi-export-guard.js', import.meta.url), 'utf8')}`
     const html = securePiHtml(await readFile(rawPath, 'utf8'), guard, `${plan.target.session} · ${new Date(captured.snapshotAt).toISOString()}`)

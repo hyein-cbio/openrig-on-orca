@@ -65,6 +65,28 @@ test('discovery is read-only and does not require an agent, gh, docker or worksp
   } finally { await rm(dir, { recursive: true, force: true }) }
 })
 
+test('skipping provider checks preserves the scan’s selected Node and SQLite probe', async t => {
+  const root = await mkdtemp(path.join(tmpdir(), 'openrig-two-nodes-'))
+  t.after(() => rm(root, { recursive: true, force: true }))
+  const claude = path.join(root, 'claude'), codex = path.join(root, 'codex')
+  await Promise.all([mkdir(claude), mkdir(codex)])
+  const node = path.join(codex, 'node'), rig = path.join(root, 'rig.mjs'), tools = [node, path.join(claude, 'node'), path.join(codex, 'codex'), path.join(claude, 'claude'), path.join(root, 'tmux'), rig]
+  await Promise.all(tools.map(file => writeFile(file, '', { mode: 0o700 })))
+  await writeFile(path.join(root, 'package.json'), JSON.stringify({ name: '@openrig/cli' }))
+  const config = configFrom({ root, rigPath: rig, provider: 'codex' }), calls = []
+  const options = { baseEnv: { HOME: root, PATH: [claude, codex, root].join(path.delimiter) }, platform: 'linux', arch: 'x64',
+    execute: async (file, args) => {
+      calls.push([file, args]); const flag = args.at(-1)
+      return { ok: true, stdout: args[0] === '-p' ? JSON.stringify({ version: 'v22.0.0', electron: false }) : flag === '--version' ? '0.7.13' : flag === '-V' ? 'tmux 3.8' : '' }
+    } }
+  assert.equal((await discover(config, options)).tools.node, node)
+  assert.equal(calls.some(([, args]) => args[0] === 'login'), true); calls.length = 0
+  const withoutAuth = await discover(config, { ...options, checkProviders: false })
+  assert.equal(withoutAuth.tools.node, node); assert.equal(withoutAuth.sqlite.status, 'ready'); assert.deepEqual(withoutAuth.providers, [])
+  assert.ok(calls.some(([file, args]) => file === node && args[0] === '-e' && args[1].includes('better-sqlite3')))
+  assert.equal(calls.some(([, args]) => args[0] === 'login'), false)
+})
+
 test('missing instance state never queries a daemon on a fallback port', async () => {
   const dir = await mkdtemp(path.join(tmpdir(), 'openrig-no-state-'))
   let calls = 0

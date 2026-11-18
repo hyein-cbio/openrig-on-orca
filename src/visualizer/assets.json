@@ -12,46 +12,67 @@
     "dompurify": {
       "version": "3.4.17",
       "license": "(MPL-2.0 OR Apache-2.0)"
+    },
+    "marked": {
+      "version": "16.4.2",
+      "license": "MIT"
+    },
+    "pi-esp": {
+      "version": "0.1.0",
+      "license": "MIT"
     }
   },
   "inputs": {
-    "package-lock.json": "19216f08c74f3f979025b15fac80a585dfed7d999a3ddce0ea84dec4b5ded33c",
-    "scripts/build-visualizer.mjs": "55d653f821f56fd249647796a5c3ab48486643b05011499c2dac4698f36e4223",
-    "scripts/visualizer-inputs.mjs": "a782d2e73baf745e22bae635ce577b73a2b6fa1b6989f8f499d627bace189038",
+    "package-lock.json": "4a080c56fd939ec9d749e9380106fcebb93bea2eb182ef4fd5bfcc1a22561631",
+    "scripts/build-visualizer.mjs": "7330fab5ce16d904f3e2e214d4c857b6aa3853ee4b4f9b778e948917764b7d02",
+    "scripts/visualizer-inputs.mjs": "bbbad94634733c60a3002972848928bd77b087a6f2aeacaa6a0741130d7f514a",
     "src/example-story.mjs": "a384d642674d6becf1df0a7054038fdb43c5d5c37ed669f224e1f06a161d5f2f",
     "src/pi-export-guard.mjs": "376844cab5e6f26973ed7acf6ecc5cb84d4d8361ef026ce8dfa8e787190b62c5",
-    "src/plugin-client.mjs": "c3e7351593b932846f3bf9ab9874dfc669a91f96eeb5df8bebbd915b31003f46",
-    "src/plugin-state.mjs": "e97498ebed0b9d8df3108e8eb2c460f1af108609f75779b5f22772cc09927e10",
+    "src/pi-live-controller.ts": "36ba05970fc83d189fd36ec160c6c92fd378978fce027a7406d304d700b72db7",
+    "src/pi-live-view.ts": "d36fb6193a3dd50f3b9ed9bc6006a247b543725f6f8d17f720e657fc46a2cd8c",
+    "src/pi-live.css": "5c29ad64b681a0826e07eebf49d0ffa094534a945a5a48e380ac067e539ace88",
+    "src/plugin-client.mjs": "07a799a8a01401a03b599bd49ec07a62e0bef97365e560abac5a99c74502f48a",
+    "src/plugin-state.mjs": "7e2855de620074b6b833816042c394e61a7f217bb643d04abe564d9936f7c288",
     "src/plugin.css": "7b1d86bdd3edb51dae8212c7c807dfc374dff10bca789ac5695dd267f31ab043",
-    "src/plugin.html": "376f67d379ec7957f160c4933ad653fe87441bd2ff9ea5e138f724cd7a20353e",
+    "src/plugin.html": "d352c64b258b67174ac340eae562a640e71966e7256315663b98245f2275ff68",
     "src/pods.mjs": "0edc45a435123c4b9f75fe5aad682d6cdcb6772e9b5b317d833847f20c24f0c4",
     "src/refresh-loop.mjs": "cd7466eb5154e3f995bf84fcb8d98071440bef0fb76dc6bffa47041740c18bc7",
     "src/report-preview.mjs": "e477a0598d0e2f7c3b8063edf5b831ab5501f7d0bd8f75978aa44e74700d5604",
     "src/seat-instructions.mjs": "02a2ffe828246f42bc08614f99f867ff48a42d21cbb9251577b66cbab889b31e",
     "src/seat-tasks.mjs": "6e77f46f44ad19b31d6afddd42bad2ea386ead67d860c40527b94cce90781512",
-    "src/topology-client.mjs": "29f2198af40903651f7744758993437e5aa478bb1bd582a4cb113db84b0ab004",
+    "src/topology-client.mjs": "f17edecacb1ef2a83a56dae53ad1901f497bce1a59b444431822e28e875f42ca",
     "src/topology-view.mjs": "b59c35fb4099e07df4eeec0cd64293cc28930ec86dd437c80d8e0eb0f638294c",
-    "src/topology.css": "a3f61ae1faefbbfa64f7479fc2123d8ea838363e33d8356a0a1398b1c8826b06",
-    "src/topology.html": "7f7707dc9a19b00a00e0bf06d04f5e9fb87c7ff6c4065784d37ba4e55b8965f7",
+    "src/topology.css": "ff1452f84056a92b9fe20d657252eb1ff7654a2753966ba6a43bf0099e4f2a2f",
+    "src/topology.html": "9d8893768468805093a8a0ffb987cb362d3734baa33d527b7b61c3ca7010e28c",
     "src/topology.mjs": "7ae3e8b782d2e52566b16ebd81d6b395586375f2524e7a0d7a38bb396c1ac788",
     "src/user-report-projection.mjs": "8f8e96a6375a459ea7f19dbbbd4a5a8dc1761e94417561f658475d31aed821ed",
-    "src/workspace-labels.mjs": "8328b2fbb4c79221bfdbcdbba524e2c2f53ca48974cf5b548edaa943658ef6ec"
+    "src/workspace-labels.mjs": "8328b2fbb4c79221bfdbcdbba524e2c2f53ca48974cf5b548edaa943658ef6ec",
+    "vendor/babel-helpers/LICENSE": "4be9d87b56a306293223b490c0d0b245e9e94f39884147bf051a6c7b825aeb30",
+    "vendor/orca-native-chat/LICENSE": "ff1b611f80580d49f4b97e93a97b24eb050b0671b26b8afe16341fab699112f3",
+    "vendor/orca-native-chat/SOURCE.md": "7cd08ffe5db9cc23705aa1426fc03ba3ed1d3da523b4f63ce029a2530d50f8bb",
+    "vendor/pi-esp/LICENSE": "7b7239ef1043528056f67c4e06957cb7e4fd5003b805d35d6bf76fb2b8ec9271",
+    "vendor/pi-esp/SOURCE.md": "828f370380ea6a8cd48adaba7665ee628aefc5caa45ff87bbbbce25a1a45fd3e",
+    "vendor/pi-esp/markdown.js": "c5d09c73c8ee6a6d8d010a1d45d9f73e3aeb3601105ba14973bb57ca41ec6c3f",
+    "vendor/pi-esp/records.d.ts": "9a12bf9fc6e28534270bd85a84088b8cc7bf5dda069f76a25b09be52e2b47812",
+    "vendor/pi-esp/view.css": "a6364a83c5214a631b3586fe99977bc5624a04102029672ad5fb2c07395ccf12",
+    "vendor/pi-esp/view.d.ts": "93fe94d250fe1018669d11b14aab37f23b3f1d2bd5d61a1271cd0bad08dcdd46",
+    "vendor/pi-esp/view.js": "ab442a98ba3f2eae53e430768356d79dbcd16ebbf3c3398bb8f780b443447284"
   },
   "files": [
     {
       "path": "app.mjs",
-      "bytes": 205,
-      "sha256": "82f258f4b0d23afcc5e46eccba16993883507ecf68a00da2781cf9c97ae57715"
+      "bytes": 233,
+      "sha256": "67a420bb165821552e5e2cbb23f56208ea7ee8a0f7a23e3d74a258a2d865199d"
     },
     {
-      "path": "chunk-CEHGYYZ3.mjs",
-      "bytes": 52747,
-      "sha256": "332beeec69a925cc9751449088dac1743232bba5274f4079b1e62578b0a3ad6c"
+      "path": "chunk-QZHPTNAD.mjs",
+      "bytes": 53295,
+      "sha256": "daa830c2e681fc867cabf117c47f535dc2308a0976d3b7222e07085dd588fccf"
     },
     {
-      "path": "chunk-CEHGYYZ3.mjs.LEGAL.txt",
-      "bytes": 417,
-      "sha256": "4245c420f535f6b11e3f590606105d70565d76e4ba670d1f1497c1f39c57800a"
+      "path": "chunk-QZHPTNAD.mjs.LEGAL.txt",
+      "bytes": 1607,
+      "sha256": "040606585d34f128f73d049cd4fbff32482a1c6f9171e2e88727da46529e487a"
     },
     {
       "path": "licenses/antfu__install-pkg@2.1.0/LICENSE",
@@ -419,19 +440,39 @@
       "sha256": "ec9fb67dcb25eccc416ed56e1aab819222c805a2a4bfe4cb19e7556bf2ffde80"
     },
     {
+      "path": "licenses/orca-native-chat@1.4.263/LICENSE",
+      "bytes": 1070,
+      "sha256": "ff1b611f80580d49f4b97e93a97b24eb050b0671b26b8afe16341fab699112f3"
+    },
+    {
+      "path": "licenses/orca-native-chat@1.4.263/SOURCE.md",
+      "bytes": 1046,
+      "sha256": "7cd08ffe5db9cc23705aa1426fc03ba3ed1d3da523b4f63ce029a2530d50f8bb"
+    },
+    {
       "path": "licenses/package-manager-detector@1.9.0/LICENSE",
       "bytes": 1102,
       "sha256": "05c365176db3cc00e951c44b921c809c75b8e99d2d724f7daf00381e26fb0850"
     },
     {
       "path": "licenses/packages.json",
-      "bytes": 30774,
-      "sha256": "e66bb5c5c8f6e06bc35174cdb5410b1c0ca66c77b7983170e234bc83b21646e0"
+      "bytes": 31258,
+      "sha256": "a1df5a72d39908eb5393832008f7c41a9a64d232d593ccebbe8ecc2464a59917"
     },
     {
       "path": "licenses/path-data-parser@0.1.0/LICENSE",
       "bytes": 1068,
       "sha256": "e9754a00aebde654e80f40bcf41dab667d6a41dfbbd2912bcf14fb07d468bf71"
+    },
+    {
+      "path": "licenses/pi-esp@0.1.0/LICENSE",
+      "bytes": 1062,
+      "sha256": "7b7239ef1043528056f67c4e06957cb7e4fd5003b805d35d6bf76fb2b8ec9271"
+    },
+    {
+      "path": "licenses/pi-esp@0.1.0/SOURCE.md",
+      "bytes": 2252,
+      "sha256": "828f370380ea6a8cd48adaba7665ee628aefc5caa45ff87bbbbce25a1a45fd3e"
     },
     {
       "path": "licenses/points-on-curve@0.2.0/LICENSE",
@@ -445,8 +486,8 @@
     },
     {
       "path": "licenses/README.md",
-      "bytes": 497,
-      "sha256": "26c1a588008398f1ebb194da2609f3da38e43bf82b47848f2b92492898544c3a"
+      "bytes": 680,
+      "sha256": "d470bc210dfe764d1750de42a3dc807c86c4a119d04bd29bb57efb7fa56a15ba"
     },
     {
       "path": "licenses/robust-predicates@3.0.3/LICENSE",
@@ -1184,19 +1225,24 @@
       "sha256": "7825d4f50b7725798246bddd67ea229d12e0bd1a0e9edc67ba0c9ca9ff2e4e2b"
     },
     {
+      "path": "pi-esp-view.css",
+      "bytes": 5856,
+      "sha256": "a6364a83c5214a631b3586fe99977bc5624a04102029672ad5fb2c07395ccf12"
+    },
+    {
       "path": "pi-export-guard.js",
       "bytes": 31545,
       "sha256": "6f82e4a371d7b34ab3e2bd8d5c85f578e3060e11db03383db260f49028a00d34"
     },
     {
       "path": "pi-export-guard.js.LEGAL.txt",
-      "bytes": 417,
-      "sha256": "4245c420f535f6b11e3f590606105d70565d76e4ba670d1f1497c1f39c57800a"
+      "bytes": 1607,
+      "sha256": "040606585d34f128f73d049cd4fbff32482a1c6f9171e2e88727da46529e487a"
     },
     {
       "path": "plugin.html",
-      "bytes": 24356,
-      "sha256": "a08694796883c6ce94c5af87b40606aec81df51bb02882d67cd3dbd28b5b9a5f"
+      "bytes": 25977,
+      "sha256": "4d23a1f9f82e326ad04c54ad8d58ddfe2a4daeabf24b70ce80f813f66121e03f"
     },
     {
       "path": "topology.mjs",
@@ -1205,8 +1251,8 @@
     },
     {
       "path": "workspace.mjs",
-      "bytes": 53551,
-      "sha256": "6cd2be607cc8489b2dc7aea5cd66d9a0581f8fce2ff55b46fad4563bcb98ef1d"
+      "bytes": 111579,
+      "sha256": "9b10422c8957e92144f549d59dc00d19f5b60d58c24d458da45d6fbe1d8c6dd2"
     }
   ]
 }

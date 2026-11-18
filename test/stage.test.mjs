@@ -13,7 +13,7 @@ test('shipping stage allowlists runtime files and excludes development/local sta
     await stagePlugin(destination)
     const files = await readdir(destination)
     assert.deepEqual(files.sort(), ['LICENSE', 'README.md', 'SECURITY.md', 'SPEC.md', 'docs', 'orca-plugin.json', 'src'])
-    assert.deepEqual((await readdir(path.join(destination, 'src'))).sort(), ['action-files.mjs', 'example-story.mjs', 'examples.mjs', 'launch-review.mjs', 'native-read.mjs', 'pi-html-export.mjs', 'pi-session-native.mjs', 'plans.mjs', 'plugin.css', 'pod-inventory.mjs', 'pod-relations.mjs', 'pods.mjs', 'protocol.ts', 'report-preview.mjs', 'runtime.mjs', 'seat-instructions.mjs', 'seat-reports.mjs', 'seat-tasks.mjs', 'task-files.mjs', 'terminal-receipt.mjs', 'topology.css', 'topology.html', 'tui-console.mjs', 'user-report-projection.mjs', 'user-reports.mjs', 'visualizer', 'worker.ts', 'workspace-labels.mjs'])
+    assert.deepEqual((await readdir(path.join(destination, 'src'))).sort(), ['action-files.mjs', 'daemon-start.mjs', 'example-story.mjs', 'examples.mjs', 'launch-review.mjs', 'native-read.mjs', 'pi-html-export.mjs', 'pi-live-session.ts', 'pi-live-tail.ts', 'pi-live.css', 'pi-session-native.mjs', 'plans.mjs', 'plugin.css', 'pod-inventory.mjs', 'pod-relations.mjs', 'pods.mjs', 'protocol.ts', 'report-preview.mjs', 'runtime.mjs', 'seat-instructions.mjs', 'seat-reports.mjs', 'seat-tasks.mjs', 'task-files.mjs', 'terminal-receipt.mjs', 'topology.css', 'topology.html', 'tui-console.mjs', 'user-report-projection.mjs', 'user-reports.mjs', 'visualizer', 'worker.ts', 'workspace-labels.mjs'])
     const manifest = JSON.parse(await readFile(path.join(destination, 'orca-plugin.json'), 'utf8'))
     const license = await readFile(new URL('../LICENSE', import.meta.url), 'utf8')
     assert.equal(await readFile(path.join(destination, 'LICENSE'), 'utf8'), license)
@@ -32,7 +32,30 @@ test('shipping stage allowlists runtime files and excludes development/local sta
     assert.match(await readFile(path.join(destination, 'src', 'topology.html'), 'utf8'), /visualizer\/app\.mjs/)
     const assets = JSON.parse(await readFile(path.join(destination, 'src', 'visualizer', 'assets.json'), 'utf8'))
     assert.equal(assets.dependencies.mermaid.version, '12.3.0')
-    assert.ok(assets.files.every(file => !file.path.endsWith('.map') && !file.path.includes('node_modules')))
+    assert.deepEqual(assets.dependencies['pi-esp'], { version: '0.1.0', license: 'MIT' })
+    const visualizer = path.join(destination, 'src', 'visualizer')
+    assert.match(await readFile(path.join(visualizer, 'plugin.html'), 'utf8'), /href="\.\/pi-esp-view\.css"/)
+    for (const [source, packaged] of [['view.css', 'pi-esp-view.css'], ['LICENSE', 'licenses/pi-esp@0.1.0/LICENSE'], ['SOURCE.md', 'licenses/pi-esp@0.1.0/SOURCE.md']]) {
+      assert.deepEqual(await readFile(path.join(visualizer, packaged)), await readFile(new URL(`../vendor/pi-esp/${source}`, import.meta.url)))
+    }
+    const orcaNotice = 'licenses/orca-native-chat@1.4.263'
+    for (const file of ['LICENSE', 'SOURCE.md']) {
+      assert.deepEqual(await readFile(path.join(visualizer, orcaNotice, file)), await readFile(new URL(`../vendor/orca-native-chat/${file}`, import.meta.url)))
+    }
+    assert.match(await readFile(path.join(visualizer, orcaNotice, 'LICENSE'), 'utf8'), /Copyright \(c\) 2026 Lovecast Inc\./)
+    assert.match(await readFile(path.join(destination, 'src', 'pi-live.css'), 'utf8'), /Prompt layout adapted from Orca v1\.4\.263/)
+    const thirdParty = JSON.parse(await readFile(path.join(visualizer, 'licenses', 'packages.json'), 'utf8'))
+    assert.ok(thirdParty.some(p => p.name === 'orca-native-chat' && p.version === '1.4.263' && p.license === 'MIT'))
+    const fullRegenerator = await readFile(new URL('../vendor/babel-helpers/LICENSE', import.meta.url), 'utf8')
+    let regeneratorNotices = 0
+    for (const { path: file } of assets.files.filter(file => file.path.endsWith('.LEGAL.txt'))) {
+      const notice = await readFile(path.join(visualizer, file), 'utf8')
+      if (notice.includes('/*! regenerator-runtime --')) { assert.ok(notice.endsWith(fullRegenerator)); regeneratorNotices++ }
+    }
+    assert.ok(regeneratorNotices > 0)
+    const stagedPaths = await readdir(destination, { recursive: true })
+    assert.ok(stagedPaths.every(file => !/\b(?:bin|server|tail|wire)\.js$/.test(file)))
+    assert.ok(stagedPaths.every(file => !file.endsWith('.map') && !file.split(path.sep).includes('node_modules')))
   } finally { await rm(destination, { recursive: true, force: true }) }
 })
 
@@ -46,6 +69,9 @@ test('plugin preparation rejects stale viewer sources and unexpected source path
       inputs[file] = createHash('sha256').update('fixture').digest('hex')
     }
     await verifyVisualizerSources({ inputs }, directory)
+    await writeFile(path.join(directory, 'vendor', 'pi-esp', 'view.js'), 'changed')
+    await assert.rejects(verifyVisualizerSources({ inputs }, directory), /source changed: vendor\/pi-esp\/view\.js/)
+    await writeFile(path.join(directory, 'vendor', 'pi-esp', 'view.js'), 'fixture')
     await writeFile(path.join(directory, 'src', 'topology-client.mjs'), 'changed')
     await assert.rejects(verifyVisualizerSources({ inputs }, directory), /source changed/)
     await assert.rejects(verifyVisualizerSources({ inputs: { ...inputs, '../private.yaml': 'not-read' } }, directory), /Unrecognized/)

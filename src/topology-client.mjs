@@ -9,15 +9,22 @@ const $ = id => document.getElementById(id)
 const sourceObservers = new Set()
 const sourceChanged = kind => { hideReport(); for (const listener of sourceObservers) listener(kind) }
 export function observeTopologySource(listener) { sourceObservers.add(listener); return () => sourceObservers.delete(listener) }
-let piExportAction = null, piExportAvailable = () => false
+let piExportAction = null, piExportAvailable = () => false, piLiveAction = null, piLiveAvailable = () => false
 export function setPiExportAction(action, available) { piExportAction = action; piExportAvailable = available; updatePiExportControl() }
+export function setPiLiveAction(action, available) { piLiveAction = action; piLiveAvailable = available; updatePiExportControl() }
 function updatePiExportControl() {
-  const node = model?.nodes.find(n => n.key === selectedKey), button = $('topology-pi-export')
-  button.hidden = !(model?.source === 'inventory' && node?.runtime === 'pi' && piExportAction)
-  button.disabled = dirty || !node || !piExportAvailable(node.key)
+  const node = model?.nodes.find(n => n.key === selectedKey), button = $('topology-pi-export'), live = $('topology-pi-live')
+  const nativePi = model?.source === 'inventory' && node?.runtime === 'pi'
+  button.hidden = !(nativePi && piExportAction)
+  button.disabled = dirty || pendingRender || !node || !piExportAvailable(node.key)
   button.title = button.disabled ? 'Select a local browser destination and a fresh Native Pi seat.' : 'Review a read-only Pi HTML snapshot'
+  live.hidden = !(nativePi && piLiveAction)
+  live.setAttribute('data-live-seat', node?.key || '')
+  live.disabled = dirty || pendingRender || !node || !piLiveAvailable(node.key)
+  live.title = live.disabled ? 'A visible panel and a verified Native Pi seat are required.' : 'Follow one Native Pi seat without sending any input'
 }
-$('topology-pi-export').addEventListener('click', () => { const node = model?.nodes.find(n => n.key === selectedKey); if (!dirty && model?.source === 'inventory' && node && piExportAction && piExportAvailable(node.key)) piExportAction(node.key) })
+$('topology-pi-export').addEventListener('click', () => { const node = model?.nodes.find(n => n.key === selectedKey); if (!dirty && !pendingRender && model?.source === 'inventory' && node && piExportAction && piExportAvailable(node.key)) piExportAction(node.key) })
+$('topology-pi-live').addEventListener('click', event => { const node = model?.nodes.find(n => n.key === selectedKey); if (!dirty && !pendingRender && model?.source === 'inventory' && node && piLiveAction && piLiveAvailable(node.key)) piLiveAction(node.key, event.currentTarget) })
 let reportReader = null, reportEpoch = 0, reportAnchor = null
 export function setReportReader(reader) { reportReader = typeof reader === 'function' ? reader : null; hideReport() }
 function hideReport() {
@@ -49,11 +56,11 @@ async function showReport(node, anchor) {
 window.addEventListener('scroll', () => { if (reportAnchor && !$('seat-report-tooltip').hidden) { const box = reportAnchor.getBoundingClientRect(); if (box.bottom < 0 || box.top > innerHeight || box.right < 0 || box.left > innerWidth) hideReport(); else placeReport(reportAnchor) } }, { capture: true }); window.addEventListener('resize', hideReport)
 const source = $('yaml-source'), viewport = $('viewport'), diagram = $('diagram')
 let model = null, selected = '', selectedKey = '', svg = null, svgText = '', natural = { width: 1, height: 1 }, scale = 1
-let epoch = 0, loadEpoch = 0, renderQueue = Promise.resolve(), dirty = false, directionChosen = false
+let epoch = 0, loadEpoch = 0, renderQueue = Promise.resolve(), pendingRender = false, dirty = false, directionChosen = false
 const navigation = createTopologyNavigation()
-let displayedView = null, displayedGeometry = '', navigationMessage = '', inventoryScope = null, cameraMode = 'fit'
+let displayedView = null, displayedGeometry = '', navigationMessage = '', inventoryScope = null, displayedInventoryScope = null, cameraMode = 'fit'
 function saveCamera() {
-  if (svg && displayedView?.view.rootKey === navigation.rootKey) navigation.save({ scale, left: viewport.scrollLeft, top: viewport.scrollTop, selectedKey, mode: cameraMode })
+  if (svg && displayedInventoryScope === inventoryScope && displayedView?.view.rootKey === navigation.rootKey) navigation.save({ scale, left: viewport.scrollLeft, top: viewport.scrollTop, selectedKey, mode: cameraMode })
 }
 function navigate(action) {
   if (!model || dirty) return
@@ -125,7 +132,7 @@ function fit() {
   viewport.scrollTo({ left: 0, top: 0 })
 }
 function clearGraph() {
-  cameraMode = 'fit'; hideReport(); epoch++; model = null; svg = null; svgText = ''; displayedView = null; displayedGeometry = ''; navigation.reset(); navigationMessage = ''; inventoryScope = null; diagram.replaceChildren(); details(null)
+  cameraMode = 'fit'; hideReport(); epoch++; pendingRender = false; model = null; svg = null; svgText = ''; displayedView = null; displayedGeometry = ''; navigation.reset(); navigationMessage = ''; inventoryScope = displayedInventoryScope = null; diagram.replaceChildren(); details(null)
   $('topology-main').hidden = true; $('topology-back').hidden = true; $('topology-path').textContent = 'Main'; $('topology-view-summary').textContent = ''; $('direction').disabled = false; $('direction').hidden = false; $('topology-direction').hidden = true
   $('empty').hidden = false; $('export').disabled = true; $('warnings').replaceChildren(); $('mermaid-source').value = ''
   $('rig-name').textContent = 'No valid topology'
@@ -133,7 +140,7 @@ function clearGraph() {
 }
 function markDirty() {
   sourceChanged('yaml')
-  loadEpoch++; epoch++; dirty = true; $('export').disabled = true; updatePiExportControl()
+  loadEpoch++; epoch++; pendingRender = false; dirty = true; $('export').disabled = true; updatePiExportControl()
   $('topology-main').disabled = true; $('topology-back').disabled = true
   notice('Source changed · Render diagram to apply it. The map below is the previous snapshot.')
 }
@@ -160,7 +167,7 @@ function updateMetadata(current, projection = projectTopology(current, navigatio
   $('warnings').replaceChildren(...current.warnings.map(message => { const li = document.createElement('li'); li.textContent = message; return li }))
   origin(current.source)
   if (current.source === 'inventory') $('inventory-legend').textContent = `Native directed relationships · ${current.relationsStatus}`
-  $('export').disabled = dirty; notice(dirty ? 'Source changed · The map is the previous snapshot. Render to apply the source.' : current.source === 'inventory' ? `Native pod snapshot · ${new Date(current.observedAt).toLocaleString()}. Relationships: ${current.relationsStatus}${current.relationshipObservedAt ? ` · ${new Date(current.relationshipObservedAt).toLocaleString()}` : ''}. No connections were inferred.` : 'Ready · Declared topology only. Select an agent to inspect its settings.')
+  $('export').disabled = dirty || pendingRender || !svg; notice(dirty ? 'Source changed · The map is the previous snapshot. Render to apply the source.' : current.source === 'inventory' ? `Native pod snapshot · ${new Date(current.observedAt).toLocaleString()}. Relationships: ${current.relationsStatus}${current.relationshipObservedAt ? ` · ${new Date(current.relationshipObservedAt).toLocaleString()}` : ''}. No connections were inferred.` : 'Ready · Declared topology only. Select an agent to inspect its settings.')
   if (current.source === 'inventory') updateObservationFreshness(observationFreshness)
   // Completeness/timestamps can change without a geometry redraw. Keep exported
   // scope metadata in sync too; a prior complete SVG must not mask partial data.
@@ -176,11 +183,11 @@ function updateMetadata(current, projection = projectTopology(current, navigatio
 }
 function scheduleRender({ restoreCamera = false, focusNavigation = false } = {}) {
   hideReport()
-  const current = model, rootKey = navigation.rootKey, revision = ++epoch
+  const current = model, rootKey = navigation.rootKey, scope = inventoryScope, revision = ++epoch
   if (!current) return Promise.resolve()
   const direction = rootKey !== null ? 'TB' : $('direction').value
   const camera = restoreCamera ? navigation.camera() : null
-  $('export').disabled = true; notice('Rendering the declared topology locally…')
+  pendingRender = true; updatePiExportControl(); $('export').disabled = true; notice('Rendering the declared topology locally…')
   renderQueue = renderQueue.catch(() => {}).then(async () => {
     if (revision !== epoch) return
     const isDark = dark()
@@ -206,7 +213,7 @@ function scheduleRender({ restoreCamera = false, focusNavigation = false } = {})
       diagram.replaceChildren(document.importNode(root, true)); diagram.classList.toggle('topology-focus', projection.view.rootKey !== null); svg = diagram.querySelector('svg')
       const box = svg.viewBox.baseVal
       if (!box.width || !box.height) throw new Error('Empty rendered SVG')
-      natural = { width: box.width, height: box.height }; displayedView = projection; displayedGeometry = geometryKey(current)
+      natural = { width: box.width, height: box.height }; displayedView = projection; displayedInventoryScope = scope; displayedGeometry = geometryKey(current)
       const title = document.createElementNS('http://www.w3.org/2000/svg', 'title'), description = document.createElementNS('http://www.w3.org/2000/svg', 'desc')
       svg.prepend(title, description)
       let restoringFocus = false
@@ -225,7 +232,7 @@ function scheduleRender({ restoreCamera = false, focusNavigation = false } = {})
       }
       details(projection.nodes.find(n => n.key === (camera?.selectedKey || selectedKey)) || projection.nodes.find(n => n.key === projection.view.rootKey) || projection.nodes[0])
       if (camera && camera.mode !== 'fit') { cameraMode = 'manual'; resize(camera.scale); viewport.scrollTo({ left: camera.left, top: camera.top }) } else fit()
-      $('mermaid-source').value = code; updateMetadata(current, projection)
+      pendingRender = false; updatePiExportControl(); $('mermaid-source').value = code; updateMetadata(current, projection)
       if (focusNavigation) {
         const target = selectable().find(element => nodeId(element) === selected) || viewport
         restoringFocus = true
@@ -269,18 +276,19 @@ $('zoom-in').addEventListener('click', () => { cameraMode = 'manual'; resize(sca
 $('zoom-out').addEventListener('click', () => { cameraMode = 'manual'; resize(scale / 1.25); saveCamera() })
 $('fit').addEventListener('click', () => { fit(); saveCamera() })
 $('export').addEventListener('click', async () => {
-  if (!svgText || dirty) return
+  if (!svgText || dirty || pendingRender) return
   const data = svgText, suggestedName = `${(model.name.replace(/[^a-z0-9._-]+/gi, '-').slice(0, 64) || 'rig')}-topology.svg`
+  const reportSave = message => { const status = $('svg-save-status'); status.textContent = `${suggestedName}: ${message}` }
   try {
     if (window.orca?.files?.saveAs) {
       const result = await window.orca.files.saveAs({ suggestedName, mimeType: 'image/svg+xml', data })
-      notice(result.status === 'saved' ? 'SVG saved. It contains the displayed topology.' : 'Save cancelled; no file was written.')
+      reportSave(result.status === 'saved' ? 'SVG snapshot saved.' : 'Save cancelled; no file was written.')
     } else {
       const url = URL.createObjectURL(new Blob([data], { type: 'image/svg+xml' })), link = document.createElement('a')
       link.href = url; link.download = suggestedName; document.body.append(link); link.click(); link.remove(); setTimeout(() => URL.revokeObjectURL(url), 1000)
-      notice('SVG download requested. It contains the displayed topology.')
+      reportSave('SVG snapshot download requested.')
     }
-  } catch { notice('SVG could not be saved. The current diagram is unchanged.') }
+  } catch { reportSave('SVG could not be saved.') }
 })
 const themeChanged = () => { adoptNativeTheme(); if (model) { saveCamera(); scheduleRender({ restoreCamera: true }) } }
 window.orca?.on?.('theme', themeChanged)

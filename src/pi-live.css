@@ -1,0 +1,19 @@
+#pi-live-log {
+  --pi-esp-foreground: var(--ink);
+  --pi-esp-strong: var(--ink);
+  --pi-esp-muted: var(--muted);
+  --pi-esp-user-surface: var(--soft);
+  --pi-esp-border: var(--line);
+  --pi-esp-code-surface: var(--soft);
+  --pi-esp-hover: var(--soft);
+  border: 1px solid var(--line);
+  background: var(--canvas);
+  border-radius: var(--orca-radius, 10px);
+  font-family: var(--orca-font-sans, system-ui, sans-serif);
+}
+#pi-live-log .pi-esp-scroll { max-block-size: min(52vh, 510px); min-inline-size: 0 }
+#pi-live-log :where(.pi-esp-scroll p, .pi-esp-scroll ul, .pi-esp-scroll ol) { font-size: inherit; line-height: inherit }
+
+/* Prompt layout adapted from Orca v1.4.263, MIT, Copyright (c) 2026 Lovecast Inc.
+   See vendor/orca-native-chat/SOURCE.md and the packaged third-party notices. */
+#pi-live-log .pi-esp-user-bubble { max-inline-size: 80%; padding: 10px 14px }

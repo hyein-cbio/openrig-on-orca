@@ -3,7 +3,7 @@
 import assert from 'node:assert/strict'
 import { execFile } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
-import { mkdtemp, mkdir, writeFile, readdir, readFile, realpath, copyFile, stat } from 'node:fs/promises'
+import { mkdtemp, mkdir, writeFile, readdir, readFile, realpath, copyFile, stat, lstat, symlink, unlink } from 'node:fs/promises'
 import { createServer } from 'node:net'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
@@ -35,7 +35,7 @@ for (const key of Object.keys(env)) {
 }
 const report = { root, checks: [], warnings: [], versions: { node: process.version, orca: null, openrig: OPENRIG_VERSION }, exitCode: 1, visual: 'not-captured' }
 const check = (id, detail) => report.checks.push({ id, detail })
-let fixtureStarted = false, daemonStarted = false, loaded = false, runtimePid, terminalId, rig, rigEnv
+let fixtureStarted = false, daemonStarted = false, daemonStartPending = false, loaded = false, runtimePid, terminalId, rig, rigEnv
 let ownedWorkspacePaths = [project]
 let rigName
 let frozenFixture, previewServer, previewPage, observedPodFixture, browserStep = ''
@@ -71,9 +71,45 @@ async function until(check, timeout = 20000) {
   }
   throw last || new Error('Timed out')
 }
+const daemonReservationReleased = () => assert.rejects(stat(path.join(rigEnv.OPENRIG_HOME, 'daemon-start.lock')), { code: 'ENOENT' })
+async function recoverUnpublishedDaemon(expectedLock) {
+  const instance = await realpath(rigEnv.OPENRIG_HOME), sandbox = await realpath(root)
+  assert.equal(instance, path.join(sandbox, 'data', 'instance'), 'Unpublished recovery is limited to this sandbox instance')
+  const lock = path.join(instance, 'daemon-start.lock'), record = path.join(instance, 'daemon.json')
+  const before = await lstat(lock)
+  if (expectedLock) assert.ok(before.dev === expectedLock.dev && before.ino === expectedLock.ino && before.ctimeMs === expectedLock.ctimeMs, 'The startup reservation was replaced')
+  assert.ok(before.isFile() && before.size <= 16_384, 'Unverified native startup reservation')
+  const text = await readFile(lock, 'utf8'), [launcher, child, extra] = text.trim().split('\n').map(line => JSON.parse(line))
+  const validPid = pid => Number.isSafeInteger(pid) && pid > 1 && pid <= 2147483647
+  assert.ok(!extra && validPid(launcher?.launcherPid) && (!child || validPid(child.childPid)), 'Unverified native startup PIDs')
+  const gone = pid => {
+    try { process.kill(pid, 0); return false } catch (error) { if (error.code === 'ESRCH') return true; throw error }
+  }
+  const unchanged = async () => {
+    const current = await lstat(lock)
+    assert.ok(current.isFile() && current.dev === before.dev && current.ino === before.ino && current.size === before.size, 'The startup reservation changed')
+    assert.equal(await readFile(lock, 'utf8'), text, 'The startup reservation content changed')
+    await assert.rejects(lstat(record), { code: 'ENOENT' })
+  }
+  assert.ok(gone(launcher.launcherPid), 'The native launcher may still publish a daemon')
+  assert.ok(child, 'The reservation has no recorded child PID; absence cannot be proven')
+  const evidence = await until(async () => {
+    const published = await lstat(record).catch(error => { if (error.code !== 'ENOENT') throw error })
+    if (published) return 'published' // Let the native stop path handle the published instance.
+    // No portable handle ties a kill to this unpublished process rather than a
+    // reused PID. Wait for Native publication or exit; otherwise retain the lock.
+    await unchanged()
+    assert.ok(gone(child.childPid), 'The reserved child may still be live; the reservation was kept for Native recovery')
+    return 'gone'
+  }, 8000)
+  if (evidence === 'published') return
+  await unchanged()
+  await unlink(lock) // Only a matching private reservation whose launcher and child have both exited.
+}
 async function executePlan(action, workspaceId) {
   const plan = await request('setup.prepare', { action, workspaceId })
   assert.equal(plan.workspaceId, workspaceId)
+  if (action === 'start-daemon') daemonStarted = daemonStartPending = true
   const result = await request('setup.execute', { planId: plan.id, workspaceId })
   check(action === 'install-rig' ? 'install-opened' : action === 'start-daemon' ? 'daemon-opened' : action === 'example-demo' ? 'example-opened' : `${action}-opened`, `Confirmed ${action} opens an Orca terminal`)
   return { ...result, plan }
@@ -136,8 +172,8 @@ try {
   const workspace = state.workspaces.find(w => path.resolve(w.path) === path.resolve(project))
   assert.ok(workspace, 'The sandbox fixture workspace must be selected explicitly')
   await executePlan('start-daemon', workspace.id)
-  daemonStarted = true
-  await until(async () => { const data = await request('seats.list'); assert.deepEqual(data.seats, []) })
+  await until(async () => { const data = await request('seats.list'); assert.deepEqual(data.seats, []); await daemonReservationReleased() })
+  daemonStartPending = false
   check('daemon-no-agents', 'Isolated loopback daemon starts with no kernel or agents')
   const consoleReview = await request('setup.prepare', { action: 'console', workspaceId: workspace.id, consoleSource: 'configured' })
   assert.equal(consoleReview.console.port, config.daemonPort); assert.equal(consoleReview.console.source, 'configured'); assert.equal(consoleReview.command.includes('--shared'), false); assert.match(consoleReview.command, /OPENRIG_NO_KERNEL=1/)
@@ -243,6 +279,29 @@ try {
   await until(async () => assert.equal((await request('seats.list')).seats.filter(seat => seat.rigName === frozenFixture && seat.status === 'running').length, 2))
   await invoke(rig.file, [...rig.args, 'down', frozenFixture], { env: rigEnv }); frozenFixture = undefined
   check('frozen-terminal-launch', 'The frozen-bundle confirmation program previewed and launched two real terminal-only seats; no model runtime was used')
+  // Reuse only the sandbox-owned DB, now exposed as its effective HOME's default TUI source.
+  const nativeHome = path.dirname(dbPath), priorDb = await stat(dbPath)
+  const beforeRestart = (await request('seats.list')).seats.map(s => s.key).sort()
+  await invoke(rig.file, [...rig.args, 'daemon', 'stop'], { env: rigEnv }); daemonStarted = false
+  await symlink(nativeHome, path.join(home, '.openrig'))
+  const existing = await until(async () => {
+    const target = await request('instance.inspect', { source: 'tui', tuiPort: config.daemonPort })
+    assert.equal(target.status, 'startable', target.detail); return target
+  })
+  const daemonReview = await request('setup.prepare', { action: 'start-daemon', workspaceId: workspace.id, daemonSource: 'tui', daemonKey: existing.key, tuiPort: config.daemonPort })
+  assert.equal(daemonReview.daemon.database, dbPath); assert.equal(daemonReview.daemon.port, config.daemonPort)
+  daemonStarted = daemonStartPending = true // A terminal response may be ambiguous; cleanup still checks the owned home.
+  await request('setup.execute', { planId: daemonReview.id, workspaceId: workspace.id })
+  await until(async () => {
+    const observed = await request('pods.list', { source: 'tui' })
+    assert.equal(observed.connection.home, nativeHome); assert.equal(observed.connection.port, daemonReview.daemon.port); assert.deepEqual(observed.seats.map(s => s.key).sort(), beforeRestart)
+    assert.equal(observed.seats.some(s => s.status === 'running'), false)
+    await daemonReservationReleased()
+  })
+  daemonStartPending = false
+  const afterRestart = await request('environment.scan'); assert.equal(afterRestart.config.instanceHome, config.instanceHome)
+  assert.equal((await stat(dbPath)).ino, priorDb.ino)
+  check('existing-daemon-start', 'Explicit default TUI selection started only the already-owned sandbox database on its reviewed port; same DB and registrations, no agents or routing change')
   const registered = (await orca(['plugin', 'list'])).result.plugins.find(p => p.pluginKey === 'local.openrig-for-orca')
   assert.deepEqual(registered.panels.map(p => p.id), ['openrig'])
   const preview = await startTopologyPreview(); previewServer = preview.server
@@ -339,9 +398,9 @@ try {
   const controlHtml = (await readFile(path.join(stage, 'src/visualizer/plugin.html'), 'utf8')).replace(/(src|href)="([^"]+)"/g, (_, attribute, value) => `${attribute}="${new URL(value, new URL('/visualizer/plugin.html', preview.url)).href}"`)
   await evaluate(`(()=>{
     const frame=document.createElement('iframe');frame.id='report-controls-fixture';frame.style.cssText='position:fixed;top:10px;left:10px;width:900px;height:900px;z-index:2000;background:white';document.body.append(frame);const d=frame.contentDocument;d.open();
-    const catalog=${JSON.stringify(inventory)},reports=${JSON.stringify(observedPodFixture.userReports)},relations=${JSON.stringify(relations)},environment=${JSON.stringify(controlEnvironment)},consolePlan=${JSON.stringify(consoleReview)};catalog.connection.source='tui';
+    const catalog=${JSON.stringify(inventory)},reports=${JSON.stringify(observedPodFixture.userReports)},relations=${JSON.stringify(relations)},environment=${JSON.stringify(controlEnvironment)},consolePlan=${JSON.stringify(consoleReview)};const configuredConnection={...catalog.connection,source:'configured',home:'/fixture/configured-openrig',key:'9'.repeat(64)};catalog.connection.source='tui';
     window.reportControlProbe={calls:[],fail:false};const probe=window.reportControlProbe;
-    frame.contentWindow.orca={plugin:{request:async(name,input)=>{probe.calls.push({name,input});if(name==='environment.scan')return environment;if(name==='examples.list')return {examples:[]};if(name==='pods.list')return {...catalog,seats:probe.startFixture?catalog.seats.map(s=>({...s,runtime:s.key===probe.startSeatKey?'pi':'modal-pi-middle',status:probe.messageFixture&&s.key===probe.startSeatKey?'running':'detached',lifecycle:probe.messageFixture&&s.key===probe.startSeatKey?'running':'detached',activity:probe.messageFixture&&s.key===probe.startSeatKey?'idle':'unknown',attention:false})):catalog.seats,connection:{...catalog.connection,source:input.source,matchesConfigured:probe.startFixture?probe.routingMatches:catalog.connection.matchesConfigured}};if(name==='pods.edges')return relations;if(name==='seat.report')return {status:'none',detail:'Read-only fixture'};if(name==='setup.prepare'&&input.action==='export-pi-html')return {...${JSON.stringify(piPlan)},expires:Date.now()+60000,workspaceId:input.workspaceId};if(name==='setup.execute'&&input.planId==='pi-html-controls-fixture')return ${JSON.stringify(piReceipt)};if(name==='pi-html.open'&&input.id===${JSON.stringify('c'.repeat(32))})return {...${JSON.stringify(piReceipt)},browser:'opened',browserPageId:'fixture-browser'};if(name==='setup.prepare'&&input.action==='send-message'){const seat=catalog.seats.find(s=>s.key===input.seatKey);return {id:'message-controls-fixture',action:'send-message',expires:Date.now()+60000,workspaceId:input.workspaceId,title:'Review fixture message',command:'Fixture review only; never send',source:'https://openrig.dev',writes:[],warnings:['Sending can invoke a model'],instruction:{key:seat.key,session:seat.session,runtime:'pi',text:input.message,completion:${JSON.stringify(requestFixture.completion)}},queueTask:{...${JSON.stringify(requestFixture)},destination:seat.session,key:seat.key,runtime:'pi',bodyFile:'/fixture/body.txt'}};}if(name==='setup.execute'&&input.planId==='message-controls-fixture')return {terminalId:'term_message_fixture',task:{id:${JSON.stringify(messageId)},destination:catalog.seats.find(s=>s.key===probe.startSeatKey).session,registration:'unverified',state:'unknown',detail:'Fixture-only request receipt'}};if(name==='task.check'&&input.id===${JSON.stringify(messageId)}){const body='Stored fixture answer <img src=x onerror=alert(1)>',bytes=new TextEncoder().encode(body).length;return {id:input.id,destination:catalog.seats.find(s=>s.key===probe.startSeatKey).session,registration:'verified',state:'done',detail:'Fixture stored result',resolution:{body,bytes,totalBytes:bytes,truncated:false}};}if(name==='setup.prepare'&&input.action==='launch-seat'){const seat=catalog.seats.find(s=>s.key===input.seatKey);if(!seat)throw Error('Unknown fixture seat');return {id:'seat-start-controls-fixture',action:'launch-seat',expires:Date.now()+60000,workspaceId:input.workspaceId,title:'Start selected fixture seat',command:'Fixture review only; no execution',source:'https://openrig.dev',writes:[],warnings:['Agent startup may invoke models'],seatLaunch:{...seat,runtime:'pi',status:'detached',lifecycle:'detached'}};}if(name==='setup.prepare'&&input.action==='console')return {...consolePlan,id:'tui-controls-fixture',expires:Date.now()+60000,workspaceId:input.workspaceId,console:{...consolePlan.console,source:input.consoleSource||'configured'}};if(name==='user.reports')return probe.fail?{...reports,status:'unverified',reports:[]}:reports;throw Error('No mutation is available in the fixture bridge');}}};
+    frame.contentWindow.orca={plugin:{request:async(name,input)=>{probe.calls.push({name,input});if(name==='environment.scan')return environment;if(name==='examples.list')return {examples:[]};if(name==='pods.list'&&probe.offline)throw Error('Offline fixture');if(name==='instance.inspect'){const pending=input.source==='tui'&&!input.tuiPort;return {source:input.source,home:input.source==='tui'?'/fixture/.openrig':configuredConnection.home,port:pending?'':input.tuiPort||catalog.connection.port,portRequired:probe.offline&&input.source==='tui',key:(input.source==='configured'?'c':pending?'d':'e').repeat(64),status:probe.offline?(pending?'port-required':'startable'):'blocked',detail:pending?'Enter the exact local port':'Fixture status'};}if(name==='setup.prepare'&&input.action==='start-daemon')return {id:'fixture-daemon-start',action:'start-daemon',expires:Date.now()+60000,workspaceId:input.workspaceId,title:'Start selected daemon',source:'https://openrig.dev',command:'Fixture review --no-kernel',writes:[],warnings:[],daemon:{source:input.daemonSource,home:'/fixture/.openrig',port:input.tuiPort,database:'/fixture/.openrig/openrig.sqlite',cli:'/fixture/rig',node:'/fixture/node',version:'0.7.13'}};if(name==='pods.list')return {...catalog,seats:probe.startFixture?catalog.seats.map(s=>({...s,runtime:s.key===probe.startSeatKey?'pi':'modal-pi-middle',status:probe.messageFixture&&s.key===probe.startSeatKey?'running':'detached',lifecycle:probe.messageFixture&&s.key===probe.startSeatKey?'running':'detached',activity:probe.messageFixture&&s.key===probe.startSeatKey?'idle':'unknown',attention:false})):catalog.seats,connection:{...(input.source==='configured'?configuredConnection:catalog.connection),matchesConfigured:probe.startFixture?probe.routingMatches:catalog.connection.matchesConfigured}};if(name==='pods.edges')return relations;if(name==='seat.report')return {status:'none',detail:'Read-only fixture'};if(name==='setup.prepare'&&input.action==='export-pi-html')return {...${JSON.stringify(piPlan)},expires:Date.now()+60000,workspaceId:input.workspaceId};if(name==='setup.execute'&&input.planId==='pi-html-controls-fixture')return ${JSON.stringify(piReceipt)};if(name==='pi-html.open'&&input.id===${JSON.stringify('c'.repeat(32))})return {...${JSON.stringify(piReceipt)},browser:'opened',browserPageId:'fixture-browser'};if(name==='setup.prepare'&&input.action==='send-message'){const seat=catalog.seats.find(s=>s.key===input.seatKey);return {id:'message-controls-fixture',action:'send-message',expires:Date.now()+60000,workspaceId:input.workspaceId,title:'Review fixture message',command:'Fixture review only; never send',source:'https://openrig.dev',writes:[],warnings:['Sending can invoke a model'],instruction:{key:seat.key,session:seat.session,runtime:'pi',text:input.message,completion:${JSON.stringify(requestFixture.completion)}},queueTask:{...${JSON.stringify(requestFixture)},destination:seat.session,key:seat.key,runtime:'pi',bodyFile:'/fixture/body.txt'}};}if(name==='setup.execute'&&input.planId==='message-controls-fixture')return {terminalId:'term_message_fixture',task:{id:${JSON.stringify(messageId)},destination:catalog.seats.find(s=>s.key===probe.startSeatKey).session,registration:'unverified',state:'unknown',detail:'Fixture-only request receipt'}};if(name==='task.check'&&input.id===${JSON.stringify(messageId)}){const body='Stored fixture answer <img src=x onerror=alert(1)>',bytes=new TextEncoder().encode(body).length;return {id:input.id,destination:catalog.seats.find(s=>s.key===probe.startSeatKey).session,registration:'verified',state:'done',detail:'Fixture stored result',resolution:{body,bytes,totalBytes:bytes,truncated:false}};}if(name==='setup.prepare'&&input.action==='launch-seat'){const seat=catalog.seats.find(s=>s.key===input.seatKey);if(!seat)throw Error('Unknown fixture seat');return {id:'seat-start-controls-fixture',action:'launch-seat',expires:Date.now()+60000,workspaceId:input.workspaceId,title:'Start selected fixture seat',command:'Fixture review only; no execution',source:'https://openrig.dev',writes:[],warnings:['Agent startup may invoke models'],seatLaunch:{...seat,runtime:'pi',status:'detached',lifecycle:'detached'}};}if(name==='setup.prepare'&&input.action==='console')return {...consolePlan,id:'tui-controls-fixture',expires:Date.now()+60000,workspaceId:input.workspaceId,console:{...consolePlan.console,...(input.consoleSource==='configured'?configuredConnection:catalog.connection)}};if(name==='user.reports')return probe.fail?{...reports,status:'unverified',reports:[]}:reports;throw Error('No mutation is available in the fixture bridge');}}};
     d.write(${JSON.stringify(controlHtml)});d.close();return JSON.stringify(true);
   })()`)
   const controlDoc = `document.getElementById('report-controls-fixture').contentDocument`
@@ -361,15 +420,33 @@ try {
   await until(async () => assert.equal(await evaluate(`JSON.stringify(!${controlDoc}.getElementById('user-report-error').hidden && ${controlDoc}.getElementById('user-report-status').textContent.includes('older retained snapshot'))`), true))
   assert.equal(await evaluate(`JSON.stringify(${controlDoc}.querySelector('#user-report-list pre')===window.reportControlProbe.body && ${controlDoc}.querySelector('#user-report-list details').open)`), true)
   await evaluate(`(()=>{const d=${controlDoc},input=d.getElementById('user-report-sources');input.value='peer@fixture';input.dispatchEvent(new Event('input',{bubbles:true}));d.getElementById('load-user-reports').click();return JSON.stringify(true)})()`)
-  assert.equal(await evaluate(`JSON.stringify(${controlDoc}.querySelectorAll('#user-report-list pre').length===0 && window.reportControlProbe.calls.filter(c=>c.name==='user.reports').length===2 && window.reportControlProbe.calls.every(c=>['environment.scan','examples.list','pods.list','pods.edges','user.reports','seat.report'].includes(c.name)))`), true)
-  await evaluate(`(()=>{const d=${controlDoc};d.getElementById('view-preparation').click();const workspace=d.getElementById('plugin-workspace');workspace.value=${JSON.stringify(workspace.id)};workspace.dispatchEvent(new Event('change',{bubbles:true}));d.querySelector('[data-operation="console"]').click();return JSON.stringify(true)})()`)
+  assert.equal(await evaluate(`JSON.stringify(${controlDoc}.querySelectorAll('#user-report-list pre').length===0 && window.reportControlProbe.calls.filter(c=>c.name==='user.reports').length===2 && window.reportControlProbe.calls.every(c=>['environment.scan','examples.list','pods.list','pods.edges','user.reports','seat.report','instance.inspect'].includes(c.name)))`), true)
+  await evaluate(`JSON.stringify((${controlDoc}.getElementById('view-preparation').click(),true))`)
+  assert.equal(await evaluate(`JSON.stringify(${controlDoc}.getElementById('open-selected-tui').disabled&&${controlDoc}.getElementById('open-tui-status').textContent.includes('Choose a local Orca workspace'))`), true)
+  await evaluate(`(()=>{const d=${controlDoc},workspace=d.getElementById('plugin-workspace');workspace.value=${JSON.stringify(workspace.id)};workspace.dispatchEvent(new Event('change',{bubbles:true}));d.getElementById('open-selected-tui').click();return JSON.stringify(true)})()`)
   await until(async () => assert.equal(await evaluate(`JSON.stringify(!${controlDoc}.getElementById('plugin-review').hidden && ${controlDoc}.getElementById('review-target').textContent.includes(${JSON.stringify(consoleReview.console.home)}))`), true))
+  const mostRecentConsole = () => evaluate(`JSON.stringify((()=>{const {action,consoleSource,instanceKey,workspaceId}=window.reportControlProbe.calls.filter(c=>c.name==='setup.prepare'&&c.input.action==='console').at(-1).input;return {action,consoleSource,instanceKey,workspaceId}})())`)
+  assert.deepEqual(await mostRecentConsole(), { action: 'console', consoleSource: 'tui', instanceKey: inventory.connection.key, workspaceId: workspace.id })
   await evaluate(`(()=>{const d=${controlDoc};d.getElementById('cancel-operation').click();d.getElementById('go-dashboard').click();return JSON.stringify(true)})()`)
-  await until(async () => assert.equal(await evaluate(`JSON.stringify(${controlDoc}.getElementById('pod-instance-source').value==='configured' && !${controlDoc}.getElementById('open-observed-tui').disabled && ${controlDoc}.getElementById('dashboard-pod').value==='')`), true))
+  await until(async () => assert.equal(await evaluate(`JSON.stringify(${controlDoc}.getElementById('pod-instance-source').value==='tui' && !${controlDoc}.getElementById('open-observed-tui').disabled)`), true))
   await evaluate(`JSON.stringify((${controlDoc}.getElementById('open-observed-tui').click(),true))`)
   await until(async () => assert.equal(await evaluate(`JSON.stringify(!${controlDoc}.getElementById('plugin-review').hidden)`), true))
-  assert.deepEqual(await evaluate(`JSON.stringify((()=>{const c=window.reportControlProbe.calls.filter(c=>c.name==='setup.prepare').at(-1);return {source:c.input.consoleSource,key:c.input.instanceKey,workspaceId:c.input.workspaceId,executed:window.reportControlProbe.calls.some(c=>c.name==='setup.execute'||c.name==='config.save')};})())`), { source: 'configured', key: inventory.connection.key, workspaceId: workspace.id, executed: false })
-  check('tui-controls', 'Prominent configured/observed TUI buttons prepare exact instance-bound reviews; configured Dashboard handoff changes observations only and TUI review works without a selected pod or automatic execution')
+  assert.deepEqual(await evaluate(`JSON.stringify((()=>{const c=window.reportControlProbe.calls.filter(c=>c.name==='setup.prepare').at(-1);return {source:c.input.consoleSource,key:c.input.instanceKey,workspaceId:c.input.workspaceId,executed:window.reportControlProbe.calls.some(c=>c.name==='setup.execute'||c.name==='config.save')};})())`), { source: 'tui', key: inventory.connection.key, workspaceId: workspace.id, executed: false })
+  await evaluate(`(()=>{const d=${controlDoc};d.getElementById('cancel-operation').click();d.getElementById('change-instance').click();const select=d.getElementById('pod-instance-source');select.value='configured';select.dispatchEvent(new Event('change'));return JSON.stringify(true)})()`)
+  await until(async () => assert.equal(await evaluate(`JSON.stringify((()=>{const d=${controlDoc};return !d.getElementById('preparation-view').hidden&&!d.getElementById('check-instance').disabled&&d.getElementById('dashboard-view').querySelector('#pod-instance-source')===null&&d.getElementById('tui-port-control').hidden&&!d.getElementById('open-selected-tui').disabled})())`), true))
+  await evaluate(`JSON.stringify((${controlDoc}.getElementById('open-selected-tui').click(),true))`)
+  await until(async () => assert.equal(await evaluate(`JSON.stringify(!${controlDoc}.getElementById('plugin-review').hidden && ${controlDoc}.getElementById('review-target').textContent.includes('/fixture/configured-openrig'))`), true))
+  assert.deepEqual(await mostRecentConsole(), { action: 'console', consoleSource: 'configured', instanceKey: '9'.repeat(64), workspaceId: workspace.id })
+  check('tui-controls', 'Preparation and Dashboard bind the same observed TUI instance, then Preparation binds a different configured home only after explicit selection')
+  await evaluate(`(()=>{const d=${controlDoc},select=d.getElementById('pod-instance-source');d.getElementById('cancel-operation').click();window.reportControlProbe.offline=true;select.value='tui';select.dispatchEvent(new Event('change'));return JSON.stringify(true)})()`)
+  await until(async () => assert.equal(await evaluate(`JSON.stringify((()=>{const d=${controlDoc};return !d.getElementById('tui-port-control').hidden&&d.querySelector('[data-operation="start-daemon"]').disabled&&d.getElementById('selected-instance').textContent.includes('/fixture/.openrig')&&d.getElementById('open-selected-tui').disabled&&d.getElementById('open-tui-status').textContent.includes('reachable')})())`), true))
+  await evaluate(`(()=>{const d=${controlDoc},port=d.getElementById('tui-start-port');port.value='7433';port.dispatchEvent(new Event('input'));d.getElementById('check-instance').click();return JSON.stringify(true)})()`)
+  await until(async () => assert.equal(await evaluate(`JSON.stringify(!${controlDoc}.querySelector('[data-operation="start-daemon"]').disabled)`), true))
+  await evaluate(`JSON.stringify((${controlDoc}.querySelector('[data-operation="start-daemon"]').click(),true))`)
+  await until(async () => assert.equal(await evaluate(`JSON.stringify(!${controlDoc}.getElementById('plugin-review').hidden)`), true))
+  assert.equal(await evaluate(`JSON.stringify((()=>{const d=${controlDoc},calls=window.reportControlProbe.calls,review=calls.find(c=>c.name==='setup.prepare'&&c.input.action==='start-daemon');return review.input.daemonSource==='tui'&&review.input.tuiPort==='7433'&&review.input.daemonKey==='e'.repeat(64)&&calls.some(c=>c.name==='instance.inspect'&&c.input.source==='tui'&&c.input.tuiPort==='7433')&&d.getElementById('review-target').textContent.includes('/fixture/.openrig/openrig.sqlite')&&!calls.some(c=>['setup.execute','config.save','pods.connect'].includes(c.name));})())`), true)
+  check('instance-controls', 'Single Preparation instance selector and Dashboard shortcut, offline default-home port entry, and reviewed exact home/port/DB with no execution or operation retargeting')
+  await evaluate(`(()=>{const d=${controlDoc};d.getElementById('cancel-operation').click();window.reportControlProbe.offline=false;d.getElementById('go-dashboard').click();return JSON.stringify(true)})()`)
   await evaluate(`(()=>{const d=${controlDoc};d.getElementById('cancel-operation').click();window.reportControlProbe.startFixture=true;window.reportControlProbe.routingMatches=false;window.reportControlProbe.startSeatKey=${JSON.stringify(observedPodFixture.seats[0].key)};const workspace=d.getElementById('plugin-workspace');workspace.value='';workspace.dispatchEvent(new Event('change',{bubbles:true}));d.getElementById('refresh-pods').click();return JSON.stringify(true)})()`)
   await until(async () => assert.equal(await evaluate(`JSON.stringify(!${controlDoc}.getElementById('refresh-pods').disabled)`), true))
   await evaluate(`(()=>{const d=${controlDoc},pod=d.getElementById('dashboard-pod');pod.value=${JSON.stringify(observedPodFixture.pod.key)};pod.dispatchEvent(new Event('change',{bubbles:true}));return JSON.stringify(true)})()`)
@@ -469,7 +546,38 @@ try {
     if (terminalId) await cleanup('seat view', () => orca(['terminal', 'close', '--terminal', terminalId]))
     if (frozenFixture && rig) await cleanup('frozen fixture', () => invoke(rig.file, [...rig.args, 'down', frozenFixture], { env: rigEnv }))
     if (fixtureStarted && rig) await cleanup('fixture', () => invoke(rig.file, [...rig.args, 'down', rigName], { env: rigEnv }))
-    if (daemonStarted && rig) await cleanup('daemon', () => invoke(rig.file, [...rig.args, 'daemon', 'stop'], { env: rigEnv }))
+    const stopDaemon = () => cleanup('daemon', async () => {
+      const native = (verb, options = {}) => invoke(rig.file, [...rig.args, 'daemon', verb], { env: rigEnv, ...options })
+      const status = async () => (await native('status', { timeout: 3000 })).stdout.trim()
+      const unlocked = daemonReservationReleased
+      if (daemonStartPending) await cleanup('pending daemon reservation', async () => {
+        try { await until(unlocked, 15_000) } catch { await recoverUnpublishedDaemon() }
+      })
+      const reservation = daemonStartPending ? await lstat(path.join(rigEnv.OPENRIG_HOME, 'daemon-start.lock')).catch(error => { if (error.code !== 'ENOENT') throw error }) : null
+      await cleanup('native daemon stop', () => native('stop'))
+      if (daemonStartPending) {
+        let lateStopAttempts = 0, lateStopDispatched = false
+        const stopped = () => until(async () => {
+          const observed = await status()
+          const record = /^Daemon running on port /.test(observed) && await lstat(path.join(rigEnv.OPENRIG_HOME, 'daemon.json')).catch(error => { if (error.code !== 'ENOENT') throw error })
+          if (!lateStopDispatched && lateStopAttempts < 2 && record) {
+            lateStopAttempts++
+            try { await native('stop'); lateStopDispatched = true } catch (error) {
+              // Only a known spawn-resource failure is safe to retry; a timed-out stop may be in progress.
+              lateStopDispatched = !['EAGAIN', 'EMFILE', 'ENFILE', 'ENOMEM'].includes(error.code)
+              throw error
+            }
+          }
+          assert.equal(observed, 'Daemon stopped'); await unlocked()
+        }, 10_000)
+        try { await stopped() } catch (error) {
+          if (!reservation) throw error
+          await recoverUnpublishedDaemon(reservation)
+          await stopped()
+        }
+      }
+    })
+    if (daemonStarted && rig && !daemonStartPending) await stopDaemon()
     if (loaded) await cleanup('plugin', () => orca(['plugin', 'dev', 'unload', stage]))
     if (runtimePid) for (const workspacePath of ownedWorkspacePaths) {
       await cleanup('sandbox terminals', () => orca(['terminal', 'close', '--worktree', `path:${workspacePath}`, '--all']))
@@ -520,6 +628,10 @@ try {
         if (Number.isSafeInteger(record.pid) && record.pid > 1) await cleanup('sandbox terminal host', () => stopOwned(record.pid))
       }
     } catch (error) { if (error.code !== 'ENOENT') { report.warnings.push(`Terminal-host cleanup: ${error.message}`); process.exitCode = 1 } }
+    // An ambiguous dispatch can still have terminal creation in flight after unload or
+    // a terminal-close snapshot. Finish shutting down the isolated profile and its
+    // terminal hosts before the final native stop and status check.
+    if (daemonStarted && rig && daemonStartPending) await stopDaemon()
     if (process.exitCode) report.exitCode = 1
     else check('cleanup-complete', 'Fixture, daemon, plugin, terminals and profile-owned desktop/terminal-host processes cleaned up')
   }

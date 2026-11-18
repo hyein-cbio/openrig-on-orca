@@ -17,13 +17,23 @@ export async function buildVisualizer() {
   } catch (error) { if (error.code !== 'ENOENT' || error.path !== output) throw error }
   const temporary = await mkdtemp(path.join(root, 'src', '.visualizer-build-'))
   try {
-    await build({ absWorkingDir: root, entryPoints: { app: 'src/topology-client.mjs', topology: 'src/topology.mjs', workspace: 'src/plugin-client.mjs' }, bundle: true, splitting: true, platform: 'browser', format: 'esm', target: 'es2022', minify: true, charset: 'ascii', legalComments: 'linked', outdir: temporary, outExtension: { '.js': '.mjs' }, external: ['./mermaid/mermaid.esm.min.mjs', './topology.mjs'] })
+    const viewer = await build({ absWorkingDir: root, metafile: true, entryPoints: { app: 'src/topology-client.mjs', topology: 'src/topology.mjs', workspace: 'src/plugin-client.mjs' }, bundle: true, splitting: true, platform: 'browser', format: 'esm', target: 'es2022', minify: true, charset: 'ascii', legalComments: 'linked', outdir: temporary, outExtension: { '.js': '.mjs' }, external: ['./mermaid/mermaid.esm.min.mjs', './topology.mjs'] })
+    if (Object.values(viewer.metafile.outputs).some(file => file.imports.some(item => item.external && !['./mermaid/mermaid.esm.min.mjs', './topology.mjs'].includes(item.path)))) throw new Error('Browser bundle has an unexpected external import')
     await build({ absWorkingDir: root, entryPoints: ['src/pi-export-guard.mjs'], bundle: true, platform: 'browser', format: 'iife', target: 'es2022', minify: true, charset: 'ascii', legalComments: 'linked', outfile: path.join(temporary, 'pi-export-guard.js') })
+    // DOMPurify's bundled regenerator header points to Babel's MIT license.
+    // https://github.com/babel/babel/blob/bf3497da72a3c6385d049675955ffdb6b81c5fa0/packages/babel-helpers/LICENSE
+    const regeneratorLicense = await readFile(path.join(root, 'vendor/babel-helpers/LICENSE'), 'utf8')
+    for (const file of (await readdir(temporary)).filter(name => name.endsWith('.LEGAL.txt'))) {
+      const notice = path.join(temporary, file), contents = await readFile(notice, 'utf8')
+      if (contents.includes('/*! regenerator-runtime --')) await writeFile(notice, contents + '\n' + regeneratorLicense)
+    }
     const shell = await readFile(path.join(root, 'src', 'plugin.html'), 'utf8')
     const topology = await readFile(path.join(root, 'src', 'topology.html'), 'utf8')
     const body = /<body>([\s\S]*?)<\/body>/.exec(topology)?.[1]?.replace('<main class="studio">', '<section class="studio">').replace('</main>', '</section>')
     if (!body || shell.split('<!-- TOPOLOGY_CONTENT -->').length !== 2) throw new Error('Invalid unified panel template')
     await writeFile(path.join(temporary, 'plugin.html'), shell.replace('<!-- TOPOLOGY_CONTENT -->', body))
+    const piEsp = path.join(root, 'vendor', 'pi-esp')
+    await cp(path.join(piEsp, 'view.css'), path.join(temporary, 'pi-esp-view.css'))
     const mermaid = path.join(root, 'node_modules', 'mermaid')
     const chunks = path.join(mermaid, 'dist', 'chunks', 'mermaid.esm.min')
     const target = path.join(temporary, 'mermaid', 'chunks', 'mermaid.esm.min')
@@ -54,14 +64,24 @@ export async function buildVisualizer() {
       packages.push({ name: pkg.name, version: pkg.version, license: pkg.license || 'See upstream package', repository: typeof pkg.repository === 'string' ? pkg.repository : pkg.repository?.url || '', distribution: `https://www.npmjs.com/package/${pkg.name}/v/${pkg.version}`, licenses })
       for (const dependency of Object.keys(pkg.dependencies || {}).sort()) await notices(dependency, directory)
     }
-    for (const name of ['mermaid', 'yaml', 'dompurify']) {
+    for (const name of ['mermaid', 'yaml', 'dompurify', 'marked']) {
       const { pkg } = await packageAt(name, root)
       versions[name] = { version: pkg.version, license: pkg.license }
       await notices(name, root)
     }
+    versions['pi-esp'] = { version: '0.1.0', license: 'MIT' }
+    for (const [name, version, repository, distribution] of [
+      ['pi-esp', '0.1.0', 'https://github.com/phiat/pi-esp', 'Vendored browser snapshot (see SOURCE.md)'],
+      ['orca-native-chat', '1.4.263', 'https://github.com/stablyai/orca', 'Adapted prompt layout only (see SOURCE.md)']
+    ]) {
+      const destination = path.join(temporary, 'licenses', `${name}@${version}`)
+      await mkdir(destination)
+      for (const file of ['LICENSE', 'SOURCE.md']) await cp(path.join(root, 'vendor', name, file), path.join(destination, file))
+      packages.push({ name, version, license: 'MIT', repository, distribution, licenses: ['LICENSE'] })
+    }
     packages.sort((a, b) => `${a.name}@${a.version}`.localeCompare(`${b.name}@${b.version}`, 'en'))
     await writeFile(path.join(temporary, 'licenses', 'packages.json'), JSON.stringify(packages, null, 2) + '\n')
-    await writeFile(path.join(temporary, 'licenses', 'README.md'), '# Third-party notices\n\nThese unmodified Mermaid browser modules and the bundled YAML/DOMPurify code are redistributed under their upstream licenses. License and notice files for their production dependency closure are included here (some packages are metadata/type-only and not executed). See packages.json for exact versions, license declarations, distribution links and source repositories, including the EPL-2.0 ELK source repository. Source maps, fonts and native build tools are not shipped.\n')
+    await writeFile(path.join(temporary, 'licenses', 'README.md'), '# Third-party notices\n\nThese unmodified Mermaid browser modules and the bundled YAML/DOMPurify/Marked code and pi-esp view are redistributed under their upstream licenses. License and notice files for their production dependency closure are included here (some packages are metadata/type-only and not executed). See packages.json for exact versions, license declarations, distribution links and source repositories, including the EPL-2.0 ELK source repository. See pi-esp@0.1.0/SOURCE.md for the browser renderer and orca-native-chat@1.4.263/SOURCE.md for the adapted prompt layout. The Orca chat runtime is not bundled. Source maps, fonts and native build tools are not shipped.\n')
     const files = []
     async function inventory(directory) {
       for (const entry of (await readdir(directory, { withFileTypes: true })).sort((a, b) => a.name.localeCompare(b.name, 'en'))) {

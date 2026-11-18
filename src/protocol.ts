@@ -1,6 +1,12 @@
 import type { DEFAULT_CONFIG } from './runtime.mjs'
 export type PiExportPlan = Awaited<ReturnType<typeof import('./pi-html-export.mjs').preparePiExport>>
 export interface PiHtmlReceipt { kind: 'pi-html'; id: string; root: string; workspaceId: string; file: string; url: string; session: string; sessionId: string; seatKey: string; snapshotAt: number; bytes: number; omittedTailBytes: number; sha256: string; htmlHash: string; browser: 'opened' | 'unverified'; browserPageId?: string; recoverable?: boolean; detail: string }
+export interface PiLiveScope { source: 'tui' | 'configured'; instanceKey: string; podKey: string; seatKey: string; session: string }
+export interface PiLiveEvent {
+  key: string; kind: 'user' | 'assistant' | 'thinking' | 'tool' | 'result' | 'shell' | 'error' | 'marker'
+  title: string; text: string; time?: number; toolId?: string; error?: boolean
+}
+export interface PiLiveBatch { id: string; events: PiLiveEvent[]; omittedHistory: boolean; skippedRecords: number; more: boolean }
 export type Config = typeof DEFAULT_CONFIG
 export interface Tool { path: string; version: string; compatible: boolean }
 export interface Snapshot {
@@ -28,9 +34,11 @@ export interface Instruction { key: string; session: string; runtime: string; te
 export interface QueueTask { id: string; destination: string; key: string; runtime: string; summary: string; body: string; bodyFile: string }
 export interface TaskStatus { id: string; destination: string; registration: 'unverified' | 'verified'; state: string; detail: string; resolution?: { body: string; bytes: number; totalBytes: number; truncated: boolean } }
 export interface NoOpReceipt { noOp: true; detail: string }
+export type DaemonTarget = Awaited<ReturnType<typeof import('./daemon-start.mjs').inspectDaemonTarget>>
+export type DaemonStartScope = Awaited<ReturnType<typeof import('./daemon-start.mjs').resolveDaemonStart>>['scope']
 export interface Plan {
   id: string; expires: number; action: string; title: string; source: string
-  writes: string[]; warnings: string[]; command: string; workspaceId: string; piExport?: PiExportPlan; consoleRuntime?: string; console?: { source: 'tui' | 'configured'; key: string; home: string; port: string; endpoint: string; cli: string; node: string; version: string }; pod?: { key: string; rigId: string; podId: string | null; namespace: string | null; instanceKey: string; endpoint: string }; instruction?: Instruction; seatLaunch?: Seat; queueTask?: QueueTask; example?: ExampleRecord; launchReview?: { display: Record<string, unknown> }
+  writes: string[]; warnings: string[]; command: string; workspaceId: string; daemon?: DaemonStartScope; piExport?: PiExportPlan; consoleRuntime?: string; console?: { source: 'tui' | 'configured'; key: string; home: string; port: string; endpoint: string; cli: string; node: string; version: string }; pod?: { key: string; rigId: string; podId: string | null; namespace: string | null; instanceKey: string; endpoint: string }; instruction?: Instruction; seatLaunch?: Seat; queueTask?: QueueTask; example?: ExampleRecord; launchReview?: { display: Record<string, unknown> }
 }
 export interface TerminalReceipt {
   terminalId: string; task?: TaskStatus; warning?: string; workspaceName?: string; workspaceId?: string; title?: string
@@ -44,11 +52,15 @@ export interface State {
 declare module 'orca' {
   interface PluginRequests {
     'environment.scan': { output: State }
+    'instance.inspect': { input: { source: 'tui' | 'configured'; tuiPort?: string }; output: DaemonTarget }
     'config.save': { input: Config; output: State }
-    'setup.prepare': { input: { action: string; workspaceId: string; spec?: string; exampleId?: string; seatKey?: string; message?: string; summary?: string; body?: string; podKey?: string; instanceKey?: string; consoleSource?: 'tui' | 'configured'; exportSource?: 'tui' | 'configured' }; output: Plan }
+    'setup.prepare': { input: { action: string; workspaceId: string; spec?: string; exampleId?: string; seatKey?: string; message?: string; summary?: string; body?: string; podKey?: string; instanceKey?: string; consoleSource?: 'tui' | 'configured'; daemonSource?: 'tui' | 'configured'; daemonKey?: string; tuiPort?: string; exportSource?: 'tui' | 'configured' }; output: Plan }
     'examples.list': { output: { examples: ExampleRecord[] } }
     'setup.execute': { input: { planId: string; workspaceId: string; acceptStartupRisk?: boolean }; output: TerminalReceipt | NoOpReceipt | PiHtmlReceipt }
     'pi-html.open': { input: { id: string }; output: PiHtmlReceipt }
+    'pi-live.start': { input: PiLiveScope & { id: string }; output: PiLiveBatch }
+    'pi-live.read': { input: { id: string }; output: PiLiveBatch }
+    'pi-live.stop': { input: { id: string }; output: { stopped: boolean } }
     'task.check': { input: { id: string }; output: TaskStatus }
     'terminal.reveal': { input: { terminalId: string }; output: TerminalReceipt }
     'pods.list': { input: { source: 'tui' | 'configured' } | undefined; output: PodInventory }

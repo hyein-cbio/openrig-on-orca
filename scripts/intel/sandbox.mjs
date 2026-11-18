@@ -33,7 +33,7 @@ export function buildIntelHarness(original, root, argv = []) {
   assert.equal(report.runtime.worker.arch, 'x64')
   check('runtime-verified',`)
   driver = replaceOnce(driver, '  while (Date.now() < deadline) {\n    try { return await check() }', '  while (Date.now() < deadline) {\n    cancellation.throwIfCancelled()\n    try { return await check() }')
-  driver = replaceOnce(driver, "  const result = await request('setup.execute', { planId: plan.id, workspaceId })", "  if (action === 'start-daemon') daemonStarted = true\n  if (action === 'example-demo') { fixtureStarted = true; rigName = plan.example.rigName }\n  const result = await request('setup.execute', { planId: plan.id, workspaceId })")
+  driver = replaceOnce(driver, "  const result = await request('setup.execute', { planId: plan.id, workspaceId })", "  if (action === 'example-demo') { fixtureStarted = true; rigName = plan.example.rigName }\n  const result = await request('setup.execute', { planId: plan.id, workspaceId })")
   driver = replaceOnce(driver, 'async function invoke(command, argv, options = {}) {', 'async function invoke(command, argv, options = {}) {\n  cancellation.throwIfCancelled()')
   driver = replaceOnce(driver, '} finally {\n  if (!keep) {', '} finally {\n  try {\n    await cancellation.beginCleanup()\n  if (!keep) {')
   driver = replaceOnce(driver, '  if (output) {', '  await cancellation.finishCleanup()\n  report.cleanup = { completed: report.warnings.length === 0 }\n  if (cancellation.signal) report.cancelled = cancellation.signal\n  if (output) {')

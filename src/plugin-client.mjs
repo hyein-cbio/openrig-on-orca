@@ -2,9 +2,11 @@ import { createPluginSession, CONFIG_FIELDS } from './plugin-state.mjs'
 import { EXAMPLE_STEPS } from './example-story.mjs'
 import { workspaceLabel, workspaceOptions } from './workspace-labels.mjs'
 import { instructionTextError } from './seat-instructions.mjs'
-import { canQueueTask, canStartSeat, managedAgent } from './seat-tasks.mjs'
+import { canQueueTask, canStartSeat, canExportPiSeat, managedAgent } from './seat-tasks.mjs'
 import { watchPanelVisibility } from './refresh-loop.mjs'
-import { displayPodSnapshot, observeTopologySource, setReportReader, setPiExportAction, updateObservationFreshness } from './topology-client.mjs'
+import { createPiLiveController } from './pi-live-controller.ts'
+import { createPiLiveView } from './pi-live-view.ts'
+import { displayPodSnapshot, observeTopologySource, setReportReader, setPiExportAction, setPiLiveAction, updateObservationFreshness } from './topology-client.mjs'
 
 const $ = id => document.getElementById(id)
 const VIEWS = ['preparation', 'dashboard', 'messages']
@@ -26,6 +28,42 @@ function choices(id, items, value, placeholder) {
 const bridge = window.orca?.plugin?.request ? (name, input, options) => window.orca.plugin.request(name, input, options) : null
 let ageTimer = null, disposed = false
 const session = createPluginSession(bridge, render)
+const liveRoot = $('pi-live'), liveView = createPiLiveView(liveRoot), liveVisible = () => session.state.autoRefresh?.visible === true
+function liveConnection(state, pod) {
+  const connection = state.inventory?.connection
+  if (!state.host || state.view !== 'dashboard' || state.diagramSource !== 'inventory' || state.plan || state.busyKind === 'operation' || session.dirty() || !session.selectedReachable() || !connection || connection.source !== state.inventorySource || !pod || state.observation.seatsError || state.observation.missing || state.observation.identityChanged) return null
+  return connection
+}
+function liveScope(key) {
+  const pod = session.selectedPod(), connection = liveConnection(session.state, pod)
+  if (!connection) return null
+  const seat = session.podSeats().find(seat => seat.key === key)
+  return canExportPiSeat(seat) ? { scope: { source: connection.source, instanceKey: connection.key, podKey: pod.key, seatKey: seat.key, session: seat.session }, label: `${seat.rigName} / ${seat.logicalId} · ${seat.session}` } : null
+}
+const live = createPiLiveController(bridge, { ...liveView, hide() {
+  const heldFocus = liveRoot.contains(document.activeElement)
+  liveView.hide()
+  if (heldFocus) queueMicrotask(() => {
+    const active = document.activeElement
+    if (liveRoot.hidden && (!active || active === document.body || liveRoot.contains(active))) restoreLiveFocus()
+  })
+} }, scope => JSON.stringify(liveScope(scope.seatKey)?.scope) === JSON.stringify(scope), liveVisible)
+const canOpenLive = key => liveVisible() && Boolean(liveScope(key))
+let liveOpener = null
+const openLive = (key, button) => { const target = liveScope(key); if (target && live.open(target.scope, target.label)) { liveOpener = { button, scope: target.scope }; liveView.focus() } }
+function restoreLiveFocus() {
+  const view = session.state.view, tab = $(`view-${view}`)
+  const fallback = tab.disabled ? $(`${view}-view`) : tab
+  if (tab.disabled) fallback.tabIndex = -1
+  const scope = liveOpener?.scope, key = scope?.seatKey
+  const sameScope = scope && JSON.stringify(liveScope(key)?.scope) === JSON.stringify(scope)
+  const usable = button => button?.isConnected && button.dataset.liveSeat === key && !button.disabled && button.getClientRects().length
+  const replacement = sameScope && Array.from($('live-seats').querySelectorAll('button[data-live-seat]')).find(usable)
+  const target = sameScope && usable(liveOpener.button) ? liveOpener.button : replacement || fallback
+  liveOpener = null; target.focus()
+}
+$('pi-live-close').addEventListener('click', live.close)
+$('pi-live-resume').addEventListener('click', () => { if (live.resume()) liveView.focus() })
 let renderedInventory, renderedPodKey, renderedDiagramSource, renderedRelations, renderedObservation, renderedUserReports, renderedReviewId
 observeTopologySource(source => session.setDiagramSource(source))
 setReportReader(key => session.readReport(key))
@@ -56,9 +94,12 @@ for (const button of document.querySelectorAll('[data-operation]')) button.addEv
 $('scan-environment').addEventListener('click', session.scan)
 $('save-provider').addEventListener('click', session.save)
 $('save-paths').addEventListener('click', session.save)
-$('go-dashboard').addEventListener('click', session.viewConfiguredDashboard)
-$('view-configured-instance').addEventListener('click', session.viewConfiguredDashboard)
-$('open-observed-tui').addEventListener('click', () => { const c = session.state.inventory?.connection; if (c) void session.prepare('console', { consoleSource: c.source, instanceKey: c.key }) })
+$('go-dashboard').addEventListener('click', () => { if (session.viewSelectedDashboard()) $('view-dashboard').focus() })
+$('change-instance').addEventListener('click', () => { if (session.switchView('preparation')) ($('pod-instance-source').disabled ? $('view-preparation') : $('pod-instance-source')).focus() })
+$('check-instance').addEventListener('click', session.refreshPods)
+$('tui-start-port').addEventListener('input', event => session.editTuiPort(event.target.value))
+const openSelectedTui = () => { const c = session.state.inventory?.connection; if (c) void session.prepare('console', { consoleSource: c.source, instanceKey: c.key }) }
+for (const id of ['open-selected-tui', 'open-observed-tui']) $(id).addEventListener('click', openSelectedTui)
 $('refresh-seats').addEventListener('click', session.refreshPods)
 $('refresh-pods').addEventListener('click', session.refreshPods)
 $('auto-refresh').addEventListener('change', event => session.setAutoRefresh(event.target.checked))
@@ -117,18 +158,32 @@ function renderSeatStarts(state) {
   }))
 }
 function renderSeats(state) {
-  const pod = session.selectedPod(), rows = session.podSeats()
+  const pod = session.selectedPod(), rows = session.podSeats(), liveAvailable = Boolean(liveVisible() && liveConnection(state, pod))
   text('selected-pod-heading', pod ? `${pod.label} · seat snapshot` : 'Selected pod seats · manual snapshot')
-  if (!pod) { $('live-seats').replaceChildren(element('p', 'Select a verified native rig / pod. No example or workspace-derived target is substituted.')); return }
-  if (!rows.length) { $('live-seats').replaceChildren(element('p', 'No seat observations were returned for this selected pod.')); return }
-  $('live-seats').replaceChildren(...rows.map(seat => {
+  const list = $('live-seats'), active = document.activeElement
+  const liveSeatToRefocus = list.contains(active) ? active.dataset?.liveSeat : null
+  const restoreFocus = replacement => { if (liveSeatToRefocus) (replacement || $('view-dashboard')).focus({ preventScroll: true }) }
+  if (!pod || !rows.length) {
+    list.replaceChildren(element('p', !pod ? 'Select a verified native rig / pod. No example or workspace-derived target is substituted.' : 'No seat observations were returned for this selected pod.'))
+    restoreFocus(); return
+  }
+  let replacement
+  list.replaceChildren(...rows.map(seat => {
     const card = element('article', undefined, 'seat-card')
     card.append(element('h3', `${seat.rigName} / ${seat.logicalId}`), element('p', `Status summary: ${seat.status}${seat.attention ? ' · attention requested' : ''}`, 'seat-lifecycle'), element('p', `Activity: ${seat.activity} · Runtime: ${seat.runtime}`, 'seat-activity'), element('code', seat.session || 'No session yet'))
     const actions = element('div', undefined, 'toolbar'), attach = element('button', 'Open seat view'); attach.type = 'button'
     attach.disabled = state.busy || session.dirty() || !state.workspaceId || !session.podConnected() || seat.status !== 'running'
     attach.addEventListener('click', () => session.attach(seat.key))
-    actions.append(actionButton('Review seat start', 'launch-seat', { seatKey: seat.key }), attach); if (seat.runtime === 'pi') actions.append(actionButton('Export HTML and open in Orca…', 'export-pi-html', { seatKey: seat.key })); card.append(actions); return card
+    actions.append(actionButton('Review seat start', 'launch-seat', { seatKey: seat.key }), attach)
+    if (seat.runtime === 'pi') {
+      const button = element('button', 'Open Live Pi'); button.type = 'button'; button.dataset.liveSeat = seat.key; button.disabled = !liveAvailable || !canExportPiSeat(seat)
+      button.addEventListener('click', () => openLive(seat.key, button))
+      if (seat.key === liveSeatToRefocus && !button.disabled) replacement = button
+      actions.append(button, actionButton('Export HTML and open in Orca…', 'export-pi-html', { seatKey: seat.key }))
+    }
+    card.append(actions); return card
   }))
+  restoreFocus(replacement)
 }
 function renderUserReports(state) {
   const pod = session.selectedPod(), reporting = session.reportingSeats().find(s => s.key === state.reportSeatKey), data = state.userReports
@@ -215,6 +270,7 @@ function renderReview(state) {
   show('review-declarations', Boolean(plan.launchReview))
   show('review-response', Boolean(plan.instruction?.completion)); text('review-response-instructions', plan.instruction?.completion || '')
   let recipient = '', content = ''
+  if (plan.daemon) { const d = plan.daemon; recipient = `Instance: ${d.source === 'tui' ? 'Default local TUI' : 'Plugin-configured'} · 127.0.0.1:${d.port}\nOpenRig home: ${d.home}\nDatabase: ${d.database}\nCLI: ${d.cli} · version ${d.version}\nNode: ${d.node}\nNo kernel or agent startup. Plugin operation routing stays unchanged.` }
   if (plan.console) { const c = plan.console; recipient = `TUI instance: ${c.source} · ${c.endpoint}\nOpenRig home: ${c.home}\nCLI: ${c.cli} · version ${c.version}\nNode: ${c.node}\nPrivate view socket directory: ${plan.consoleRuntime}\nView only: no daemon, kernel or agent startup is requested.` }
   if (plan.instruction) { recipient = `Agent: ${plan.instruction.session} · ${plan.instruction.runtime}`; content = plan.instruction.text }
   if (plan.piExport) { const p = plan.piExport; recipient = `Pi seat: ${p.target.session}\nSession ID: ${p.native.sessionId}\nExact Native history: ${p.native.file}\nPi exporter: ${p.exporter.path}\nSnapshot directory: ${p.directory}` }
@@ -253,12 +309,17 @@ function render(state) {
   choices('dashboard-pod', (state.inventory?.pods || []).map(pod => ({ value: pod.key, label: `${pod.label} · ${pod.seatCount} seats` })), state.podKey, state.inventory ? 'Choose an actual OpenRig rig / pod' : 'No verified native pod inventory')
   $('dashboard-pod').disabled = waiting || !state.inventory || dirty
   $('refresh-pods').disabled = !hosted || waiting || dirty || !env
-  inputValue('pod-instance-source', state.inventorySource); $('pod-instance-source').disabled = !hosted || waiting || dirty
+  inputValue('pod-instance-source', state.inventorySource); $('pod-instance-source').disabled = !hosted || waiting || dirty || !env
   text('pod-error', state.podError); show('pod-error', Boolean(state.podError))
-  const connection = state.inventory?.connection
-  $('open-observed-tui').disabled = !connection || !session.canPrepare('console', { consoleSource: connection.source, instanceKey: connection.key })
-  $('view-configured-instance').disabled = !hosted || waiting || dirty || !env
-  text('pod-connection', connection ? `${connection.source === 'tui' ? 'Default local TUI' : 'Plugin-configured'} instance: ${connection.endpoint}\nOpenRig home: ${connection.home}` : 'No verified instance observation. Nothing was started, and no other endpoint was silently queried.')
+  const connection = state.inventory?.connection, instance = state.daemonTarget
+  const needsPort = state.inventorySource === 'tui' && state.tuiPortEditable
+  const portEdited = session.tuiPortNeedsCheck(), reachable = session.selectedReachable()
+  const canOpenTui = Boolean(connection && session.canPrepare('console', { consoleSource: connection.source, instanceKey: connection.key }))
+  $('open-selected-tui').disabled = !canOpenTui || state.view !== 'preparation'
+  $('open-observed-tui').disabled = !canOpenTui || state.view !== 'dashboard'
+  const tuiStatus = !hosted ? 'Open this panel inside Orca.' : waiting || state.autoRefresh?.inFlight ? 'Wait for the current operation or observation.' : dirty ? 'Save configuration first.' : !snapshot?.installed ? 'Verify Node, OpenRig, tmux and SQLite first.' : !reachable ? 'Check that the selected instance is reachable before opening its TUI.' : !state.workspaceId ? 'Choose a local Orca workspace for the TUI terminal.' : ''
+  text('open-tui-status', canOpenTui ? 'Opens standalone rig tui in an Orca terminal. No pod selection is needed.' : tuiStatus)
+  $('change-instance').disabled = waiting && state.busyKind !== 'read'
   const guidance = state.diagramSource === 'yaml' ? 'YAML declaration preview active; return to pod inventory before operations.' : session.selectedPod() ? connection?.matchesConfigured ? 'Choose a result terminal destination only to use operations.' : 'Read-only observation; explicitly connect this instance before operations.' : 'Select one pod; an Orca workspace is not an OpenRig target.'
   text('pod-observation', state.inventory ? `${state.inventory.pods.length} pods observed at ${new Date(state.inventory.observedAt).toLocaleString()}. ${guidance}` : 'Refresh native pods to inspect the TUI inventory. Unavailable is not an empty list.')
   show('pod-connect-review', Boolean(connection && !connection.matchesConfigured)); $('connect-pod-instance').disabled = waiting || dirty || !hosted || !connection
@@ -276,9 +337,17 @@ function render(state) {
   $('save-provider').disabled = $('save-paths').disabled = !hosted || waiting || !dirty
   show('claude-actions', ['claude', 'both'].includes(state.draft?.provider)); show('codex-actions', ['codex', 'both'].includes(state.draft?.provider))
   text('provider-status', snapshot?.providers.map(p => `${p.provider}: ${p.status}`).join(' · ') || 'No coding agent is required for initial setup or the declared topology viewer.')
-  const daemon = `Daemon: ${env?.daemon?.status || 'not checked'}. ${env?.daemon?.detail || 'Use a read-only environment check to inspect this configured instance.'}`
-  text('daemon-state', daemon)
-  text('configured-instance', env ? `Plugin operation routing: ${env.config.instanceHome || `${env.config.root}/instance`} · http://127.0.0.1:${env.config.daemonPort}\nCLI: ${snapshot?.tools.rig || 'unavailable'} · ${snapshot?.rigVersion || 'unverified version'}${env.config.instanceHome ? ' · existing instance; managed daemon start is disabled' : ''}` : '')
+  const selectedLabel = state.inventorySource === 'tui' ? 'Default local TUI' : 'Plugin-configured instance'
+  const location = reachable ? connection : instance
+  const address = session.tuiPortDraftChanged() ? '' : location?.port
+  const locationText = location ? [location.home, address && `127.0.0.1:${address}`].filter(Boolean).join(' · ') : 'Home and port not verified.'
+  text('selected-instance', locationText)
+  text('pod-connection', `${selectedLabel} · ${locationText}${reachable ? ' · Reachable' : ' · No current inventory'}`)
+  show('tui-port-control', needsPort); inputValue('tui-start-port', state.tuiPort); $('tui-start-port').disabled = waiting || dirty
+  text('daemon-state', reachable ? 'Reachable. View native pods or open its TUI.' : state.daemonCheckError || (portEdited ? 'The TUI port has not been verified for this connection. Check this instance again.' : instance?.detail || 'Check the selected instance to see its startup status.'))
+  text('daemon-start-status', [session.daemonStartReason() || 'Ready to review a daemon-only start for this instance.', reachable && instance?.startPrerequisite].filter(Boolean).join(' '))
+  $('check-instance').disabled = !hosted || waiting || dirty || !env
+  text('configured-instance', env ? `Plugin operation routing: ${env.config.instanceHome || `${env.config.root}/instance`} · http://127.0.0.1:${env.config.daemonPort}\nCLI: ${snapshot?.tools.rig || 'unavailable'} · ${snapshot?.rigVersion || 'unverified version'}` : '')
   text('dashboard-daemon', connection ? `${connection.endpoint} · ${connection.matchesConfigured ? 'Operations route to this instance' : 'Operations locked: plugin connection differs'}` : 'No verified pod inventory.')
   $('go-dashboard').disabled = !hosted || waiting || dirty || !env
   $('refresh-seats').disabled = !hosted || waiting || dirty || !env
@@ -289,6 +358,7 @@ function render(state) {
   for (const [id, key] of Object.entries(inputBindings)) { if (!id.endsWith('recipient')) inputValue(id, state.input[key]); $(id).disabled = waiting || dirty || !hosted }
   for (const button of document.querySelectorAll('[data-operation]')) button.disabled = !session.canPrepare(button.dataset.operation, button.dataset)
   setPiExportAction(key => session.prepare('export-pi-html', { seatKey: key }), key => session.canPrepare('export-pi-html', { seatKey: key }))
+  live.sync(); setPiLiveAction(openLive, canOpenLive)
   renderSeatStarts(state); renderSeats(state); renderUserReports(state); renderMessages(state); renderExamples(state); renderReview(state)
   show('plugin-receipt', Boolean(state.receipt && !state.plan))
   if (state.receipt) {
@@ -317,6 +387,6 @@ function syncAgeClock() {
 }
 const visibility = watchPanelVisibility({ document, window, IntersectionObserver: window.IntersectionObserver, changed: (visible, known) => session.setPanelVisibility(visible, known) })
 window.addEventListener('pagehide', () => { if (ageTimer !== null) clearTimeout(ageTimer); ageTimer = null })
-window.addEventListener('beforeunload', () => { disposed = true; visibility.dispose(); session.dispose(); if (ageTimer !== null) clearTimeout(ageTimer) })
+window.addEventListener('beforeunload', () => { disposed = true; live.close(); liveView.dispose(); visibility.dispose(); session.dispose(); if (ageTimer !== null) clearTimeout(ageTimer) })
 if (bridge) void session.scan()
 export { watchPanelVisibility, displayUserReportSnapshot }

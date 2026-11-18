@@ -1,0 +1,5 @@
+# Orca Native Chat appearance attribution
+
+OpenRig for Orca adapts only the width and padding of the user prompt bubble in `src/pi-live.css` from the [NativeChatUserMessageRow.tsx layout](https://github.com/stablyai/orca/blob/131f209f7703e21c9b4d933920abe766d0d12820/src/renderer/src/components/native-chat/messages/rows/NativeChatUserMessageRow.tsx#L103-L109) in Orca `v1.4.263`, commit `131f209f7703e21c9b4d933920abe766d0d12820`. The Tailwind layout utilities are expressed as ordinary CSS and scoped to Live Pi. Colors and fonts use the installed Orca's documented plugin theme variables.
+
+The accompanying [MIT license](LICENSE), copyright (c) 2026 Lovecast Inc., is the [unmodified license at that commit](https://github.com/stablyai/orca/blob/131f209f7703e21c9b4d933920abe766d0d12820/LICENSE). It is included with the staged plugin. No Orca React component, chat runtime, compiled application asset, transport, or file tooling is included. The renderer itself is the separately attributed pi-esp browser view; it is not Orca's Native Chat.

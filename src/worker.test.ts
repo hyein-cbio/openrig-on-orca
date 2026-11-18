@@ -1,6 +1,7 @@
 import { assert, mockHost, mountWorker, test } from 'orca/testing'
 import * as workerModule from './worker'
-import { mkdtemp, mkdir, writeFile, readFile, rm } from 'node:fs/promises'
+import { mkdtemp, mkdir, writeFile, readFile, realpath, rm } from 'node:fs/promises'
+import { createServer } from 'node:net'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { configFrom, quote } from './runtime.mjs'
@@ -17,7 +18,7 @@ async function daemonFixture(nodes: unknown[] = []) {
   await writeFile(path.join(root, 'package.json'), JSON.stringify({ name: '@openrig/cli' }))
   const nodeFile = path.join(root, 'nodes.json')
   await writeFile(nodeFile, JSON.stringify(nodes))
-  await writeFile(rig, `#!/bin/sh\nif [ "$1" = "--version" ]; then printf '0.7.13'; exit 0; fi\nif [ "$1" = "ps" ] && [ -f ${quote(path.join(root, 'online'))} ]; then cat ${quote(nodeFile)}; exit 0; fi\nexit 1\n`, { mode: 0o700 })
+  await writeFile(rig, `#!/bin/sh\nif [ "$1" = "--version" ]; then printf '0.7.13'; exit 0; fi\nif [ "$1" = "config" ] && [ "$2" = "get" ] && [ "$3" = "db.path" ]; then ${quote(process.execPath)} -p 'JSON.stringify({ value: require("node:path").join(process.env.OPENRIG_HOME, "openrig.sqlite") })'; exit $?; fi\nif [ "$1" = "ps" ] && [ -f ${quote(path.join(root, 'online'))} ]; then cat ${quote(nodeFile)}; exit 0; fi\nexit 1\n`, { mode: 0o700 })
   return { root, config: configFrom({ root, homePath: root, nodePath: node, rigPath: rig, tmuxPath: tmux }), setNodes: (rows: unknown[]) => writeFile(nodeFile, JSON.stringify(rows)), online: async () => {
     await mkdir(path.join(root, 'instance'), { recursive: true })
     await writeFile(path.join(root, 'instance', 'daemon.json'), JSON.stringify({ host: '127.0.0.1', port: 43811 }))
@@ -87,6 +88,33 @@ test('daemon checks and dashboard preparation cannot start a missing daemon', as
     assert.equal(host.callsOf('terminal.create').length, 0)
     await assert.rejects(worker.request('setup.execute', { planId: plan.id, workspaceId: workspace.id }), /Prepare a new plan/)
   } finally { await worker.deactivate(); await rm(fixture.root, { recursive: true, force: true }) }
+})
+
+test('daemon startup refuses a real occupied port on an explicitly chosen existing home', async () => {
+  const f = await daemonFixture(), home = await realpath(f.root), native = path.join(home, '.openrig'), database = path.join(native, 'openrig.sqlite')
+  const config = configFrom({ ...f.config, instanceHome: native }), host = mockHost({ results: { 'workspace.list': { workspaces: [workspace], truncated: false } }, storage: { 'config.v1': config } }), worker = await mountWorker(workerModule, { host })
+  const listen = (server: ReturnType<typeof createServer>, port: number) => new Promise<void>((resolve, reject) => server.once('error', reject).listen(port, '127.0.0.1', resolve))
+  const close = (server: ReturnType<typeof createServer>) => new Promise<void>(resolve => server.close(() => resolve()))
+  const listener = createServer(socket => socket.destroy())
+  try {
+    await mkdir(native); const original = Buffer.concat([Buffer.from('SQLite format 3\0'), Buffer.alloc(84)]); await writeFile(database, original)
+    let port = 0
+    for (let attempt = 0; attempt < 3; attempt++) {
+      await listen(listener, 0)
+      const address = listener.address()
+      if (address && typeof address !== 'string' && address.port >= 1024 && address.port <= 65534) { port = address.port; break }
+      await close(listener)
+    }
+    assert.ok(port, 'Could not allocate a fixture port in the supported range')
+    const base = { action: 'start-daemon', workspaceId: workspace.id }
+    await assert.rejects(worker.request('setup.prepare', base), /Select and check/)
+    assert.equal((await worker.request('instance.inspect', { source: 'tui' })).status, 'port-required')
+    const input = { source: 'tui' as const, tuiPort: String(port) }, target = await worker.request('instance.inspect', input)
+    assert.equal(target.status, 'blocked'); assert.match(target.detail, /loopback port is occupied/); const prepared = { ...base, daemonSource: input.source, tuiPort: input.tuiPort, daemonKey: target.key }
+    await assert.rejects(worker.request('setup.prepare', { ...prepared, daemonKey: 'a'.repeat(64) }), /selected instance changed/)
+    await assert.rejects(worker.request('setup.prepare', prepared), /loopback port is occupied/)
+    assert.deepEqual(await readFile(database), original); assert.equal(host.callsOf('terminal.create').length, 0); assert.equal(host.callsOf('terminal.sendText').length, 0); assert.equal(host.callsOf('storage.set').length, 0)
+  } finally { if (listener.listening) await close(listener); await worker.deactivate(); await rm(f.root, { recursive: true, force: true }) }
 })
 
 test('TUI reviews bind an empty no-agent instance and refuse a changed CLI version', async () => {

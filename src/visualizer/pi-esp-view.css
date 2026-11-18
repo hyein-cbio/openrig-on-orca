@@ -1,0 +1,96 @@
+/* Transcript only. Embedders may override the --pi-esp-* colors/width on their host. */
+.pi-esp-transcript {
+  --esp-ink: var(--pi-esp-foreground, light-dark(#303030, #d6d6d6));
+  --esp-strong: var(--pi-esp-strong, light-dark(#1c1c1c, #ededed));
+  --esp-muted: var(--pi-esp-muted, light-dark(#666, #a1a1a1));
+  --esp-bubble: var(--pi-esp-user-surface, light-dark(#f0f0f0, #252525));
+  --esp-rule: var(--pi-esp-border, light-dark(#dfdfdf, #333));
+  --esp-code: var(--pi-esp-code-surface, light-dark(#f3f3f3, #222));
+  --esp-hover: var(--pi-esp-hover, light-dark(#efefef, #242424));
+  --esp-error: var(--pi-esp-error, light-dark(#ab3035, #f19c9d));
+  --esp-success: var(--pi-esp-success, light-dark(#326f45, #8ec99d));
+  --esp-focus: var(--pi-esp-focus, light-dark(#516fc0, #a0b0ee));
+  position: relative;
+  display: flex;
+  flex: 1 1 auto;
+  min-block-size: 0;
+  min-inline-size: 0;
+  font: 13px/20px -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  color: var(--esp-ink);
+}
+.pi-esp-transcript *, .pi-esp-transcript *::before { box-sizing: border-box; }
+.pi-esp-scroll {
+  flex: 1;
+  overflow: auto;
+  overflow-anchor: none;
+  overscroll-behavior: contain;
+  scrollbar-color: var(--esp-rule) transparent;
+}
+.pi-esp-feed { max-inline-size: var(--pi-esp-width, 46rem); margin-inline: auto; padding: 40px 20px 24px; }
+.pi-esp-row, .pi-esp-run { margin-block: 0 20px; overflow-wrap: anywhere; }
+.pi-esp-user { display: flex; justify-content: flex-end; }
+.pi-esp-user-bubble {
+  max-inline-size: 80%; padding: 9px 13px;
+  background: var(--esp-bubble); color: var(--esp-strong);
+  border: 1px solid var(--esp-rule); border-radius: 12px;
+  white-space: pre-wrap; unicode-bidi: plaintext;
+}
+.pi-esp-assistant { color: var(--esp-ink); }
+.pi-esp-assistant :is(h1,h2,h3,h4,h5,h6) { font-size: inherit; font-weight: 650; margin: 1.1em 0 .45em; }
+.pi-esp-assistant :is(p,ul,ol,blockquote), .pi-esp-thinking-body p { margin: 0 0 .72em; }
+.pi-esp-assistant :is(ul,ol) { padding-inline-start: 1.45em; }
+.pi-esp-assistant li p { margin: 0; }
+.pi-esp-assistant li p + p, .pi-esp-assistant li + li:has(> p) { margin-block-start: .72em; }
+.pi-esp-assistant blockquote { padding-inline-start: 12px; border-inline-start: 2px solid var(--esp-rule); color: var(--esp-muted); }
+.pi-esp-assistant > :first-child { margin-block-start: 0; }
+.pi-esp-assistant > :last-child, .pi-esp-thinking-body > :last-child { margin-block-end: 0; }
+.pi-esp-table { max-inline-size: 100%; overflow-x: auto; }
+.pi-esp-assistant table { border-collapse: collapse; }
+.pi-esp-assistant :is(th,td) { border: 1px solid var(--esp-rule); padding: 4px 8px; text-align: start; }
+.pi-esp-table .pi-esp-align-left { text-align: left; }
+.pi-esp-table .pi-esp-align-center { text-align: center; }
+.pi-esp-table .pi-esp-align-right { text-align: right; }
+.pi-esp-assistant hr { border: 0; border-block-start: 1px solid var(--esp-rule); }
+.pi-esp-transcript :is(code,pre) { font: 12px/1.55 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+.pi-esp-transcript :not(pre) > code { background: var(--esp-code); padding: 1px 4px; border-radius: 4px; }
+.pi-esp-transcript pre {
+  background: var(--esp-code); padding: 8px 10px; border: 1px solid var(--esp-rule); border-radius: 7px;
+  max-block-size: 16rem; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; unicode-bidi: plaintext;
+}
+.pi-esp-activity, .pi-esp-tool-line {
+  display: flex; align-items: baseline; gap: 6px; min-inline-size: 0;
+  padding: 2px 4px; color: var(--esp-muted); cursor: pointer; list-style: none; border-radius: 4px;
+}
+.pi-esp-transcript summary::-webkit-details-marker { display: none; }
+.pi-esp-activity:hover, .pi-esp-tool-line:hover { background: var(--esp-hover); color: var(--esp-strong); }
+.pi-esp-activity::before, .pi-esp-tool-line::before {
+  content: '›'; flex: none; display: inline-block; inline-size: 10px; font-weight: 700; color: var(--esp-muted);
+  text-align: center; transform-origin: center;
+}
+.pi-esp-transcript details[open] > summary::before { transform: rotate(90deg); }
+.pi-esp-activity-icon { flex: none; width: 14px; height: 14px; align-self: center; }
+.pi-esp-activity-check { font-size: 11px; }
+.pi-esp-tool-list { padding-inline-start: 17px; margin: 3px 0 0 9px; border-inline-start: 1px solid var(--esp-rule); }
+.pi-esp-tool-name { flex: none; max-inline-size: 25%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pi-esp-tool-target { min-inline-size: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--esp-ink); }
+.pi-esp-tool-state { flex: none; margin-inline-start: auto; font-size: 11px; }
+.pi-esp-tool-detail { margin-inline-start: 15px; }
+.pi-esp-tool-full-name { font-weight: 600; overflow-wrap: anywhere; }
+.pi-esp-tool-detail pre { margin: 4px 0 7px; }
+.pi-esp-thinking-body { margin: 4px 0 0 19px; max-block-size: 20rem; overflow: auto; color: var(--esp-muted); }
+.pi-esp-thinking { margin-block-end: 9px; }
+.pi-esp-notice { color: var(--esp-muted); font-size: 12px; }
+.pi-esp-run-failed > summary, .pi-esp-failure, .pi-esp-error, .pi-esp-removed { color: var(--esp-error); }
+.pi-esp-added { color: var(--esp-success); }
+.pi-esp-transcript :is(summary,button):focus-visible, .pi-esp-scroll:focus-visible { outline: 2px solid var(--esp-focus); outline-offset: -2px; }
+.pi-esp-jump {
+  position: absolute; inset-block-end: 9px; left: 50%; transform: translateX(-50%);
+  border: 1px solid var(--esp-rule); border-radius: 8px; padding: 5px 10px;
+  color: var(--esp-strong); background: var(--esp-bubble); font: inherit; font-size: 12px; cursor: pointer; white-space: nowrap;
+}
+.pi-esp-transcript [hidden] { display: none !important; }
+@media (max-width: 500px) {
+  .pi-esp-feed { padding: 26px 12px 23px; }
+  .pi-esp-user-bubble { max-inline-size: 88%; }
+  .pi-esp-tool-list { padding-inline-start: 10px; }
+}

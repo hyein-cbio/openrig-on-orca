@@ -51,7 +51,7 @@ export function optionValue(argv, name) {
   return argv[index + 1]
 }
 
-export const LIVE_CHECKS = ['runtime-verified', 'daemon-opened', 'daemon-no-agents', 'tui-console', 'example-opened', 'two-seats', 'pod-inventory', 'native-relationships', 'seat-attached', 'detach-preserves-seat', 'example-stopped', 'templates-validated', 'frozen-launch-review', 'frozen-terminal-launch', 'unified-panel', 'topology-layout', 'topology-drilldown', 'report-tooltip', 'user-report-cards', 'user-report-controls', 'tui-controls', 'seat-start-controls', 'messages-controls', 'pi-html-controls', 'refresh-render-stability', 'refresh-visibility', 'cleanup-complete']
+export const LIVE_CHECKS = ['runtime-verified', 'daemon-opened', 'daemon-no-agents', 'existing-daemon-start', 'tui-console', 'example-opened', 'two-seats', 'pod-inventory', 'native-relationships', 'seat-attached', 'detach-preserves-seat', 'example-stopped', 'templates-validated', 'frozen-launch-review', 'frozen-terminal-launch', 'unified-panel', 'topology-layout', 'topology-drilldown', 'report-tooltip', 'user-report-cards', 'user-report-controls', 'tui-controls', 'instance-controls', 'seat-start-controls', 'messages-controls', 'pi-html-controls', 'refresh-render-stability', 'refresh-visibility', 'cleanup-complete']
 export function assertLiveReport(report, { install = false } = {}) {
   if (report.exitCode !== 0 || report.error) throw new Error('Live suite did not succeed')
   const required = [...LIVE_CHECKS, ...(install ? ['install-opened', 'first-install'] : [])]

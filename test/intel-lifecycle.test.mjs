@@ -110,7 +110,7 @@ test('generated Intel driver guards retries and always enters owned cleanup with
   assert.match(driver, /await cancellation.finishCleanup\(\)/)
   assert.match(driver, /cancellation.dispose\(\)/)
   assert.match(driver, /report.cleanup =/)
-  assert.match(driver, /if \(action === 'start-daemon'\) daemonStarted = true/)
+  assert.match(driver, /if \(action === 'start-daemon'\) daemonStarted = daemonStartPending = true/)
   assert.equal(await readFile(path.join(root, 'scripts/sandbox.mjs'), 'utf8'), original)
 })
 

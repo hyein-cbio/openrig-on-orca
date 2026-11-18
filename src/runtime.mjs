@@ -102,7 +102,7 @@ export function nodeSupported(version, platform = process.platform, arch = proce
   return (major === 22 || major === 24) && !(platform === 'darwin' && arch === 'arm64' && major !== 22)
 }
 
-export async function discover(config, { baseEnv = process.env, execute = run, platform = process.platform, arch = process.arch } = {}) {
+export async function discover(config, { baseEnv = process.env, execute = run, platform = process.platform, arch = process.arch, checkProviders = true } = {}) {
   if (!['darwin', 'linux'].includes(platform)) throw fail('unsupported_platform', 'Use macOS or Linux; native Windows is not supported')
   let env = environment(config, baseEnv)
   const names = ['node', 'npm', 'rig', 'tmux', 'claude', 'codex', 'brew', 'port', 'curl', 'jq', 'git', 'gh', 'docker', 'op', 'sudo', 'apt-get', 'dnf', 'yum', 'pacman', 'zypper', 'apk']
@@ -142,7 +142,8 @@ export async function discover(config, { baseEnv = process.env, execute = run, p
     sqlite = await verifySqlite(tools.rig, tools.node, env, execute)
   }
   const providers = []
-  for (const provider of config.provider === 'both' ? ['claude', 'codex'] : config.provider === 'none' ? [] : [config.provider]) {
+  // Skipping provider auth must not change the preference order of the Node candidates above.
+  for (const provider of !checkProviders || config.provider === 'none' ? [] : config.provider === 'both' ? ['claude', 'codex'] : [config.provider]) {
     const file = tools[provider]
     let status = 'missing'
     if (file) {

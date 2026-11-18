@@ -1,7 +1,7 @@
 // Read-only Native Pi metadata. Run with the selected ordinary Node so OpenRig's
 // SQLite binding never loads into Orca/Electron's incompatible native ABI.
 import { createRequire } from 'node:module'
-import { realpath, open } from 'node:fs/promises'
+import { realpath, open, lstat } from 'node:fs/promises'
 import { constants } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -9,7 +9,7 @@ import { fileURLToPath } from 'node:url'
 const invalid = message => { throw Object.assign(new Error(message), { code: 'pi_session_metadata' }) }
 export const inside = (root, file) => file.startsWith(root + path.sep)
 export async function smallJson(file, limit=16384) {
-  const handle = await open(file, constants.O_RDONLY | constants.O_NOFOLLOW)
+  const handle = await open(file, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK)
   try {
     const stat = await handle.stat()
     if (!stat.isFile() || stat.size > limit) invalid('Native metadata is missing or oversized')
@@ -68,18 +68,28 @@ export async function validatePiFile(identity, home) {
   } finally { await handle.close() }
 }
 
-export async function readPiIdentity(packageFile, home, target) {
+async function selectedDatabase(home, port) {
+  const database = path.join(home, 'openrig.sqlite'), record = await smallJson(path.join(home, 'daemon.json'))
+  const info = await lstat(database)
+  if (!info.isFile() || record?.port !== Number(port) || typeof record?.db !== 'string' || !path.isAbsolute(record.db) || await realpath(record.db) !== database) invalid('The selected Native daemon database could not be verified as this home’s standard database.')
+  return { database, databaseDev: String(info.dev), databaseIno: String(info.ino) }
+}
+
+export async function readPiIdentity(packageFile, home, target, port) {
+  const canonicalHome = await realpath(home), bound = await selectedDatabase(canonicalHome, port)
   const require = createRequire(packageFile), Database = require('better-sqlite3')
-  const database = await realpath(path.join(home, 'openrig.sqlite'))
-  if (!inside(await realpath(home), database)) invalid('Native database escaped its instance')
-  const db = new Database(database, { readonly: true, fileMustExist: true })
-  try { return await validatePiFile(db.transaction(() => queryPiIdentity(db, home, target))(), home) }
-  finally { db.close() }
+  const db = new Database(bound.database, { readonly: true, fileMustExist: true })
+  try {
+    const identity = await validatePiFile(db.transaction(() => queryPiIdentity(db, canonicalHome, target))(), canonicalHome)
+    const current = await selectedDatabase(canonicalHome, port)
+    if (current.databaseDev !== bound.databaseDev || current.databaseIno !== bound.databaseIno) invalid('The selected Native daemon database changed during verification.')
+    return { ...identity, databaseDev: bound.databaseDev, databaseIno: bound.databaseIno }
+  } finally { db.close() }
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   try {
-    const [packageFile, home, encoded] = process.argv.slice(2)
-    console.log(JSON.stringify(await readPiIdentity(packageFile, home, JSON.parse(encoded))))
+    const [packageFile, home, encoded, port] = process.argv.slice(2)
+    console.log(JSON.stringify(await readPiIdentity(packageFile, home, JSON.parse(encoded), port)))
   } catch (error) { console.log(JSON.stringify({ error: error.code === 'pi_session_metadata' ? error.message : error.code === 'ENOENT' ? 'The exact Native Pi session or runner metadata file is missing or not created yet.' : 'The installed Native Pi metadata schema or file is unavailable. No other session was selected.' })); process.exitCode = 1 }
 }
