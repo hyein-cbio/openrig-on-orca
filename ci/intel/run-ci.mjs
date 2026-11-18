@@ -69,10 +69,24 @@ export async function runIntelCi(argv) {
       const provided = optionValue(argv, '--orca-cli')
       if (provided) env.ORCA_CLI_COMMAND = path.resolve(provided)
       else {
-        downloadDirectory = await mkdtemp(path.join(tmpdir(), 'openrig-orca-ci-app-'))
-        const installed = await installIntelOrca(downloadDirectory, { execute: (file, args, options = {}) => exec(file, args, { env, ...options }) })
-        env.ORCA_CLI_COMMAND = installed.cli
-        summary.bootstrap = { version: installed.version, sha256: installed.sha256, teamId: installed.teamId, arch: installed.arch }
+        console.log('CI: bootstrap-orca')
+        const started = Date.now(), log = []
+        let ok = false
+        try {
+          downloadDirectory = await mkdtemp(path.join(tmpdir(), 'openrig-orca-ci-app-'))
+          const installed = await installIntelOrca(downloadDirectory, {
+            execute: (file, args, options = {}) => exec(file, args, { env, ...options }),
+            onRetry: message => { log.push(message); console.log(`CI: ${message}; retrying once`) }
+          })
+          env.ORCA_CLI_COMMAND = installed.cli
+          summary.bootstrap = { version: installed.version, sha256: installed.sha256, teamId: installed.teamId, arch: installed.arch, transfer: installed.transfer }
+          log.push(`Verified pinned Intel Orca ${installed.version}; ${installed.transfer.bytes} bytes, ${installed.transfer.attempts} attempt(s)`)
+          ok = true
+        } catch (error) { log.push(error.message); throw error }
+        finally {
+          summary.steps.push({ suite, name: 'bootstrap-orca', seconds: (Date.now() - started) / 1000, ok })
+          await writeFile(path.join(artifacts, 'bootstrap-orca.log'), log.join('\n') + '\n')
+        }
       }
       const cli = env.ORCA_CLI_COMMAND
       const actual = (await step('orca-version', cli, ['--version'])).trim()

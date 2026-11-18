@@ -40,6 +40,8 @@ The controller uses job-scoped **`actions: write`** solely to dispatch and cance
 
 The combined runner performs the candidate secret scan, functional tmux preflight, dependency installation, complete core and Orca tests, strict typecheck, Intel package staging/inspection, and the isolated first-install/SQLite/daemon/terminal/UI lifecycle. Its new Intel bootstrap downloads the pinned official x64 Orca into a private temporary directory, verifies checksum/signature/architecture/version, and removes its owned application download afterward. It does not replace the personal Orca app, authenticate providers or launch paid models.
 
+The pinned x64 DMG is about 289 MB. Its download has a five-minute deadline per attempt, with at most one retry for a timeout, a transient network error or HTTP 408/5xx. Partial files are removed before retrying from byte zero; checksum, signature and installation failures are not retried. See `bootstrap-orca.log` and the timed `bootstrap-orca` step in `summary.json` for a transfer failure before Orca tests begin.
+
 The reviewed shared-source SHA-256 regression gate also runs, covering 199 code/configuration files, including the shared report/TUI controls and refreshed generated assets. The manifest identifies its reviewed base and shared-feature evolution; the additional Intel implementation remains separate and must not alter the protected shared bytes.
 
 ### Cancellation and persistent-runner cleanup
