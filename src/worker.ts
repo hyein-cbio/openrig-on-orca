@@ -14,7 +14,7 @@ import { inspectDaemonTarget, resolveDaemonStart, recheckDaemonStart } from './d
 import { readUserReports } from './user-reports.mjs'
 import { readSeatReport } from './seat-reports.mjs'
 import { readPodRelations } from './pod-relations.mjs'
-import { preparePiExport, createPiExport, openPiExport, preparePiSource, readNativePiIdentity, samePiIdentity } from './pi-html-export.mjs'
+import { preparePiExport, createPiExport, openPiExport, preparePiSource, readNativePiIdentity, samePiSeat } from './pi-html-export.mjs'
 import { PiLiveSessions } from './pi-live-session'
 import { podKeyOf, seatInPod } from './pods.mjs'
 import type { Config, ExampleRecord, Seat, Workspace, Snapshot, PiHtmlReceipt } from './protocol'
@@ -80,18 +80,21 @@ export default function activate(orca: OrcaWorkerApi): void {
     if (seat.session !== input.session) throw fail('pi_live_changed', 'The selected Pi seat changed.')
     const source = await preparePiSource(config, snapshot, catalog.connection, seat)
     assertRevision()
-    const identity = await readNativePiIdentity(source, { signal: active })
+    const read = (signal: AbortSignal) => readNativePiIdentity(source, { signal, live: true })
+    const initial = await read(active)
     const verifyRoute = async () => {
       const current = await getConfig()
       if (JSON.stringify(current) !== stamp || (await podConnection(current, catalog.connection.source)).key !== catalog.connection.key) throw fail('pi_live_changed', 'The selected OpenRig instance changed.')
       assertRevision()
     }
-    return { identity, assertCurrent: assertRevision, async verify(signal) {
+    return { initial: initial.pending ? null : initial, assertCurrent: assertRevision, async resolve(signal) {
       await verifyRoute()
       signal.throwIfAborted()
-      if (!samePiIdentity(identity, await readNativePiIdentity(source, { signal }))) throw fail('pi_live_changed', 'The selected Pi occupant or history changed.')
+      const current = await read(signal)
+      if (!samePiSeat(initial, current)) throw fail('pi_live_changed', 'The selected Native Pi seat changed.')
       await verifyRoute()
       signal.throwIfAborted()
+      return current.pending ? null : current
     } }
   }))
   orca.panels.handle('pi-live.read', (input, { panel, signal }) => livePi.read(panel.id, input?.id, signal))

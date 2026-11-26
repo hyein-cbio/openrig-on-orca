@@ -2,6 +2,7 @@ import type { PiLiveBatch, PiLiveScope } from './protocol'
 
 const POLL_MS = 2000
 const CATCHUP_MS = 200
+const WAIT_MS = 5000
 interface Request { (name: string, input: unknown, options?: { signal?: AbortSignal; timeoutMs?: number }): Promise<unknown> }
 interface View {
   reset(label: string): void
@@ -9,7 +10,7 @@ interface View {
   status(message: string, restart?: boolean): void
   hide(): void
 }
-interface Follow { scope: PiLiveScope; label: string; id: string; cancel: AbortController; timer?: ReturnType<typeof setTimeout> }
+interface Follow { scope: PiLiveScope; label: string; id: string; cancel: AbortController; waiting?: boolean; timer?: ReturnType<typeof setTimeout> }
 const id = () => Array.from(crypto.getRandomValues(new Uint8Array(16)), byte => byte.toString(16).padStart(2, '0')).join('')
 
 /** Follow one selection. Scope changes and visibility loss discard both rows and late replies. */
@@ -37,9 +38,17 @@ export function createPiLiveController(request: Request | null, view: View, elig
       sync()
       if (follow !== current) return
       if (batch?.id !== current.id || !Array.isArray(batch.events) || batch.events.length > 24) throw new Error('Unexpected Live Pi response')
-      if (batch.events.length || batch.skippedRecords || batch.omittedHistory) view.append(batch)
-      view.status(batch.more ? 'Loading recent records…' : 'Following recorded messages · read only')
-      current.timer = setTimeout(() => { void poll(current, false) }, batch.more ? CATCHUP_MS : POLL_MS)
+      if (batch.waiting) {
+        if (!current.waiting) view.reset(current.label)
+        current.waiting = true
+        view.status('Waiting for verified Pi history for this seat…')
+      } else {
+        current.waiting = false
+        if (batch.reset) view.reset(current.label)
+        if (batch.events.length || batch.skippedRecords || batch.omittedHistory) view.append(batch)
+        view.status(batch.more ? 'Loading recent records…' : 'Following recorded messages · read only')
+      }
+      current.timer = setTimeout(() => { void poll(current, false) }, batch.waiting ? WAIT_MS : batch.more ? CATCHUP_MS : POLL_MS)
     } catch (error) {
       sync()
       if (follow === current) {

@@ -6,7 +6,7 @@ export interface PiLiveEvent {
   key: string; kind: 'user' | 'assistant' | 'thinking' | 'tool' | 'result' | 'shell' | 'error' | 'marker'
   title: string; text: string; time?: number; toolId?: string; error?: boolean
 }
-export interface PiLiveBatch { id: string; events: PiLiveEvent[]; omittedHistory: boolean; skippedRecords: number; more: boolean }
+export interface PiLiveBatch { id: string; events: PiLiveEvent[]; omittedHistory: boolean; skippedRecords: number; more: boolean; waiting?: true; reset?: true }
 export type Config = typeof DEFAULT_CONFIG
 export interface Tool { path: string; version: string; compatible: boolean }
 export interface Snapshot {

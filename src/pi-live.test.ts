@@ -104,7 +104,7 @@ test('Pi Live rechecks displayed recent records beyond the old 4 KiB checkpoint'
 test('a changed routing revision at the batch commit boundary discards the lease', () => fixture(async (file, identity) => {
   const sessions = new PiLiveSessions(), id = 'd'.repeat(32)
   let verifies = 0, current = true
-  await sessions.start('owner', id, signal(), async () => ({ identity, async verify() { if (++verifies === 3) current = false }, assertCurrent() { if (!current) throw new Error('Routing changed') } }))
+  await sessions.start('owner', id, signal(), async () => ({ initial: identity, async resolve() { if (++verifies === 3) current = false; return identity }, assertCurrent() { if (!current) throw new Error('Routing changed') } }))
   await appendFile(file, user('must not appear'))
   await assert.rejects(sessions.read('owner', id, signal()), /Live Pi stopped/)
   assert.equal(verifies, 3)
@@ -114,7 +114,7 @@ test('a changed routing revision at the batch commit boundary discards the lease
 test('Pi Live leases are caller-bound, expiring, and reverified before publishing a changed batch', () => fixture(async (file, identity) => {
   let now = 0, verifies = 0, invalidateAt = Infinity
   const sessions = new PiLiveSessions(() => now), id = 'a'.repeat(32)
-  const authorize = async () => ({ identity, async verify() { if (++verifies >= invalidateAt) throw new Error('Private path or SQLite error') } })
+  const authorize = async () => ({ initial: identity, async resolve() { if (++verifies >= invalidateAt) throw new Error('Private path or SQLite error'); return identity } })
   await sessions.start('owner', id, signal(), authorize)
   assert.equal(verifies, 1)
   const cancelled = new AbortController(); cancelled.abort()
@@ -131,12 +131,24 @@ test('Pi Live leases are caller-bound, expiring, and reverified before publishin
   await assert.rejects(sessions.read('owner', id, signal()), /Live Pi stopped/)
 }))
 
+test('Pi Live discards staged rows when the verified history rotates mid-read', () => fixture(async (file, identity) => {
+  const sessions = new PiLiveSessions(), id = 'c'.repeat(32), replacement = `${file}.next.jsonl`
+  await writeFile(replacement, header + user('new history'))
+  const { dev, ino } = await stat(replacement), next = { file: replacement, dev: String(dev), ino: String(ino) }
+  let calls = 0
+  await sessions.start('owner', id, signal(), async () => ({ initial: identity, async resolve() { return ++calls < 3 ? identity : next } }))
+  await appendFile(file, user('staged from old history'))
+  const pending = await sessions.read('owner', id, signal())
+  assert.equal(pending.waiting, true); assert.deepEqual(pending.events, [])
+  assert.deepEqual((await sessions.read('owner', id, signal())).events.map(event => event.text), ['new history'])
+}))
+
 test('Pi Live idle expiry cannot interrupt an admitted read on another panel', () => fixture(async (file, identity) => {
   let now = 0, resume: () => void = () => {}
   const gate = new Promise<void>(resolve => { resume = resolve }), sessions = new PiLiveSessions(() => now)
-  const authorize = async () => ({ identity, verify: async () => {} })
+  const authorize = async () => ({ initial: identity, resolve: async () => identity })
   const id = 'a'.repeat(32), other = 'b'.repeat(32)
-  await sessions.start('owner', id, signal(), async () => ({ identity, verify: async () => { if (now) await gate } }))
+  await sessions.start('owner', id, signal(), async () => ({ initial: identity, resolve: async () => { if (now) await gate; return identity } }))
   await appendFile(file, user('admitted'))
   now = 44_999
   const pending = sessions.read('owner', id, signal())
@@ -154,6 +166,25 @@ test('Pi Live rejection after target loss does not open a retry view for the old
   assert.equal(controller.open(scope, 'old target'), true)
   eligible = false; reject(new Error('Late rejection'))
   await new Promise(resolve => setImmediate(resolve)); assert.equal(shown.at(-1), 'hidden'); assert.equal(controller.resume(), false)
+})
+
+test('Pi Live panel clears the previous history when waiting or rebinding without another start', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const id = 'c'.repeat(32), scope: PiLiveScope = { source: 'tui', instanceKey: 'e'.repeat(64), podKey: 'pod', seatKey: 'seat', session: 'seat@pod' }
+  const base: PiLiveBatch = { id, events: [], more: false, omittedHistory: false, skippedRecords: 0 }
+  const event = (text: string): PiLiveBatch['events'] => [{ key: 'same-offset', kind: 'user', title: 'You', text }]
+  const batches = [{ ...base, events: event('old') }, { ...base, waiting: true }, { ...base, waiting: true }, { ...base, events: event('resumed') }, { ...base, reset: true, events: event('replacement') }]
+  const requests: string[] = [], resets: string[] = [], rows: string[] = [], statuses: string[] = []
+  const controller = createPiLiveController(async name => { requests.push(name); return batches.shift() },
+    { reset: label => { resets.push(label); rows.length = 0 }, append: batch => rows.push(...batch.events.map(e => e.text)), status: text => statuses.push(text), hide: () => {} }, () => true, () => true, () => id)
+  const settled = () => new Promise(resolve => setImmediate(resolve))
+  assert.equal(controller.open(scope, 'target'), true); await settled(); assert.deepEqual(rows, ['old'])
+  t.mock.timers.tick(2000); await settled(); assert.deepEqual(rows, []); assert.match(statuses.at(-1)!, /Waiting/)
+  t.mock.timers.tick(5000); await settled(); assert.equal(resets.length, 2)
+  t.mock.timers.tick(5000); await settled(); assert.deepEqual(rows, ['resumed'])
+  t.mock.timers.tick(2000); await settled(); assert.deepEqual(rows, ['replacement']); assert.equal(resets.length, 3)
+  assert.equal(requests.filter(name => name === 'pi-live.start').length, 1)
+  controller.close()
 })
 
 test('Pi Live panel opts in explicitly and discards late results when hidden or retargeted', async () => {

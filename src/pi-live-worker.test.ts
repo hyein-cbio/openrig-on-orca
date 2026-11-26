@@ -7,10 +7,11 @@ import { appendFile, mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile 
 import { mockHost, mountWorker } from 'orca/testing'
 import * as workerModule from './worker'
 import { configFrom } from './runtime.mjs'
+import type { PiLiveBatch } from './protocol'
 
 const record = (type: string, rest: object) => JSON.stringify({ type, ...rest }) + '\n'
 const entry = (text: string) => record('message', { message: { role: 'user', content: text } })
-test('loaded worker follows only the exact synthetic Native Pi file and stops on an occupant move', async t => {
+test('loaded Live Pi worker follows verified changes only within the exact Native seat', async t => {
   const rig = process.env.OPENRIG_TEST_RIG
   if (!rig) { t.skip('Set OPENRIG_TEST_RIG to use the installed SQLite binding with a synthetic Native seat'); return }
   const root = await realpath(await mkdtemp(path.join(tmpdir(), 'orca-live-pi-worker-')))
@@ -30,8 +31,8 @@ test('loaded worker follows only the exact synthetic Native Pi file and stops on
     await writeFile(exact, original)
     await writeFile(sibling, record('session', { version: 3, id: 'latest' }) + entry('DO NOT FOLLOW LATEST'))
     const sidecar = path.join(state, 'runner-state.json')
-    const runner = (file: string, id: string) => writeFile(sidecar, JSON.stringify({ ready: true, launchId: `launch-${id}`, sessionFile: file, sessionId: id }))
-    await runner(exact, 'exact'); await writeFile(path.join(home, 'daemon.json'), JSON.stringify({ host: '127.0.0.1', port: 17433, db: path.join(home, 'openrig.sqlite') }))
+    const runner = (file: string, id: string, summary?: string, launchId = `launch-${id}`) => writeFile(sidecar, JSON.stringify({ ready: true, launchId, sessionFile: file, sessionId: id, compaction: summary && { result: { summary } } }))
+    await runner(exact, 'exact', 'compacted synthetic context '.repeat(1024)); await writeFile(path.join(home, 'daemon.json'), JSON.stringify({ host: '127.0.0.1', port: 17433, db: path.join(home, 'openrig.sqlite') }))
     const Database = require('better-sqlite3'), dbFile = path.join(home, 'openrig.sqlite'), db = new Database(dbFile)
     try {
       db.exec('CREATE TABLE rigs(id TEXT,archived_at TEXT); CREATE TABLE nodes(id TEXT,rig_id TEXT,logical_id TEXT,pod_id TEXT,runtime TEXT); CREATE TABLE sessions(id INTEGER,node_id TEXT,session_name TEXT,resume_type TEXT,resume_token TEXT); CREATE TABLE bindings(node_id TEXT,tmux_session TEXT);')
@@ -57,17 +58,36 @@ test('loaded worker follows only the exact synthetic Native Pi file and stops on
     assert.deepEqual((await worker.request('pi-live.read', { id })).events.map(e => e.text), ['REAL APPEND'])
     assert.deepEqual((await worker.request('pi-live.read', { id })).events, [])
     assert.equal(await readFile(exact, 'utf8'), original + entry('REAL APPEND'))
+    const change = (sql: string, ...args: unknown[]) => {
+      const db = new Database(dbFile)
+      try { db.prepare(sql).run(...args) } finally { db.close() }
+    }
+    const expectWaiting = (batch: PiLiveBatch) => {
+      assert.deepEqual(batch, { id, events: [], skippedRecords: 0, omittedHistory: false, more: false, waiting: true })
+    }
+    change('DELETE FROM bindings WHERE node_id=?', 'node-fixture')
+    expectWaiting(await worker.request('pi-live.read', { id }))
+    expectWaiting(await worker.request('pi-live.start', { ...scope, id }))
+    change('INSERT INTO bindings VALUES (?,?)', 'node-fixture', session)
+    await runner(exact, 'exact', undefined, 'resumed-launch')
+    assert.deepEqual((await worker.request('pi-live.read', { id })).events.map(e => e.text), ['EXACT SEAT', 'REAL APPEND'])
+
     await writeFile(replacement, record('session', { version: 3, id: 'replacement' }) + entry('NEW OCCUPANT'))
-    const update = new Database(dbFile)
-    try { update.prepare('INSERT INTO sessions VALUES (?,?,?,?,?)').run(2, 'node-fixture', session, 'pi_session_file', replacement) }
-    finally { update.close() }
     await runner(replacement, 'replacement')
+    expectWaiting(await worker.request('pi-live.read', { id })) // The DB still names the old file.
+    change('INSERT INTO sessions VALUES (?,?,?,?,?)', 2, 'node-fixture', session, 'pi_session_file', replacement)
+    assert.deepEqual((await worker.request('pi-live.read', { id })).events.map(e => e.text), ['NEW OCCUPANT'])
+    await runner(replacement, 'replacement', undefined, 'another-launch')
+    const rebound = await worker.request('pi-live.read', { id })
+    assert.equal(rebound.reset, true); assert.deepEqual(rebound.events.map(e => e.text), ['NEW OCCUPANT'])
+    await runner(replacement, 'wrong-header-id')
     await assert.rejects(worker.request('pi-live.read', { id }), /Live Pi stopped/)
+    await runner(replacement, 'replacement')
+    await worker.request('pi-live.start', { ...scope, id })
+    // A different durable node cannot inherit the lease even with the same visible labels.
+    for (const table of ['nodes', 'bindings', 'sessions']) change(`UPDATE ${table} SET ${table === 'nodes' ? 'id' : 'node_id'}=?`, 'different-node')
     await assert.rejects(worker.request('pi-live.read', { id }), /Live Pi stopped/)
-    const reopened = 'b'.repeat(32)
-    assert.deepEqual((await worker.request('pi-live.start', { ...scope, id: reopened })).events.map(e => e.text), ['NEW OCCUPANT'])
-    assert.deepEqual(await worker.request('pi-live.stop', { id: reopened }), { stopped: true })
-    await assert.rejects(worker.request('pi-live.read', { id: reopened }), /Live Pi stopped/)
+    assert.deepEqual(await worker.request('pi-live.stop', { id }), { stopped: false })
     const daemonRecord = path.join(home, 'daemon.json'), recordBytes = await readFile(daemonRecord)
     await writeFile(daemonRecord, JSON.stringify({ host: '127.0.0.1', port: 17433, db: path.join(home, 'different.sqlite') }))
     await assert.rejects(worker.request('pi-live.start', { ...scope, id }), /Live Pi stopped/)
