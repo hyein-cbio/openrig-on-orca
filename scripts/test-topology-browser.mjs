@@ -29,21 +29,32 @@ try {
   const evaluate = async expression => JSON.parse((await orca(['eval', '--page', page, '--expression', expression])).result)
   const narrow = process.argv.includes('--narrow')
   await until(async () => assert.equal(await evaluate('JSON.stringify(Boolean(document.getElementById("view-dashboard")))'), true))
-  // The startup note is scoped to this opening, not to every Preparation render.
-  const startupVisible = () => evaluate('JSON.stringify(document.getElementById("startup-note").getClientRects().length > 0)')
-  assert.equal(await startupVisible(), true)
-  await evaluate('JSON.stringify(document.getElementById("dismiss-startup-note").click() || true)')
-  assert.equal(await startupVisible(), false)
-  assert.equal(await evaluate('JSON.stringify(document.activeElement.id)'), 'view-preparation')
-  await orca(['reload', '--page', page])
-  await until(async () => assert.equal(await startupVisible(), true))
   for (const view of ['messages', 'preparation', 'dashboard']) {
     await evaluate(`JSON.stringify(document.getElementById("view-${view}").click() || true)`)
-    assert.equal(await startupVisible(), false)
+    if (view === 'messages') {
+      assert.equal(await evaluate('JSON.stringify(document.getElementById("messages-actions").hidden)'), true)
+      await evaluate('JSON.stringify(document.getElementById("messages-dashboard").click() || true)')
+      assert.equal(await evaluate('JSON.stringify(document.activeElement.id)'), 'view-dashboard')
+    }
+    if (view === 'preparation') {
+      assert.equal(await evaluate('JSON.stringify(document.getElementById("team-spec").closest("details").open)'), false)
+      await evaluate('JSON.stringify(document.getElementById("team-spec").closest("details").querySelector("summary").click() || true)')
+      assert.equal(await evaluate('JSON.stringify(document.getElementById("team-spec").getClientRects().length > 0)'), true)
+    }
   }
-  // Reload resets browser emulation.
   await orca(['viewport', '--page', page, '--width', narrow ? '390' : '1200', '--height', narrow ? '844' : '1000'])
   if (process.argv.includes('--dark')) await evaluate('JSON.stringify((document.documentElement.classList.remove("light"),document.documentElement.classList.add("dark"),true))')
+  // The tab strip and its active control share one sticky surface; the title does not.
+  for (const [view, control] of [['preparation', 'scan-environment'], ['dashboard', 'dashboard-pod'], ['messages', 'messages-dashboard']]) {
+    await evaluate(`JSON.stringify(document.getElementById("view-${view}").click() || true)`)
+    assert.equal(await evaluate(`JSON.stringify(document.getElementById("${control}").closest(".panel-bar") !== null && document.getElementById("${control}").getClientRects().length > 0 && document.querySelectorAll(".context-row[id$='-context-bar']:not([hidden])").length === 1)`), true)
+    if (view !== 'messages') {
+      await evaluate('JSON.stringify(scrollTo(0, 200) || true)')
+      await until(async () => assert.equal(await evaluate('JSON.stringify(scrollY > 0 && document.querySelector(".plugin-heading").getBoundingClientRect().bottom < 0 && Math.abs(document.querySelector(".panel-bar").getBoundingClientRect().top) < 1)'), true))
+      await evaluate('JSON.stringify(scrollTo(0, 0) || true)')
+    }
+  }
+  await evaluate('JSON.stringify(document.getElementById("view-dashboard").click() || true)')
   const capture = async name => {
     if (!process.argv.includes('--capture')) return
     await evaluate('JSON.stringify(document.querySelector(".map-card").scrollIntoView({block:"start"}) || true)')

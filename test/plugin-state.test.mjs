@@ -255,6 +255,31 @@ test('seat view defaults to read-only and recovery uses its existing terminal re
   assert.deepEqual(f.calls.find(c => c.name === 'terminal.reveal').input, { terminalId: 'term-seat' })
   assert.equal(f.state.receipt.visibility, 'shown')
 })
+for (const [failure, reveal] of [
+  ['unverified tab', input => ({ terminalId: input.terminalId, visibility: 'unverified' })],
+  ['missing receipt', () => { throw new Error('No saved receipt') }]
+]) test(`explicit reveal failure (${failure}) dismisses the result without repeating the TUI action`, async () => {
+  const f = fixture({
+    'setup.prepare': () => plan({ action: 'console' }),
+    'setup.execute': () => ({ terminalId: 'term_tui', visibility: 'unverified' }),
+    'terminal.reveal': reveal
+  })
+  await ready(f)
+  await f.session.prepare('console', { consoleSource: 'tui', instanceKey: f.state.inventory.connection.key })
+  await f.session.confirm()
+  assert.equal(f.state.receipt.terminalId, 'term_tui') // Keep the first receipt for manual recovery.
+  const index = f.calls.length
+  await f.session.reveal()
+  await f.session.reveal() // No stale handle to retry.
+  assert.deepEqual(f.calls.slice(index).map(c => c.name), ['terminal.reveal'])
+  assert.equal(f.state.receipt, null)
+  assert.equal(f.state.plan, null)
+  assert.equal(f.state.busy, false)
+  assert.equal(f.state.view, 'preparation')
+  assert.equal(f.state.workspaceId, 'work')
+  assert.equal(f.session.selectedPod().rigId, seat.rigId)
+  assert.match(f.state.notice, /No command was repeated/)
+})
 test('pod selection is independent of terminal destination and filters identical namespaces by rig', async () => {
   const other = { ...seat, rigId: 'rig-2', rigName: 'other', key: '["rig-2","dev.worker"]' }
   const f = fixture({ 'seats.list': () => ({ seats: [seat, other] }), 'setup.prepare': input => plan({ action: input.action, instruction: { session: seat.session } }) })

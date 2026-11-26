@@ -409,7 +409,20 @@ export function createPluginSession(request, changed = () => {}, options = {}) {
       })
     },
     async reveal() {
-      await work(async () => { if (state.receipt) state.receipt = await request('terminal.reveal', { terminalId: state.receipt.terminalId }) })
+      const receipt = state.receipt
+      if (!receipt) return
+      await work(async () => {
+        let result
+        try { result = await request('terminal.reveal', { terminalId: receipt.terminalId }) }
+        catch { /* A closed tab or unavailable worker may reject instead of returning an unverified receipt. */ }
+        if (disposed || state.receipt !== receipt) return
+        if (result?.terminalId === receipt.terminalId && result.visibility === 'shown') {
+          state.receipt = result
+        } else {
+          state.receipt = null
+          state.notice = 'Could not show the result terminal. No command was repeated.'
+        }
+      })
     },
     async openPiHtml() {
       await work(async () => {
