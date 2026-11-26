@@ -10,11 +10,10 @@
 </head>
 <body>
   <main class="studio">
-    <details id="yaml-tools" class="yaml-tools" open><summary>Optional YAML declaration preview · not native pod inventory</summary>
+    <details id="yaml-tools" class="yaml-tools" open><summary>Preview YAML declarations</summary>
     <header class="hero">
       <div class="eyebrow"><span class="brand-mark" aria-hidden="true">↗</span> OPENRIG FOR ORCA <span class="privacy-pill">LOCAL · READ ONLY</span></div>
       <h1>Your team, connected.</h1>
-      <p>Turn a RigSpec into a clear map of pods, agents and declared relationships.</p>
       <div class="toolbar">
         <label class="button primary" for="yaml-file">Open YAML <span aria-hidden="true">↗</span></label>
         <input id="yaml-file" type="file" accept=".yml,.yaml,text/yaml,application/yaml" aria-label="Choose RigSpec YAML">
@@ -23,7 +22,7 @@
       </div>
     </header>
     <details id="editor" class="source-card">
-      <summary>YAML source <span>Paste, inspect or edit locally</span></summary>
+      <summary>YAML source</summary>
       <div class="source-body">
         <label for="yaml-source" class="sr-only">RigSpec YAML source</label>
         <textarea id="yaml-source" spellcheck="false" maxlength="262144" placeholder="Paste a RigSpec with pods, members and edges…"></textarea>
@@ -50,12 +49,10 @@
         <dl><dt>Pod</dt><dd id="detail-pod">—</dd><dt>Role</dt><dd id="detail-role">—</dd><dt>Runtime</dt><dd id="detail-runtime">—</dd><dt>Model</dt><dd id="detail-model">—</dd><dt>Agent reference</dt><dd id="detail-reference">—</dd><dt>Status summary</dt><dd id="detail-lifecycle">—</dd><dt>Activity</dt><dd id="detail-activity">—</dd><dt>Attention flag</dt><dd id="detail-attention">—</dd></dl>
         <button id="topology-pi-live" type="button" hidden>Open Live Pi</button>
         <button id="topology-pi-export" type="button" hidden>Export HTML and open in Orca…</button>
-        <div class="inspector-note"><b id="topology-inspector-note">Declarations, not guarantees.</b><p>AgentSpecs, model defaults, startup hooks and permissions are not resolved. This diagram does not start, message or stop an agent.</p></div>
       </aside>
     </section>
     <ul id="warnings" aria-label="Projection notes"></ul>
-    <details class="source-card generated"><summary>Generated Mermaid <span>Read-only diagram source</span></summary><label class="sr-only" for="mermaid-source">Generated Mermaid source</label><textarea id="mermaid-source" readonly spellcheck="false"></textarea></details>
-    <footer class="privacy-footer">Rendered on this device with Mermaid. YAML stays in this frame's memory; no uploads, telemetry or automatic saves. SVG exports contain the displayed topology.</footer>
+    <details class="source-card generated"><summary>Mermaid source</summary><label class="sr-only" for="mermaid-source">Generated Mermaid source</label><textarea id="mermaid-source" readonly spellcheck="false"></textarea></details>
     <div id="seat-report-tooltip" class="seat-report-tooltip" role="tooltip" hidden></div>
     <noscript>This local visualizer requires JavaScript. No YAML was processed.</noscript>
   </main>

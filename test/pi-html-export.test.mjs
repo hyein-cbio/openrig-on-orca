@@ -66,6 +66,20 @@ test('missing, ambiguous, non-Pi, changed runner and personal-file references fa
     await rm(f.file); await assert.rejects(validatePiFile(queryPiIdentity(fakeDb(f.row), f.home, seat), f.home), { code: 'ENOENT' })
   } finally { await rm(f.root, { recursive: true, force: true }) }
 })
+test('compaction summaries can exceed 16 KiB without weakening Native session binding or removing the read budget', async () => {
+  const f = await fixture()
+  try {
+    const identity = queryPiIdentity(fakeDb(f.row), f.home, seat), summary = 'compacted synthetic context '.repeat(1024)
+    const runner = (id, summary) => writeFile(f.sidecar, JSON.stringify({ ready: true, launchId: 'launch-1', sessionId: id, sessionFile: f.file, compaction: { result: { summary } } }))
+    await runner(sessionId, summary)
+    assert.ok((await stat(f.sidecar)).size > 16 * 1024)
+    assert.deepEqual(await validatePiFile(identity, f.home), f.native)
+    await runner('different-id', summary)
+    await assert.rejects(validatePiFile(identity, f.home), /header does not match/)
+    await runner(sessionId, 'x'.repeat(1024 * 1024))
+    await assert.rejects(validatePiFile(identity, f.home), /oversized/)
+  } finally { await rm(f.root, { recursive: true, force: true }) }
+})
 test('snapshots preserve complete records and the source; concurrent append is excluded and rewrite/truncation fail', async () => {
   const f = await fixture()
   try {

@@ -60,8 +60,8 @@ orca plugin open local.openrig-for-orca --panel openrig --environment local --js
 
 Inside that one panel are exactly three views, in left-to-right order:
 
-- **OpenRig Preparation**: tool/daemon checks, installation and account setup, paths, the walkthrough and recorded examples.
-- **OpenRig Dashboard**: native rig/pod selection, an inventory diagram and seat snapshot, prominent single-seat start reviews, stored user reports and durable task registration.
+- **Preparation**: tool/daemon checks, installation and account setup, paths, the walkthrough and recorded examples.
+- **Dashboard**: native rig/pod selection, an inventory diagram and seat snapshot, prominent single-seat start reviews, stored user reports and durable task registration.
 - **Messages**: a quick Native queue request to a running seat, with explicit instance/recipient context, a result-workspace picker and manual stored-reply readback. Team creation/launch and configured TUI opening live in Preparation.
 
 [Earlier dashboard design capture](docs/images/openrig-dashboard.png) · [Preparation capture](docs/images/openrig-preparation.png). These historical, read-only declared-example previews predate native pod selection; they are not current live-inventory evidence.
@@ -81,7 +81,7 @@ Use the **staging directory** for local-folder installation. Orca's content insp
 
 ## Built-in examples: explore a team first
 
-Within **OpenRig Preparation**, expand **Learn with the built-in example**. The walkthrough and templates are part of the same panel, not another Orca tab.
+Within **Preparation**, expand **Examples**. The walkthrough and templates are part of the same panel, not another Orca tab.
 
 - **Walkthrough:** Explains `You -> Builder -> Reviewer -> Builder -> You` step by step. This simulation runs no commands or models.
 - **Terminal demo:** Uses an installed OpenRig and a no-agent daemon to create two real tmux seats. Their prerecorded role descriptions are labelled **SIMULATION ONLY**; they do not pretend to perform AI work or exchange messages. Try opening/closing views and the separate **Stop demo** action.
@@ -94,13 +94,13 @@ Example operations use the same shared destination and review card. Their result
 
 ## First use
 
-1. Reading pods needs no Orca destination. Before an operation, explicitly select a local workspace under **Result terminal destination** (in Preparation, or the secondary expandable Dashboard section). It uses project/worktree names and Orca's exact workspace ID; labels never change the target.
-2. Use **OpenRig Preparation -> Recheck environment** to inspect Node/npm, OpenRig, tmux, and SQLite.
+1. Reading pods needs no Orca destination. Before an operation, explicitly select a local workspace under **Output workspace** (below **OpenRig instance** in Preparation, or in Dashboard). It uses project/worktree names and Orca's exact workspace ID; labels never change the target.
+2. Use **Preparation -> Recheck environment** to inspect Node/npm, OpenRig, tmux, and SQLite.
 3. Select an installation action for missing OpenRig or tmux. **Review the exact command, source, write scope, and warnings** before running it in an Orca terminal. Opening a terminal does not prove installation succeeded.
 4. Inspect the terminal result and recheck the environment.
-5. Choose a coding agent and select **Save configuration**. Reuse an available CLI login or open its official sign-in command in an Orca terminal. Choosing `Later` is also valid.
-6. Under **Preparation → OpenRig instance**, choose **Default local TUI** or **Plugin-configured instance**. Click **Check instance** first. If the default TUI has no native record, enter the intended port when prompted and check again. If the instance is reachable, skip startup. Otherwise, only when the check offers a start review, select a local result workspace and open **Review daemon start · no agents**. Confirm only the intended home, database and port. Inspect the result terminal and check the instance again. **View selected instance in Dashboard** and **Open TUI in Orca…** both use that same observed instance.
-7. In **OpenRig Dashboard**, use **Refresh pods** for the displayed instance, choose an actual rig/pod, and inspect the timestamped snapshot. To change the observed source, return to Preparation. If routing differs, explicitly use the observed instance for operations before **Open seat view**. Views default to read-only; disable the checkbox and open a new view if writable input is intended.
+5. Choose a coding agent and select **Save configuration**. Reuse an available CLI login or open its official sign-in command in an Orca terminal. Choosing `None — set up later` is also valid.
+6. Under **Preparation → OpenRig instance**, choose **Default local TUI** or **Plugin-configured instance**. Click **Check instance** first. If the default TUI has no native record, enter the intended port when prompted and check again. If the instance is reachable, skip startup. Otherwise, only when the check offers a start review, select a local result workspace and open **Review daemon start · no agents**. Confirm only the intended home, database and port. Inspect the result terminal and check the instance again. **View in Dashboard** and **Open TUI in Orca…** both use that same observed instance.
+7. In **Dashboard**, use **Refresh pods** for the displayed instance, choose an actual rig/pod, and inspect the timestamped snapshot. To change the observed source, return to Preparation. If routing differs, explicitly use the observed instance for operations before **Open seat view**. Views default to read-only; disable the checkbox and open a new view if writable input is intended.
 
 Operation buttons prepare a shared **Review operation** card, not an installation or launch. It identifies destination, source, writes, warnings and exact command and requires explicit confirmation. Operation forms are hidden while reviewing. Cancel or change the internal view to invalidate the review. Executing an operation locks navigation until its response; read-only checks do not.
 
@@ -198,7 +198,7 @@ The preview does not install or replace an Orca plugin. Installed HTML panels us
 
 ### Send a tracked message
 
-Choose a native pod in **OpenRig Dashboard**, then open **Messages**. Select a running supported recipient, enter one message (single line, at most 2000 characters), choose the required result workspace, and **Review message**. Busy agents can receive queued work; shell, kernel, stopped, attention-requesting and remote targets remain excluded. The review shows the exact destination, fixed request ID, generated short title, user message and expandable completion guidance. Confirm with **Send message**.
+Choose a native pod in **Dashboard**, then open **Messages**. Select a running supported recipient, enter one message (single line, at most 2000 characters), choose the required result workspace, and **Review message**. Busy agents can receive queued work; shell, kernel, stopped, attention-requesting and remote targets remain excluded. The review shows the exact destination, fixed request ID, generated short title, user message and expandable completion guidance. Confirm with **Send message**.
 
 Messages reuse the same Native queue-creation path as Dashboard task registration: `rig queue create --id <fixed-id> --source orca-gui@external --destination <seat> --summary=<title> --body-file <private-file> --json`. The plugin creates the row after confirmation; OpenRig performs its default destination nudge. There is no second `rig send`, no `--no-nudge`, and no instruction asking the agent to create another qitem. A short note asks it to claim this existing ID, store its short result in `summary` and full answer in `resolution`, and close truthfully. User text plus guidance remains within the 4000-character Native task body limit.
 
@@ -210,7 +210,7 @@ A registered row or result terminal is not proof of model completion. Native nud
 
 Select a Native pod, then choose **Open Live Pi** on a Pi seat card or in its diagram inspector. No result workspace is required. The timeline follows only that seat's managed Pi record using the bundled pi-esp read-only view: only prompts are right-aligned bubbles, replies are inline Markdown, and consecutive tools share one collapsed row whose details update when results arrive. Thinking is also collapsed by default. Scroll up to read without being pulled to the end, or use **Jump to latest**.
 
-Live Pi shows a bounded recent timeline in write order, not token-by-token streaming or Pi's active-branch view. It stops reading when the panel is hidden, the selection is lost, or the Native occupant or history changes. Reopening or resuming is explicit. Nothing is sent to the agent. Use the separate HTML snapshot when you need a fixed transcript. The viewer uses the installed Orca's theme and adapts only the prompt bubble layout from Orca v1.4.263; it does not embed Orca's chat runtime. See the separate [Orca](src/visualizer/licenses/orca-native-chat@1.4.263/SOURCE.md) and [pi-esp](src/visualizer/licenses/pi-esp@0.1.0/SOURCE.md) provenance and their MIT notices in the package.
+Live Pi shows a bounded recent timeline in write order, not token-by-token streaming or Pi's active-branch view. While the panel is visible, it waits for Native to verify the same seat after a stop or resume and replaces the timeline if that seat's Pi history changes. It does not follow a different seat or instance. Hiding the panel pauses the read until you explicitly resume. Nothing is sent to the agent. Use the separate HTML snapshot when you need a fixed transcript. The viewer uses the installed Orca's theme and adapts only the prompt bubble layout from Orca v1.4.263; it does not embed Orca's chat runtime. See the separate [Orca](src/visualizer/licenses/orca-native-chat@1.4.263/SOURCE.md) and [pi-esp](src/visualizer/licenses/pi-esp@0.1.0/SOURCE.md) provenance and their MIT notices in the package.
 
 ### Observe one Pi seat as HTML
 
@@ -226,7 +226,7 @@ Exports include sensitive conversation/tool content. Their read-only viewer uses
 
 ### Start one registered seat
 
-After **OpenRig Dashboard -> Refresh pods -> Select a native pod**, the highlighted **Start seats** section appears immediately under the pod selector, above reports and the DAG. It lists each seat with its recorded state/runtime and a primary **Review start** button for supported stopped/exited/detached or never-started seats. The result-workspace picker is shown there rather than hidden below the diagram. If the observed instance differs from operation routing, an explicit plugin-routing connection action and explanation are shown alongside the disabled buttons. Running, reserved, unsupported or uncertain seats get explanatory labels, never a bulk-start or restart action. The original per-seat **Review seat start** buttons remain available in the detailed roster. Registrations with no conversation remain visible as **No session yet**; no session address is invented. The review shows the registered rig ID/logical ID and declared runtime/model/cwd. Acknowledge **I accept unverified native startup settings and possible model costs**, then confirm. This runs only `rig launch --json -- <rigId> <logicalId>` in the result terminal, not an all-seat launch or the separate `--seats` snapshot-restore path.
+After **Dashboard -> Refresh pods -> Select a native pod**, the highlighted **Start seats** section appears immediately under the pod selector, above reports and the DAG. It lists each seat with its recorded state/runtime and a primary **Review start** button for supported stopped/exited/detached or never-started seats. The result-workspace picker is shown there rather than hidden below the diagram. If the observed instance differs from operation routing, an explicit plugin-routing connection action and explanation are shown alongside the disabled buttons. Running, reserved, unsupported or uncertain seats get explanatory labels, never a bulk-start or restart action. The original per-seat **Review seat start** buttons remain available in the detailed roster. Registrations with no conversation remain visible as **No session yet**; no session address is invented. The review shows the registered rig ID/logical ID and declared runtime/model/cwd. Acknowledge **I accept unverified native startup settings and possible model costs**, then confirm. This runs only `rig launch --json -- <rigId> <logicalId>` in the result terminal, not an all-seat launch or the separate `--seats` snapshot-restore path.
 
 Running seats are disabled. If another actor starts the seat after review, confirmation returns a no-op and creates no launch terminal. Changes to observable session/runtime/model definitions require another review. Native 0.7.12/0.7.13 cannot project cwd through `ps --fields`; cwd therefore remains explicitly UNVERIFIED rather than breaking all seat queries. Shell, unknown and reserved `kernel` targets are excluded. No fresh occupant, stop, model override, permission bypass or kernel recovery is requested. The review is not a complete first-start preflight: native `--plan` cannot preview a never-started materialized seat. Provider settings, permissions and hooks remain unverified, and startup may incur model costs or edit files. Refresh actual seat status after inspecting the result; opening the terminal is not proof of startup.
 
@@ -250,7 +250,7 @@ The server fixes a random request ID before execution, stores the body in an exc
 
 ## Paths, accounts, and installation policy
 
-Use **OpenRig Preparation -> Paths and existing configuration** to set absolute paths or `~/...` overrides.
+Use **Preparation -> Path overrides** to set absolute paths or `~/...` overrides.
 
 - Default data directory: `~/.local/share/openrig-for-orca/`
 - Managed CLI: `<data>/runtime/node_modules/.bin/rig`

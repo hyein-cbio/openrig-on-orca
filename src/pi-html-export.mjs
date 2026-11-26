@@ -11,7 +11,8 @@ export const PI_SESSION_LIMIT = 32 * 1024 * 1024
 export const PI_HTML_LIMIT = 64 * 1024 * 1024
 const hash = bytes => createHash('sha256').update(bytes).digest('hex')
 const escape = value => String(value).replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;')
-export const samePiIdentity = (a, b) => ['nodeId', 'occupantId', 'rigId', 'logicalId', 'podId', 'session', 'file', 'sessionsDir', 'sidecar', 'sessionId', 'launchId', 'dev', 'ino', 'databaseDev', 'databaseIno'].every(key => a[key] === b[key])
+export const samePiSeat = (a, b) => ['nodeId', 'rigId', 'logicalId', 'podId', 'session', 'databaseDev', 'databaseIno'].every(key => a[key] === b[key])
+export const samePiIdentity = (a, b) => samePiSeat(a, b) && ['occupantId', 'file', 'sessionsDir', 'sidecar', 'sessionId', 'launchId', 'dev', 'ino'].every(key => a[key] === b[key])
 
 async function rigPackage(rig) {
   for (let dir = path.dirname(await realpath(rig)); dir !== path.dirname(dir); dir = path.dirname(dir)) {
@@ -24,7 +25,7 @@ export async function readNativePiIdentity(plan, options={}) {
   if (options.identity) return options.identity(plan)
   const execute = options.execute || run
   const selectedEnv = environment(plan.config, options.base), env = { PATH: selectedEnv.PATH, HOME: selectedEnv.HOME, LANG: selectedEnv.LANG || 'en_US.UTF-8' }
-  const result = await execute(plan.node, [fileURLToPath(new URL('./pi-session-native.mjs', import.meta.url)), plan.packageFile, plan.home, JSON.stringify(plan.target), String(plan.config.daemonPort)], { env, timeout: 12000, maxBuffer: 65536, signal: options.signal })
+  const result = await execute(plan.node, [fileURLToPath(new URL('./pi-session-native.mjs', import.meta.url)), plan.packageFile, plan.home, JSON.stringify(plan.target), String(plan.config.daemonPort), ...(options.live === true ? ['live'] : [])], { env, timeout: 12000, maxBuffer: 65536, signal: options.signal })
   if (!result.ok) {
     let detail = 'Exact Native Pi history is unavailable. No other conversation was selected.'
     try { const parsed = JSON.parse(result.stdout); if (typeof parsed.error === 'string' && parsed.error.length < 400) detail = parsed.error } catch { /* No raw process output crosses the panel bridge. */ }

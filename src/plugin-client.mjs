@@ -85,6 +85,10 @@ for (const view of VIEWS) {
     if (session.switchView(next)) $(`view-${next}`).focus()
   })
 }
+$('dismiss-startup-note').addEventListener('click', () => {
+  show('startup-note', false)
+  $('view-preparation').focus()
+})
 $('plugin-workspace').addEventListener('change', event => session.selectWorkspace(event.target.value))
 $('plugin-provider').addEventListener('change', event => session.editConfig('provider', event.target.value))
 $('seat-read-only').addEventListener('change', event => session.selectReadOnly(event.target.checked))
@@ -144,7 +148,7 @@ function renderSeatStarts(state) {
   if (!state.workspaceId) reasons.push('Choose the result terminal workspace below.')
   if (!state.env?.snapshot.installed) reasons.push('Verify Node, OpenRig, tmux and SQLite first.')
   if (state.busy || state.autoRefresh?.inFlight) reasons.push('Wait for the current operation or observation.')
-  text('seat-start-status', `${candidates.length} registered seats support single-seat start review. ${reasons.join(' ')}`)
+  text('seat-start-status', [`${candidates.length} eligible`, reasons[0]].filter(Boolean).join(' · '))
   show('seat-start-connection', mismatch)
   $('seat-start-connect').disabled = !state.host || state.busy || session.dirty() || Boolean(state.observation.seatsError)
   $('seat-start-list').replaceChildren(...rows.map(seat => {
@@ -153,18 +157,18 @@ function renderSeatStarts(state) {
     if (canStartSeat(seat)) {
       const start = actionButton(`Review start · ${seat.logicalId}`, 'launch-seat', { seatKey: seat.key })
       start.classList.add('primary'); start.dataset.seatKey = seat.key; row.append(start)
-    } else row.append(element('small', !managedAgent(seat) ? 'No GUI start: reserved/unknown seat or unsupported runtime.' : seat.attention || seat.lifecycle === 'attention_required' ? 'Attention is required; inspect the native TUI.' : seat.status === 'running' || seat.lifecycle === 'running' ? 'Already running; no restart is offered.' : 'This recorded state cannot be safely started from this control.'))
+    } else row.append(element('small', !managedAgent(seat) ? 'Start unavailable for this seat or runtime.' : seat.attention || seat.lifecycle === 'attention_required' ? 'Attention is required; inspect the native TUI.' : seat.status === 'running' || seat.lifecycle === 'running' ? 'Already running.' : 'Cannot start in this state.'))
     return row
   }))
 }
 function renderSeats(state) {
   const pod = session.selectedPod(), rows = session.podSeats(), liveAvailable = Boolean(liveVisible() && liveConnection(state, pod))
-  text('selected-pod-heading', pod ? `${pod.label} · seat snapshot` : 'Selected pod seats · manual snapshot')
+  text('selected-pod-heading', pod ? `${pod.label} · seat snapshot` : 'Seats')
   const list = $('live-seats'), active = document.activeElement
   const liveSeatToRefocus = list.contains(active) ? active.dataset?.liveSeat : null
   const restoreFocus = replacement => { if (liveSeatToRefocus) (replacement || $('view-dashboard')).focus({ preventScroll: true }) }
   if (!pod || !rows.length) {
-    list.replaceChildren(element('p', !pod ? 'Select a verified native rig / pod. No example or workspace-derived target is substituted.' : 'No seat observations were returned for this selected pod.'))
+    list.replaceChildren(element('p', !pod ? 'Choose a pod to view seats.' : 'No seats observed.'))
     restoreFocus(); return
   }
   let replacement
@@ -191,16 +195,19 @@ function renderUserReports(state) {
   $('reporting-seat').disabled = state.busy || !state.host || !pod
   inputValue('user-report-sources', state.requestSourceText); $('user-report-sources').disabled = state.busy || !state.host
   $('load-user-reports').disabled = state.busy || !state.host || session.dirty() || !reporting?.session || state.diagramSource !== 'inventory' || Boolean(state.observation.seatsError)
-  text('user-report-context', pod ? `Rig: ${pod.rigName}${reporting ? ` · reporting seat: ${reporting.logicalId}` : ' · choose a reporting seat'}${reporting && !state.reportSeatPinned ? ' · topology-based default; confirm this is the seat you want' : ''}` : 'Select an actual native rig / pod to inspect its reports.')
+  text('user-report-context', pod ? `${pod.rigName}${reporting && !state.reportSeatPinned ? ' · suggested seat; confirm before loading' : ''}` : '')
   displayUserReportSnapshot(data, state.userReportError)
 }
 function displayUserReportSnapshot(data, error = '') {
   text('user-report-error', error); show('user-report-error', Boolean(error))
-  text('user-report-status', data ? `${data.reports.length} stored resolution reports · ${error ? 'older retained snapshot' : data.status} · read ${new Date(data.observedAt).toLocaleString()}` : 'No report body has been read for this selection. Load stored reports explicitly.')
+  text('user-report-status', data ? `${data.reports.length} stored resolution reports · ${error ? 'older retained snapshot' : data.status} · read ${new Date(data.observedAt).toLocaleString()}` : '')
   list('user-report-notes', data?.notes || [])
   if (renderedUserReports === data) return
   renderedUserReports = data
-  if (!data?.reports.length) { $('user-report-list').replaceChildren(element('p', data ? 'No stored resolution was found in the inspected windows, or the read is unverified. See provenance and limits; no report was generated.' : 'Stored user-request reports will appear here.')); return }
+  if (!data?.reports.length) {
+    $('user-report-list').replaceChildren()
+    return
+  }
   $('user-report-list').replaceChildren(...data.reports.map(report => {
     const card = element('article', undefined, 'seat-card'), detail = element('details'), caption = element('summary', `Read stored resolution · ${report.bodyBytes} / ${report.totalBytes} UTF-8 bytes${report.truncated ? ' · truncated' : ''}`)
     card.append(element('h3', report.title), element('p', `Recorded task title${report.titleTruncated ? ' excerpt' : ''} · ${report.source} → ${data.reportingSeat}`), element('p', `Recorded task state: ${report.state} · updated ${new Date(report.updatedAt).toLocaleString()}`), element('code', `Source task: ${report.id}`), element('p', report.preview, 'report-preview'), element('small', `${new TextEncoder().encode(report.preview).length} / ${report.totalBytes} UTF-8-byte preview · expand the stored resolution below`))
@@ -210,22 +217,21 @@ function displayUserReportSnapshot(data, error = '') {
 }
 function renderMessages(state) {
   const pod = session.selectedPod(), connection = state.inventory?.connection, recipient = session.podSeats().find(s => s.key === state.input.instructionSeat), eligible = session.podSeats().filter(canQueueTask)
-  text('messages-context', pod && connection ? `Native pod: ${pod.label}\nInstance: ${connection.endpoint}\nSeat snapshot: ${state.observation.seatsAt ? new Date(state.observation.seatsAt).toLocaleString() : 'unverified'}${recipient ? `\nRecipient: ${recipient.logicalId} · ${recipient.runtime} · ${recipient.status} / ${recipient.activity}` : ''}` : 'Choose an actual native rig / pod in Dashboard first. No recipient is inferred from the workspace or a seat name.')
+  text('messages-context', pod && connection ? `${pod.label} · ${connection.endpoint}\nSeats: ${state.observation.seatsAt ? new Date(state.observation.seatsAt).toLocaleString() : 'unverified'}${recipient ? `\nRecipient: ${recipient.logicalId} · ${recipient.runtime} · ${recipient.status} / ${recipient.activity}` : ''}` : '')
   const reasons = []
-  if (!pod) reasons.push('No pod selected.')
-  if (state.diagramSource !== 'inventory') reasons.push('Return to native inventory in Dashboard; YAML preview is not a message target.')
+  if (!pod) reasons.push('Choose a pod in Dashboard.')
+  if (state.diagramSource !== 'inventory') reasons.push('Exit YAML preview in Dashboard.')
   if (session.dirty()) reasons.push('Save configuration first.')
   if (state.observation.seatsError || state.observation.missing) reasons.push('Refresh the unavailable/stale native seat snapshot.')
-  if (pod && !connection.matchesConfigured) reasons.push('Connect the observed instance for operations explicitly.')
-  if (!state.workspaceId) reasons.push('Choose a result workspace for the send result.')
-  if (pod && !eligible.length) reasons.push('No eligible running agent. Start or inspect seats in Dashboard; nothing is started here.')
-  text('messages-status', reasons.length ? reasons.join(' ') : `${eligible.length} eligible running recipients. Select one and review the exact message; no send occurs on navigation.`)
+  if (pod && !connection.matchesConfigured) reasons.push('Connect this instance first.')
+  if (!state.workspaceId) reasons.push('Choose an output workspace.')
+  if (pod && !eligible.length) reasons.push('No running recipient. Check seats in Dashboard.')
   show('messages-routing', Boolean(pod && connection && !connection.matchesConfigured))
   $('messages-connect').disabled = !state.host || state.busy || session.dirty() || Boolean(state.observation.seatsError)
   $('messages-refresh').disabled = !state.host || state.busy || session.dirty() || !pod
   $('messages-dashboard').disabled = state.busy && state.busyKind !== 'read'
   const issue = !state.host ? 'Open this panel inside Orca.' : state.busy || state.autoRefresh?.inFlight ? 'Checking the current request…' : reasons[0] || (!state.env?.snapshot.installed ? 'Verify the environment in Preparation.' : !recipient ? 'Choose a running recipient.' : !canQueueTask(recipient) ? 'This seat is not ready to receive. Refresh recipients.' : instructionTextError(state.input.instruction))
-  text('message-send-status', issue || 'Ready. Review the recipient and message.')
+  text('message-send-status', issue || '')
   $('message-send-status').classList.toggle('safety-note', Boolean(issue))
   document.querySelector('[data-operation="send-message"]').title = issue || 'Review this message'
 }
@@ -247,7 +253,7 @@ function renderExamples(state) {
 }
 function renderReview(state) {
   const plan = state.plan
-  show('plugin-review', Boolean(plan)); show('preparation-actions', !plan); show('dashboard-actions', !plan); show('messages-actions', !plan)
+  show('plugin-review', Boolean(plan)); show('preparation-actions', !plan); show('dashboard-actions', !plan && Boolean(session.selectedPod())); show('messages-actions', !plan)
   if (!plan) { renderedReviewId = null; return }
   if (renderedReviewId !== plan.id) { $('review-effects').open = !plan.instruction && !plan.piExport; renderedReviewId = plan.id }
   text('review-title', plan.instruction ? 'Review message' : `Review · ${plan.title}`)
@@ -284,8 +290,8 @@ function renderReview(state) {
 function renderObservationStatus(state) {
   const current = session.observationStatus(), auto = state.autoRefresh, stamp = value => value ? new Date(value).toLocaleString() : 'No successful read'
   $('auto-refresh').checked = auto.enabled; $('auto-refresh').disabled = !state.host
-  text('auto-refresh-status', !auto.enabled ? 'Off · observations are manual snapshots.' : auto.inFlight ? 'Refreshing read-only observations…' : auto.paused ? `Paused · ${auto.paused}` : `Next read: ${stamp(auto.nextAt)} · ${auto.failures ? `${2 ** auto.failures}-minute failure backoff` : '1-minute interval'}`)
-  text('observation-times', `Last successful seats: ${stamp(current.seatsAt)} · complete relationships: ${stamp(current.relationsAt)}`)
+  text('auto-refresh-status', !auto.enabled ? '' : auto.inFlight ? 'Refreshing read-only observations…' : auto.paused ? `Paused · ${auto.paused}` : `Next read: ${stamp(auto.nextAt)} · ${auto.failures ? `${2 ** auto.failures}-minute failure backoff` : '1-minute interval'}`)
+  text('observation-times', state.podKey ? `Seats: ${stamp(current.seatsAt)} · relationships: ${stamp(current.relationsAt)}` : '')
   const stale = Boolean(state.podKey && (current.seatsStale || current.relationsStale))
   show('observation-stale', stale)
   text('observation-stale', `${current.seatsStale ? 'Seats are stale/unverified. ' : ''}${current.relationsStale ? 'Relationships are stale/incomplete. ' : ''}${current.seatsError || current.relationsError || 'Data at least one minute old is not confirmed current state.'}`)
@@ -298,14 +304,15 @@ function render(state) {
     tab.setAttribute('aria-selected', String(selected)); tab.tabIndex = selected ? 0 : -1; tab.disabled = waiting && state.busyKind !== 'read'
     show(`${view}-view`, selected)
   }
+  if (state.view !== 'preparation' || state.plan) show('startup-note', false)
   show('plugin-preview', !hosted); show('plugin-progress', waiting)
   for (const [id, message] of [['plugin-error', state.error], ['plugin-notice', state.notice], ['plugin-warning', state.warning]]) { text(id, message); show(id, Boolean(message)) }
   show('plugin-dirty', dirty)
   const destination = $('workspace-destination-control'), destinationHost = $(state.view === 'messages' ? 'messages-destination' : state.view === 'dashboard' ? session.selectedPod() ? 'seat-start-destination' : 'dashboard-destination' : 'preparation-destination')
   show('dashboard-terminal-destination', !session.selectedPod())
   if (destination.parentElement !== destinationHost) destinationHost.append(destination)
-  text('plugin-workspace-label', state.view === 'messages' ? 'Workspace for send result (required)' : 'Terminal / browser destination · Orca workspace')
-  choices('plugin-workspace', workspaceOptions(env?.workspaces || []), state.workspaceId, state.view === 'messages' ? 'Required: choose result workspace' : 'Choose a workspace for views or exports'); $('plugin-workspace').disabled = waiting || !env
+  text('plugin-workspace-label', state.view === 'messages' ? 'Workspace for send result (required)' : 'Output workspace')
+  choices('plugin-workspace', workspaceOptions(env?.workspaces || []), state.workspaceId, 'Choose a workspace'); $('plugin-workspace').disabled = waiting || !env
   choices('dashboard-pod', (state.inventory?.pods || []).map(pod => ({ value: pod.key, label: `${pod.label} · ${pod.seatCount} seats` })), state.podKey, state.inventory ? 'Choose an actual OpenRig rig / pod' : 'No verified native pod inventory')
   $('dashboard-pod').disabled = waiting || !state.inventory || dirty
   $('refresh-pods').disabled = !hosted || waiting || dirty || !env
@@ -318,17 +325,17 @@ function render(state) {
   $('open-selected-tui').disabled = !canOpenTui || state.view !== 'preparation'
   $('open-observed-tui').disabled = !canOpenTui || state.view !== 'dashboard'
   const tuiStatus = !hosted ? 'Open this panel inside Orca.' : waiting || state.autoRefresh?.inFlight ? 'Wait for the current operation or observation.' : dirty ? 'Save configuration first.' : !snapshot?.installed ? 'Verify Node, OpenRig, tmux and SQLite first.' : !reachable ? 'Check that the selected instance is reachable before opening its TUI.' : !state.workspaceId ? 'Choose a local Orca workspace for the TUI terminal.' : ''
-  text('open-tui-status', canOpenTui ? 'Opens standalone rig tui in an Orca terminal. No pod selection is needed.' : tuiStatus)
+  text('open-tui-status', hosted && !canOpenTui ? tuiStatus : '')
   $('change-instance').disabled = waiting && state.busyKind !== 'read'
-  const guidance = state.diagramSource === 'yaml' ? 'YAML declaration preview active; return to pod inventory before operations.' : session.selectedPod() ? connection?.matchesConfigured ? 'Choose a result terminal destination only to use operations.' : 'Read-only observation; explicitly connect this instance before operations.' : 'Select one pod; an Orca workspace is not an OpenRig target.'
-  text('pod-observation', state.inventory ? `${state.inventory.pods.length} pods observed at ${new Date(state.inventory.observedAt).toLocaleString()}. ${guidance}` : 'Refresh native pods to inspect the TUI inventory. Unavailable is not an empty list.')
+  text('pod-observation', state.inventory ? `${state.inventory.pods.length} pods · checked ${new Date(state.inventory.observedAt).toLocaleString()}` : '')
   show('pod-connect-review', Boolean(connection && !connection.matchesConfigured)); $('connect-pod-instance').disabled = waiting || dirty || !hosted || !connection
   show('declaration-mode-note', state.diagramSource === 'yaml')
   const observationKey = JSON.stringify([state.inventory?.observedAt, state.relations?.observedAt, state.observation])
   if (state.diagramSource === 'inventory' && (renderedInventory !== state.inventory || renderedPodKey !== state.podKey || renderedDiagramSource !== state.diagramSource || renderedRelations !== state.relations || renderedObservation !== observationKey)) { renderedInventory = state.inventory; renderedPodKey = state.podKey; renderedDiagramSource = state.diagramSource; renderedRelations = state.relations; renderedObservation = observationKey; displayPodSnapshot(session.selectedPod(), session.podSeats(), state.inventory?.observedAt, state.relations, session.observationStatus(), connection?.key) }
   renderedDiagramSource = state.diagramSource
   renderObservationStatus(state)
-  text('environment-stage', snapshot ? snapshot.stage.replaceAll('-', ' ') : hosted ? 'Checking environment…' : 'Read-only visual preview; no plugin host.')
+  show('user-report-panel', Boolean(session.selectedPod()))
+  text('environment-stage', snapshot ? snapshot.stage.replaceAll('-', ' ') : hosted ? 'Checking environment…' : '')
   const tools = snapshot ? [['Node', snapshot.tools.node || 'Compatible runtime needed'], ['OpenRig', snapshot.rigVersion || 'Not installed'], ['tmux', snapshot.tmuxVersion || 'Required — unavailable'], ['SQLite', `${snapshot.sqlite.status}: ${snapshot.sqlite.detail}`]] : []
   $('environment-tools').replaceChildren(...tools.flatMap(([name, value]) => [element('dt', name), element('dd', value)]))
   $('scan-environment').disabled = !hosted || waiting || dirty
@@ -336,16 +343,16 @@ function render(state) {
   inputValue('plugin-provider', state.draft?.provider || 'none'); $('plugin-provider').disabled = !state.draft || waiting
   $('save-provider').disabled = $('save-paths').disabled = !hosted || waiting || !dirty
   show('claude-actions', ['claude', 'both'].includes(state.draft?.provider)); show('codex-actions', ['codex', 'both'].includes(state.draft?.provider))
-  text('provider-status', snapshot?.providers.map(p => `${p.provider}: ${p.status}`).join(' · ') || 'No coding agent is required for initial setup or the declared topology viewer.')
+  text('provider-status', snapshot?.providers.map(p => `${p.provider}: ${p.status}`).join(' · ') || '')
   const selectedLabel = state.inventorySource === 'tui' ? 'Default local TUI' : 'Plugin-configured instance'
   const location = reachable ? connection : instance
   const address = session.tuiPortDraftChanged() ? '' : location?.port
-  const locationText = location ? [location.home, address && `127.0.0.1:${address}`].filter(Boolean).join(' · ') : 'Home and port not verified.'
+  const locationText = location ? [location.home, address && `127.0.0.1:${address}`].filter(Boolean).join(' · ') : 'Unverified address'
   text('selected-instance', locationText)
   text('pod-connection', `${selectedLabel} · ${locationText}${reachable ? ' · Reachable' : ' · No current inventory'}`)
   show('tui-port-control', needsPort); inputValue('tui-start-port', state.tuiPort); $('tui-start-port').disabled = waiting || dirty
-  text('daemon-state', reachable ? 'Reachable. View native pods or open its TUI.' : state.daemonCheckError || (portEdited ? 'The TUI port has not been verified for this connection. Check this instance again.' : instance?.detail || 'Check the selected instance to see its startup status.'))
-  text('daemon-start-status', [session.daemonStartReason() || 'Ready to review a daemon-only start for this instance.', reachable && instance?.startPrerequisite].filter(Boolean).join(' '))
+  text('daemon-state', reachable ? 'Reachable.' : state.daemonCheckError || (portEdited ? 'The TUI port has not been verified for this connection. Check this instance again.' : instance?.detail || 'Not checked.'))
+  text('daemon-start-status', hosted ? [session.daemonStartReason(), reachable && instance?.startPrerequisite].filter(Boolean).join(' ') : '')
   $('check-instance').disabled = !hosted || waiting || dirty || !env
   text('configured-instance', env ? `Plugin operation routing: ${env.config.instanceHome || `${env.config.root}/instance`} · http://127.0.0.1:${env.config.daemonPort}\nCLI: ${snapshot?.tools.rig || 'unavailable'} · ${snapshot?.rigVersion || 'unverified version'}` : '')
   text('dashboard-daemon', connection ? `${connection.endpoint} · ${connection.matchesConfigured ? 'Operations route to this instance' : 'Operations locked: plugin connection differs'}` : 'No verified pod inventory.')

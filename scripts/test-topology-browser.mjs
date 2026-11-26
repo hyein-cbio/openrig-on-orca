@@ -28,10 +28,22 @@ try {
   page = (await orca(['tab', 'create', '--url', url])).browserPageId
   const evaluate = async expression => JSON.parse((await orca(['eval', '--page', page, '--expression', expression])).result)
   const narrow = process.argv.includes('--narrow')
-  await orca(['viewport', '--page', page, '--width', narrow ? '390' : '1200', '--height', narrow ? '844' : '1000'])
   await until(async () => assert.equal(await evaluate('JSON.stringify(Boolean(document.getElementById("view-dashboard")))'), true))
+  // The startup note is scoped to this opening, not to every Preparation render.
+  const startupVisible = () => evaluate('JSON.stringify(document.getElementById("startup-note").getClientRects().length > 0)')
+  assert.equal(await startupVisible(), true)
+  await evaluate('JSON.stringify(document.getElementById("dismiss-startup-note").click() || true)')
+  assert.equal(await startupVisible(), false)
+  assert.equal(await evaluate('JSON.stringify(document.activeElement.id)'), 'view-preparation')
+  await orca(['reload', '--page', page])
+  await until(async () => assert.equal(await startupVisible(), true))
+  for (const view of ['messages', 'preparation', 'dashboard']) {
+    await evaluate(`JSON.stringify(document.getElementById("view-${view}").click() || true)`)
+    assert.equal(await startupVisible(), false)
+  }
+  // Reload resets browser emulation.
+  await orca(['viewport', '--page', page, '--width', narrow ? '390' : '1200', '--height', narrow ? '844' : '1000'])
   if (process.argv.includes('--dark')) await evaluate('JSON.stringify((document.documentElement.classList.remove("light"),document.documentElement.classList.add("dark"),true))')
-  await evaluate('JSON.stringify(document.getElementById("view-dashboard").click() || true)')
   const capture = async name => {
     if (!process.argv.includes('--capture')) return
     await evaluate('JSON.stringify(document.querySelector(".map-card").scrollIntoView({block:"start"}) || true)')

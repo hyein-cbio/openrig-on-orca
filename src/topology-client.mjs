@@ -100,7 +100,6 @@ function origin(kind) {
   const inventory = kind === 'inventory'
   $('topology-origin').textContent = inventory ? 'Observed snapshot' : 'Not live status'
   $('topology-origin').classList.remove('stale')
-  $('topology-inspector-note').textContent = inventory ? 'Observations, not guarantees.' : 'Declarations, not guarantees.'
   $('topology-eyebrow').textContent = inventory ? 'NATIVE POD INVENTORY' : 'DECLARED TOPOLOGY'
   $('agent-noun').textContent = inventory ? 'seats' : 'agents'; $('entity-details').textContent = inventory ? 'SEAT DETAILS' : 'AGENT DETAILS'
   $('topology-stage').setAttribute('aria-label', inventory ? 'Native pod inventory' : 'Declared topology')
@@ -111,7 +110,7 @@ const nodeId = node => topologyNodeId(node.id)
 function details(node) {
   selected = node?.uid || ''; selectedKey = node?.key || ''
   $('agent-name').textContent = node?.id || 'Select an agent'
-  $('agent-hint').textContent = node ? (model?.source === 'inventory' ? 'Observed in the selected native pod snapshot. This is not continuous live polling.' : 'Declared in the rendered YAML snapshot. Effective native settings may differ.') : 'Select a node in the diagram to inspect its declared settings.'
+  $('agent-hint').textContent = node && model?.source !== 'inventory' ? 'Declared settings; runtime values may differ.' : ''
   const shown = node && model?.source === 'inventory' ? { ...node, podId: node.podNamespace } : node
   for (const [element, field] of [['detail-pod', 'podId'], ['detail-role', 'role'], ['detail-runtime', 'runtime'], ['detail-model', 'model'], ['detail-reference', 'agentRef'], ['detail-lifecycle', 'status'], ['detail-activity', 'activity'], ['detail-attention', 'attention']]) $(element).textContent = shown?.[field] ?? '—'
   for (const item of selectable()) item.classList.toggle('selected', nodeId(item) === selected)
@@ -305,7 +304,7 @@ new ResizeObserver(() => {
 export function displayPodSnapshot(pod, seats = [], observedAt = Date.now(), relations = null, freshness = null, instanceKey = null) {
   loadEpoch++; observationFreshness = freshness
   if (!pod) {
-    sourceChanged('inventory'); origin('inventory'); clearGraph(); $('error').hidden = true; $('rig-name').textContent = 'Select an OpenRig pod'; $('topology-origin').textContent = 'Native inventory'; $('empty').textContent = 'Refresh and select an actual rig / pod above. No example is substituted.'; notice('No pod selected. This dashboard does not auto-load an example.'); return
+    sourceChanged('inventory'); origin('inventory'); clearGraph(); $('error').hidden = true; $('rig-name').textContent = 'Select an OpenRig pod'; $('topology-origin').textContent = 'Native inventory'; $('empty').textContent = 'Choose a pod above to see its seats.'; notice(''); return
   }
   try {
     const next = topologyForPod(pod, seats, observedAt, relations)

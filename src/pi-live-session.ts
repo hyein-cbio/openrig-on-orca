@@ -1,4 +1,5 @@
 import { fail } from './runtime.mjs'
+import { samePiIdentity } from './pi-html-export.mjs'
 import { readPiLiveTail, type PiLiveCursor } from './pi-live-tail'
 import type { PiLiveBatch } from './protocol'
 
@@ -7,8 +8,8 @@ const MAX_VIEWERS = 8
 const validId = (id: unknown): id is string => typeof id === 'string' && /^[a-f0-9]{32}$/.test(id)
 const closed = () => fail('pi_live_closed', 'Live Pi stopped. Open it again to verify the selected seat.')
 type Identity = Parameters<typeof readPiLiveTail>[0]
-interface BoundSource { identity: Identity; verify: (signal: AbortSignal) => Promise<void>; assertCurrent?: () => void }
-interface Slot { id: string; cancel: AbortController; source?: BoundSource; cursor: PiLiveCursor | null; expires: number; busy: boolean }
+interface BoundSource { initial: Identity | null; resolve: (signal: AbortSignal) => Promise<Identity | null>; assertCurrent?: () => void }
+interface Slot { id: string; cancel: AbortController; source?: BoundSource; history?: Identity; cursor: PiLiveCursor | null; expires: number; busy: boolean }
 
 // The bridge never gets a path or an offset. A caller may hold only its own
 // short-lived session and cannot read a different panel's transcript.
@@ -57,17 +58,37 @@ export class PiLiveSessions {
     if (!validId(id) || !slot || slot.id !== id) return { stopped: false }
     this.drop(panel, slot); return { stopped: true }
   }
+  private waitForHistory(slot: Slot, signal: AbortSignal): PiLiveBatch {
+    signal.throwIfAborted()
+    slot.source?.assertCurrent?.()
+    slot.history = undefined; slot.cursor = null; slot.expires = this.now() + LEASE_MS
+    return { id: slot.id, events: [], skippedRecords: 0, omittedHistory: false, more: false, waiting: true }
+  }
   private async batch(slot: Slot, signal: AbortSignal, starting: boolean): Promise<PiLiveBatch> {
     const source = slot.source!
     signal.throwIfAborted()
-    if (!starting) await source.verify(signal)
-    const { cursor, ...result } = await readPiLiveTail(source.identity, slot.cursor, signal)
-    // Silent polls don't publish content; reverify before releasing any newly
-    // projected rows so an occupant move during the read cannot cross the bridge.
-    if (starting || result.events.length || result.skippedRecords) await source.verify(signal)
+    const history = starting ? source.initial : await source.resolve(signal)
+    if (!history) return this.waitForHistory(slot, signal)
+    const unchanged = slot.history && samePiIdentity(slot.history, history)
+    const rebound = Boolean(slot.history && !unchanged)
+    let batch
+    try { batch = await readPiLiveTail(history, unchanged ? slot.cursor : null, signal) }
+    catch (error) {
+      signal.throwIfAborted()
+      const latest = await source.resolve(signal)
+      if (latest && samePiIdentity(history, latest)) throw error // The current file itself failed integrity checks.
+      return this.waitForHistory(slot, signal)
+    }
+    const { cursor, ...result } = batch
+    // Never release rows for an identity that changed while we were reading.
+    // Rebind only through the pinned-seat resolver on the next poll.
+    if (!unchanged || result.events.length || result.skippedRecords) {
+      const latest = await source.resolve(signal)
+      if (!latest || !samePiIdentity(history, latest)) return this.waitForHistory(slot, signal)
+    }
     signal.throwIfAborted()
     source.assertCurrent?.() // A routing write may start while the final async verification is completing.
-    slot.cursor = cursor; slot.expires = this.now() + LEASE_MS
-    return { id: slot.id, ...result }
+    slot.history = history; slot.cursor = cursor; slot.expires = this.now() + LEASE_MS
+    return { id: slot.id, ...result, ...(rebound ? { reset: true as const } : {}) }
   }
 }
