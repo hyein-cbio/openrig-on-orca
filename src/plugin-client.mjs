@@ -85,10 +85,6 @@ for (const view of VIEWS) {
     if (session.switchView(next)) $(`view-${next}`).focus()
   })
 }
-$('dismiss-startup-note').addEventListener('click', () => {
-  show('startup-note', false)
-  $('view-preparation').focus()
-})
 $('plugin-workspace').addEventListener('change', event => session.selectWorkspace(event.target.value))
 $('plugin-provider').addEventListener('change', event => session.editConfig('provider', event.target.value))
 $('seat-read-only').addEventListener('change', event => session.selectReadOnly(event.target.checked))
@@ -111,7 +107,9 @@ $('dashboard-pod').addEventListener('change', event => { if (session.selectPod(e
 $('pod-instance-source').addEventListener('change', event => { void session.selectInventorySource(event.target.value) })
 $('connect-pod-instance').addEventListener('click', session.connectInventory)
 $('seat-start-connect').addEventListener('click', session.connectInventory)
-$('messages-dashboard').addEventListener('click', () => session.switchView('dashboard'))
+$('messages-dashboard').addEventListener('click', () => {
+  if (session.switchView('dashboard')) ($('dashboard-pod').disabled ? $('view-dashboard') : $('dashboard-pod')).focus()
+})
 $('messages-refresh').addEventListener('click', session.refreshPods)
 $('messages-connect').addEventListener('click', session.connectInventory)
 $('reporting-seat').addEventListener('change', event => session.selectReportingSeat(event.target.value))
@@ -228,6 +226,9 @@ function renderMessages(state) {
   if (pod && !eligible.length) reasons.push('No running recipient. Check seats in Dashboard.')
   show('messages-routing', Boolean(pod && connection && !connection.matchesConfigured))
   $('messages-connect').disabled = !state.host || state.busy || session.dirty() || Boolean(state.observation.seatsError)
+  show('message-target', Boolean(pod))
+  show('recipient-picker', Boolean(pod))
+  show('messages-dashboard', !pod)
   $('messages-refresh').disabled = !state.host || state.busy || session.dirty() || !pod
   $('messages-dashboard').disabled = state.busy && state.busyKind !== 'read'
   const issue = !state.host ? 'Open this panel inside Orca.' : state.busy || state.autoRefresh?.inFlight ? 'Checking the current request…' : reasons[0] || (!state.env?.snapshot.installed ? 'Verify the environment in Preparation.' : !recipient ? 'Choose a running recipient.' : !canQueueTask(recipient) ? 'This seat is not ready to receive. Refresh recipients.' : instructionTextError(state.input.instruction))
@@ -253,7 +254,7 @@ function renderExamples(state) {
 }
 function renderReview(state) {
   const plan = state.plan
-  show('plugin-review', Boolean(plan)); show('preparation-actions', !plan); show('dashboard-actions', !plan && Boolean(session.selectedPod())); show('messages-actions', !plan)
+  show('plugin-review', Boolean(plan)); show('preparation-actions', !plan); show('dashboard-actions', !plan && Boolean(session.selectedPod())); show('messages-actions', !plan && Boolean(session.selectedPod()))
   if (!plan) { renderedReviewId = null; return }
   if (renderedReviewId !== plan.id) { $('review-effects').open = !plan.instruction && !plan.piExport; renderedReviewId = plan.id }
   text('review-title', plan.instruction ? 'Review message' : `Review · ${plan.title}`)
@@ -303,8 +304,8 @@ function render(state) {
     const selected = state.view === view, tab = $(`view-${view}`)
     tab.setAttribute('aria-selected', String(selected)); tab.tabIndex = selected ? 0 : -1; tab.disabled = waiting && state.busyKind !== 'read'
     show(`${view}-view`, selected)
+    show(`${view}-context-bar`, selected)
   }
-  if (state.view !== 'preparation' || state.plan) show('startup-note', false)
   show('plugin-preview', !hosted); show('plugin-progress', waiting)
   for (const [id, message] of [['plugin-error', state.error], ['plugin-notice', state.notice], ['plugin-warning', state.warning]]) { text(id, message); show(id, Boolean(message)) }
   show('plugin-dirty', dirty)
@@ -335,10 +336,10 @@ function render(state) {
   renderedDiagramSource = state.diagramSource
   renderObservationStatus(state)
   show('user-report-panel', Boolean(session.selectedPod()))
-  text('environment-stage', snapshot ? snapshot.stage.replaceAll('-', ' ') : hosted ? 'Checking environment…' : '')
+  text('environment-stage', snapshot ? snapshot.stage.replaceAll('-', ' ') : hosted && waiting ? 'Checking environment…' : 'Environment not checked')
   const tools = snapshot ? [['Node', snapshot.tools.node || 'Compatible runtime needed'], ['OpenRig', snapshot.rigVersion || 'Not installed'], ['tmux', snapshot.tmuxVersion || 'Required — unavailable'], ['SQLite', `${snapshot.sqlite.status}: ${snapshot.sqlite.detail}`]] : []
   $('environment-tools').replaceChildren(...tools.flatMap(([name, value]) => [element('dt', name), element('dd', value)]))
-  $('scan-environment').disabled = !hosted || waiting || dirty
+  $('scan-environment').disabled = !hosted || waiting || dirty || Boolean(state.plan)
   for (const [key] of CONFIG_FIELDS) { inputValue(`config-${key}`, state.draft?.[key]); $(`config-${key}`).disabled = !state.draft || waiting }
   inputValue('plugin-provider', state.draft?.provider || 'none'); $('plugin-provider').disabled = !state.draft || waiting
   $('save-provider').disabled = $('save-paths').disabled = !hosted || waiting || !dirty
@@ -363,6 +364,7 @@ function render(state) {
   choices('instruction-recipient', session.podSeats().map(s => ({ value: s.key, label: `${s.rigName} / ${s.logicalId} · ${s.runtime} · ${s.activity}`, disabled: !canQueueTask(s) })), state.input.instructionSeat, 'Choose one existing running agent')
   choices('task-recipient', session.podSeats().map(s => ({ value: s.key, label: `${s.rigName} / ${s.logicalId} · ${s.runtime}`, disabled: !canQueueTask(s) })), state.input.taskSeat, 'Choose one existing running agent')
   for (const [id, key] of Object.entries(inputBindings)) { if (!id.endsWith('recipient')) inputValue(id, state.input[key]); $(id).disabled = waiting || dirty || !hosted }
+  if (state.plan) $('instruction-recipient').disabled = true
   for (const button of document.querySelectorAll('[data-operation]')) button.disabled = !session.canPrepare(button.dataset.operation, button.dataset)
   setPiExportAction(key => session.prepare('export-pi-html', { seatKey: key }), key => session.canPrepare('export-pi-html', { seatKey: key }))
   live.sync(); setPiLiveAction(openLive, canOpenLive)
@@ -385,6 +387,11 @@ function render(state) {
   $('check-task').disabled = waiting || dirty || !hosted
   syncAgeClock()
 }
+// Keep focused controls below both pinned rows, including when the status wraps.
+const barSize = new ResizeObserver(([entry]) => {
+  document.documentElement.style.setProperty('--panel-bar-height', `${entry.target.getBoundingClientRect().height}px`)
+})
+barSize.observe(document.querySelector('.panel-bar'))
 render(session.state)
 function syncAgeClock() {
   if (ageTimer !== null) { clearTimeout(ageTimer); ageTimer = null }
@@ -394,6 +401,6 @@ function syncAgeClock() {
 }
 const visibility = watchPanelVisibility({ document, window, IntersectionObserver: window.IntersectionObserver, changed: (visible, known) => session.setPanelVisibility(visible, known) })
 window.addEventListener('pagehide', () => { if (ageTimer !== null) clearTimeout(ageTimer); ageTimer = null })
-window.addEventListener('beforeunload', () => { disposed = true; live.close(); liveView.dispose(); visibility.dispose(); session.dispose(); if (ageTimer !== null) clearTimeout(ageTimer) })
+window.addEventListener('beforeunload', () => { disposed = true; barSize.disconnect(); live.close(); liveView.dispose(); visibility.dispose(); session.dispose(); if (ageTimer !== null) clearTimeout(ageTimer) })
 if (bridge) void session.scan()
 export { watchPanelVisibility, displayUserReportSnapshot }

@@ -31,10 +31,10 @@
     "src/pi-live-controller.ts": "c3e79954286406658479612132e05b74a844088b7ecbbc1b40ba0264d41b6d52",
     "src/pi-live-view.ts": "d36fb6193a3dd50f3b9ed9bc6006a247b543725f6f8d17f720e657fc46a2cd8c",
     "src/pi-live.css": "5c29ad64b681a0826e07eebf49d0ffa094534a945a5a48e380ac067e539ace88",
-    "src/plugin-client.mjs": "f0ec549eb5707c81589929b7dd6277cbbafbd826ba678c48542acab4481aa783",
-    "src/plugin-state.mjs": "7e2855de620074b6b833816042c394e61a7f217bb643d04abe564d9936f7c288",
-    "src/plugin.css": "80881ae581be66c270e7fc0d1182468ef0a36709eec14d12d76657f9199315a4",
-    "src/plugin.html": "c161fa87ca08105a6b258d4e5f19f37abc458a98cfe0a901ed104e63488ca56f",
+    "src/plugin-client.mjs": "325a9e8d597a4629e92fadd836c52a406495695ab9408d19655fedab8d2acf9f",
+    "src/plugin-state.mjs": "fda601f069f7b9b2cfd8928a68f311eac017b9d8285f5ed03db90052ee67abfe",
+    "src/plugin.css": "4a2f1d578459660280b90b1eb4652999bd59feecf58b744cb4f93880c736a972",
+    "src/plugin.html": "a020e4d55e707eb3677f5ef0cd06ea55093cea066467fbbfeb7bde542d81ce66",
     "src/pods.mjs": "0edc45a435123c4b9f75fe5aad682d6cdcb6772e9b5b317d833847f20c24f0c4",
     "src/refresh-loop.mjs": "cd7466eb5154e3f995bf84fcb8d98071440bef0fb76dc6bffa47041740c18bc7",
     "src/report-preview.mjs": "e477a0598d0e2f7c3b8063edf5b831ab5501f7d0bd8f75978aa44e74700d5604",
@@ -1241,8 +1241,8 @@
     },
     {
       "path": "plugin.html",
-      "bytes": 20459,
-      "sha256": "38aa33583a49aae6c058baa9ed430fbace15084e9336f6c5d4cc9bb2eb57aa09"
+      "bytes": 20679,
+      "sha256": "fbd2fc42ac48789f06225da156d40ece2f4be30bb0dd985fe30503f2108ada23"
     },
     {
       "path": "topology.mjs",
@@ -1251,8 +1251,8 @@
     },
     {
       "path": "workspace.mjs",
-      "bytes": 109923,
-      "sha256": "22d23173702afeaae96baf31ee5f52f821a63ab742d610f6037d28f20bfa6d94"
+      "bytes": 110438,
+      "sha256": "62e10ba0eadea32281f869029e88dc90dd14587e6d1716dd8a92bc5c5ac3eec7"
     }
   ]
 }

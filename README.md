@@ -58,6 +58,8 @@ The plugin contributes **exactly one Orca sidebar panel: OpenRig for Orca**. Ope
 orca plugin open local.openrig-for-orca --panel openrig --environment local --json
 ```
 
+The tabs stay pinned as you scroll. The row beneath them shows the environment check, pod selector, or message recipient for the active view. If no pod is selected, Messages links to Dashboard instead.
+
 Inside that one panel are exactly three views, in left-to-right order:
 
 - **Preparation**: tool/daemon checks, installation and account setup, paths, the walkthrough and recorded examples.
@@ -94,7 +96,7 @@ Example operations use the same shared destination and review card. Their result
 
 ## First use
 
-1. Reading pods needs no Orca destination. Before an operation, explicitly select a local workspace under **Output workspace** (below **OpenRig instance** in Preparation, or in Dashboard). It uses project/worktree names and Orca's exact workspace ID; labels never change the target.
+1. Reading pods needs no Orca destination. Before an operation, explicitly select a local workspace under **Output workspace** (just below **Environment** in Preparation, or in Dashboard). It uses project/worktree names and Orca's exact workspace ID; labels never change the target.
 2. Use **Preparation -> Recheck environment** to inspect Node/npm, OpenRig, tmux, and SQLite.
 3. Select an installation action for missing OpenRig or tmux. **Review the exact command, source, write scope, and warnings** before running it in an Orca terminal. Opening a terminal does not prove installation succeeded.
 4. Inspect the terminal result and recheck the environment.
@@ -108,7 +110,7 @@ Immediately before execution, confirmed commands are stored as private scripts w
 
 Orca's `terminal.create` receipt does not prove that a tab is visible. After creation the trusted worker uses the same host/profile's Orca CLI to inspect **only that terminal handle**, resolve the host API's identity selector to the CLI's workspace ID, switch to its destination workspace/tab, and verify that it is connected to the renderer. Identity resolution checks the exact instance and local host, never just a matching project path. This may change the workspace you are viewing. It never resends the action or creates another terminal as a visibility fallback. The CLI's terminal metadata can include an output preview; that preview is neither returned to panels nor saved by this check. No additional manifest capability is requested.
 
-The panel distinguishes **Terminal tab connected** from **Terminal created · tab not verified**; neither means the command succeeded. **Show / recover existing terminal** retries only the view connection. A copyable recovery command is provided when the CLI/profile is unavailable; it preserves an explicit `ORCA_USER_DATA_PATH` when present. Recover the existing terminal rather than repeating an installation or launch. Recovery receipts contain only terminal/workspace identity and action title, never terminal output, and are saved in plugin storage. A storage failure keeps the accepted receipt visible but may prevent button-based recovery after a worker restart.
+The panel distinguishes **Terminal tab connected** from **Terminal created · tab not verified**; neither means the command succeeded. **Reveal existing result terminal** retries only the view connection. If that explicit attempt fails (for example after you close the terminal tab), the result card is dismissed. The panel keeps your selection and never repeats the original command. A copyable recovery command is provided when the CLI/profile is unavailable; it preserves an explicit `ORCA_USER_DATA_PATH` when present. Recover the existing terminal rather than repeating an installation or launch. Recovery receipts contain only terminal/workspace identity and action title, never terminal output, and are saved in plugin storage. A storage failure keeps the accepted receipt visible but may prevent button-based recovery after a worker restart.
 
 Each Open seat view click creates a separate view. **Closing a tab detaches from tmux; it does not stop the seat.** Stop or recover teams through the OpenRig dashboard or explicit lifecycle operations.
 
@@ -232,7 +234,7 @@ Running seats are disabled. If another actor starts the seat after review, confi
 
 ### Register one durable task
 
-In **Register one durable task**, choose a running local agent, enter a title (up to 200 single-line characters) and body (up to 4000 characters, LF newlines allowed), then **Review durable task** and confirm. Busy agents are allowed because this is durable work, not a direct typing command. Shell, remote, attention-requesting and reserved `kernel` targets are excluded. Native nudges may invoke models and edit files.
+Expand **Register a task**, choose a running local agent, enter a title (up to 200 single-line characters) and body (up to 4000 characters, LF newlines allowed), then **Review durable task** and confirm. Busy agents are allowed because this is durable work, not a direct typing command. Shell, remote, attention-requesting and reserved `kernel` targets are excluded. Native nudges may invoke models and edit files.
 
 The server fixes a random request ID before execution, stores the body in an exclusive private read-only file after confirmation, and invokes native `rig queue create` once with `--id`, `--source orca-gui@external`, `--destination`, `--summary` and `--body-file`. The source is a declared external label, not an authenticated human or an impersonated seat. No human reply route is guaranteed. An ID or result terminal is **not proof of persistence**. The GUI retains the ID even if confirmation returns an ambiguous error.
 
