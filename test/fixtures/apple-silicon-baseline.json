@@ -18,7 +18,7 @@
     "vendor/pi-esp/view.css": "a6364a83c5214a631b3586fe99977bc5624a04102029672ad5fb2c07395ccf12",
     "vendor/pi-esp/markdown.js": "c5d09c73c8ee6a6d8d010a1d45d9f73e3aeb3601105ba14973bb57ca41ec6c3f",
     "vendor/pi-esp/records.d.ts": "9a12bf9fc6e28534270bd85a84088b8cc7bf5dda069f76a25b09be52e2b47812",
-    "scripts/test-pi-live-browser.mjs": "82b8a7fc8f484c572d16f8b0bc6e9fa1e92bc0145407a228ff93fb29b4e62b30",
+    "scripts/test-pi-live-browser.mjs": "60b3ecde2763d933fd886ffb8cad75318add154a6f29c05f825ac91283552fd5",
     "src/pi-live-controller.ts": "00d7f5735c4fda56c2c3b4385fde2f11320643b731494f70f875f4f12ca3c426",
     "src/pi-live-session.ts": "0c16e398bc9513b731d2d942c9d1c365aa9f37c0bddcc809e34e3daad6c332bb",
     "src/pi-live-tail.ts": "77f6e3bb13d536dc1c0499eaac04c6f6d0091def243c4b23b03d071dea4a0ef7",
