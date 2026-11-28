@@ -26,11 +26,13 @@ async function until(check) {
   }
   throw last || new Error('Browser check timed out')
 }
-const seat = { key: JSON.stringify(['fixture', 'leader']), rigId: 'fixture', logicalId: 'leader', rigName: 'Demo', podId: 'pod-fixture', podNamespace: 'demo', runtime: 'pi', session: 'leader@demo', status: 'running', activity: 'idle', attention: false }
-const [pod] = podsFromSeats([seat]), connection = { key: 'a'.repeat(64), home: '/fixture/native', source: 'tui', port: '17433', endpoint: 'http://127.0.0.1:17433', matchesConfigured: false }
+const seat = { key: JSON.stringify(['fixture', 'leader']), rigId: 'fixture', logicalId: 'leader', rigName: 'Demo', podId: 'pod-fixture', podNamespace: 'demo', runtime: 'pi', session: 'leader@demo', status: 'stopped', activity: 'idle', attention: false }
+const [pod] = podsFromSeats([seat]), connection = { key: 'a'.repeat(64), home: '/fixture/native', source: 'tui', port: '17433', endpoint: 'http://127.0.0.1:17433', matchesConfigured: true }
 const inventory = { connection, pods: [pod], seats: [seat], observedAt: Date.now() }
-const config = configFrom({ root: '/fixture/openrig', provider: 'none' })
+const config = configFrom({ root: '/fixture/openrig', instanceHome: connection.home, daemonPort: connection.port, provider: 'none' })
 const snapshot = { config, stage: 'ready', installed: true, tools: {}, sqlite: { status: 'ready', detail: 'Fixture only' }, providers: [] }
+const workspace = { id: 'result-workspace', name: 'Results', path: '/fixture/results' }
+const plan = { id: 'start-review', action: 'launch-seat', title: 'Start Pi seat', workspaceId: workspace.id, expires: Date.now() + 300_000, writes: [], warnings: [], seatLaunch: seat }
 const relations = { instanceKey: connection.key, podKey: pod.key, memberKeys: [seat.key], observedAt: Date.now(), status: 'complete', edges: [], notes: [] }
 const manyColumns = Array.from({ length: 32 }, (_, i) => `Oversize ${i}`), oversizedTable = [manyColumns.join(' | '), manyColumns.map(() => '---').join(' | '), ...Array(40).fill('| Base |')].join('\n')
 const events = [{ key: 'prompt', kind: 'user', title: 'You', text: 'Read the deployment notes and summarize the checks.' }, { key: 'tool', kind: 'tool', title: 'read', text: 'docs/README.md', toolId: 'call-1' }, { key: 'tool-2', kind: 'tool', title: 'read', text: 'package.json', toolId: 'call-2' }, { key: 'think', kind: 'thinking', title: 'Thinking', text: 'Consider small side effects.' },
@@ -52,13 +54,27 @@ try {
     const p=window.piProbe={calls:[],delta:false}; const batch=(id,events)=>({id,events,omittedHistory:true,skippedRecords:0,more:false});
     f.contentWindow.orca={plugin:{request:async(name,input)=>{
       p.calls.push({name,input});
-      if(name==='environment.scan') return ${JSON.stringify({ config, snapshot, daemon: { status: 'reachable' }, workspaces: [] })};
+      if(name==='environment.scan') return ${JSON.stringify({ config, snapshot, daemon: { status: 'reachable' }, workspaces: [workspace] })};
       if(name==='examples.list') return {examples:[]};
-      if(name==='pods.list') return ${JSON.stringify(inventory)};
+      if(name==='pods.list') {const inventory=${JSON.stringify(inventory)};if(p.started)inventory.seats[0].status='running';return inventory;}
       if(name==='pods.edges') return ${JSON.stringify(relations)};
       if(name==='instance.inspect') return ${JSON.stringify({ ...connection, status: 'blocked' })};
-      if(name==='pi-live.start') {if(typeof input.id!=='string'||!/^[a-f0-9]{32}$/.test(input.id))throw Error('Missing or invalid fixture follow ID');if(p.active)throw Error('A fixture follow is already active');p.active=input.id;return batch(input.id,${JSON.stringify(events)});}
-      if(name==='pi-live.read') {if(input.id!==p.active)throw Error('Read must name the active fixture follow');if(!p.delta)return batch(input.id,[]);p.delta=false;return batch(input.id,[{key:'result',kind:'result',title:'read',text:'Deliberate fixture error.',toolId:'call-1',error:true},{key:'result-2',kind:'result',title:'read',text:'Second fixture result.',toolId:'call-2'},{key:'late',kind:'assistant',title:'Pi',text:'New **result** held below current scroll.'},{key:'marker',kind:'marker',title:'Context compacted',text:''},{key:'shell',kind:'shell',title:'printf fixture',text:'Fixture shell output'}]);}
+      if(name==='setup.prepare') {
+        await new Promise(resolve=>{p.finishPrepare=resolve});
+        const review=${JSON.stringify(plan)};
+        if(p.navigateOnExecute) review.id+='-navigate';
+        return review;
+      }
+      if(name==='setup.execute') {
+        // A successful terminal switch can hide the Dashboard before its receipt arrives.
+        if(p.navigateOnExecute) f.style.display='none';
+        await new Promise(resolve=>{p.finishExecute=resolve});
+        p.started=true;
+        return {terminalId:'fixture-terminal',workspaceId:${JSON.stringify(workspace.id)},visibility:p.navigateOnExecute?'shown':'unverified'};
+      }
+      const waiting={...batch(input.id,[]),omittedHistory:false,waiting:true};
+      if(name==='pi-live.start') {if(typeof input.id!=='string'||!/^[a-f0-9]{32}$/.test(input.id))throw Error('Missing or invalid fixture follow ID');if(p.active)throw Error('A fixture follow is already active');p.active=input.id;p.historyDelivered=Boolean(p.started);return p.started?batch(input.id,${JSON.stringify(events)}):waiting;}
+      if(name==='pi-live.read') {if(input.id!==p.active)throw Error('Read must name the active fixture follow');if(!p.started)return waiting;if(!p.historyDelivered){p.historyDelivered=true;return batch(input.id,${JSON.stringify(events)});}if(!p.delta)return batch(input.id,[]);p.delta=false;return batch(input.id,[{key:'result',kind:'result',title:'read',text:'Deliberate fixture error.',toolId:'call-1',error:true},{key:'result-2',kind:'result',title:'read',text:'Second fixture result.',toolId:'call-2'},{key:'late',kind:'assistant',title:'Pi',text:'New **result** held below current scroll.'},{key:'marker',kind:'marker',title:'Context compacted',text:''},{key:'shell',kind:'shell',title:'printf fixture',text:'Fixture shell output'}]);}
       if(name==='pi-live.stop') {if(input.id!==p.active)throw Error('Stop must name the active fixture follow');p.active=null;return {stopped:true};}
       throw Error('Unrecognized fixture request');
     }}};
@@ -69,8 +85,28 @@ try {
   assert.equal(await inFrame(`d.getElementById('view-dashboard').click();const select=d.getElementById('dashboard-pod');select.value=${JSON.stringify(pod.key)};select.dispatchEvent(new Event('change'));return d.getElementById('pi-live').hidden && !p.calls.some(c=>c.name.startsWith('pi-live.'))`), true)
   await until(() => inFrame("return [...d.querySelectorAll('#live-seats button')].some(b=>b.textContent==='Open Live Pi'&&!b.disabled)"))
   await inFrame("p.opener=[...d.querySelectorAll('#live-seats button')].find(b=>b.textContent==='Open Live Pi');p.opener.click();return true")
+  const waitingForHistory = () => inFrame("return !d.getElementById('pi-live').hidden && d.getElementById('pi-live-status').textContent.startsWith('Waiting')")
+  const preparingStart = () => inFrame("const start=d.querySelector('#seat-start-list button');if(!start||start.disabled)return false;start.click();return Boolean(p.finishPrepare)")
+  const pendingReview = () => inFrame("return !d.getElementById('plugin-review').hidden && d.getElementById('confirm-operation').disabled")
+  const confirmStart = () => inFrame("d.getElementById('startup-risk').click();const confirm=d.getElementById('confirm-operation');if(confirm.disabled)return false;confirm.click();return Boolean(p.finishExecute)")
+  const piScope = { source: 'tui', instanceKey: connection.key, podKey: pod.key, seatKey: seat.key, session: seat.session }
+  await until(waitingForHistory)
+  const pinnedDuringOperation = "return !d.getElementById('pi-live').hidden && d.getElementById('pi-live-status').textContent.startsWith('Waiting') && d.querySelector('#live-seats [data-live-seat]').disabled && !p.calls.some(c=>c.name==='pi-live.stop')"
+  await inFrame(`const workspace=d.getElementById('plugin-workspace');workspace.value=${JSON.stringify(workspace.id)};workspace.dispatchEvent(new Event('change'));return true`)
+  assert.equal(await preparingStart(), true)
+  assert.equal(await inFrame(pinnedDuringOperation), true, 'Review start must keep the waiting follow while prepare is busy')
+  assert.deepEqual(await inFrame("const {action,workspaceId,instanceKey,podKey,seatKey}=p.calls.find(c=>c.name==='setup.prepare').input;return {action,workspaceId,instanceKey,podKey,seatKey}"), { action: 'launch-seat', workspaceId: workspace.id, instanceKey: connection.key, podKey: pod.key, seatKey: seat.key })
+  await inFrame("p.finishPrepare();return true")
+  await until(pendingReview)
+  assert.equal(await inFrame(pinnedDuringOperation), true, 'A pending review must keep the waiting follow')
+  assert.equal(await confirmStart(), true)
+  assert.equal(await inFrame(pinnedDuringOperation), true, 'Confirming a start must keep the waiting follow while execute is busy')
+  assert.deepEqual(await inFrame("return p.calls.filter(c=>c.name==='setup.execute').map(c=>c.input)"), [{ planId: plan.id, workspaceId: workspace.id, acceptStartupRisk: true }])
+  await inFrame("p.finishExecute();return true")
+  await until(() => inFrame("return d.getElementById('plugin-review').hidden && !d.getElementById('plugin-receipt').hidden"))
   await until(() => inFrame("return !d.getElementById('pi-live').hidden && d.querySelector('.pi-esp-assistant strong')?.textContent==='Markdown'"))
-  assert.deepEqual(await inFrame("const {id,...scope}=p.calls.find(c=>c.name==='pi-live.start').input;return scope"), { source: 'tui', instanceKey: connection.key, podKey: pod.key, seatKey: seat.key, session: seat.session })
+  assert.equal(await inFrame("const starts=p.calls.filter(c=>c.name==='pi-live.start');return starts.length===1 && p.active===starts[0].input.id && p.calls.some(c=>c.name==='pi-live.read'&&c.input.id===p.active) && !p.calls.some(c=>c.name==='pi-live.stop')"), true, 'The original follow must deliver history without another Open Live Pi click')
+  assert.deepEqual(await inFrame("const {id,...scope}=p.calls.find(c=>c.name==='pi-live.start').input;return scope"), piScope)
   assert.deepEqual(await inFrame("const user=d.querySelector('.pi-esp-user'),bubble=user.firstElementChild,run=d.querySelector('.pi-esp-run');return {bubbles:d.querySelectorAll('.pi-esp-user-bubble').length,right:Math.abs(bubble.getBoundingClientRect().right-user.getBoundingClientRect().right)<=1&&bubble.getBoundingClientRect().left>user.getBoundingClientRect().left,inline:!d.querySelector('.pi-esp-assistant .pi-esp-user-bubble'),inert:!d.querySelector('#pi-live img, .pi-esp-feed a'),thinking:!d.querySelector('.pi-esp-thinking details').open,oneRun:d.querySelectorAll('.pi-esp-run').length===1,collapsed:!run.open,tools:run.querySelectorAll('.pi-esp-tool').length,label:run.querySelector('summary span').textContent}"), { bubbles: 1, right: true, inline: true, inert: true, thinking: true, oneRun: true, collapsed: true, tools: 2, label: '2 reads' })
   assert.deepEqual(await inFrame("const style=f.contentWindow.getComputedStyle(d.querySelector('.pi-esp-user-bubble'));return [style.maxInlineSize, style.paddingBlockStart, style.paddingInlineStart]"), ['80%', '10px', '14px'])
   assert.deepEqual(await inFrame("const row=d.querySelector('.pi-esp-assistant'),items=[...row.querySelectorAll('li')];return {paragraphs:[...items[0].querySelectorAll('p')].map(n=>n.textContent),done:items[1].textContent,pending:items[2].textContent,prose:[...row.querySelectorAll('p')].find(n=>n.textContent.includes('R&D')).textContent,interactive:!!row.querySelector('input'),linkDefinition:row.textContent.includes('private-placeholder') }"), { paragraphs: ['First paragraph', 'Second paragraph'], done: '[Completed] done', pending: '[Pending] pending', prose: 'R&D and R&amp;D; &notit; and &#12345678; stay literal; A renders.', interactive: false, linkDefinition: false })
@@ -102,7 +138,7 @@ try {
     console.log(JSON.stringify({ view: 'Live Pi synthetic fixture', screenshot: await orca(['screenshot', '--page', page]) }))
   }
   const stopsMatch = count => inFrame(`const starts=p.calls.filter(c=>c.name==='pi-live.start'),stops=p.calls.filter(c=>c.name==='pi-live.stop');return p.active===null&&starts.length===${count}&&stops.length===${count}&&stops.every((c,i)=>c.input.id===starts[i].input.id)`)
-  await inFrame("d.getElementById('refresh-pods').click();return true")
+  await inFrame("p.opener=d.querySelector('#live-seats [data-live-seat]');d.getElementById('refresh-pods').click();return true")
   await until(() => inFrame("return !p.opener.isConnected&&!d.getElementById('refresh-pods').disabled&&!d.getElementById('pi-live').hidden"))
   await inFrame("const close=d.getElementById('pi-live-close');close.focus();close.click();return true")
   await until(() => inFrame("return d.activeElement===[...d.querySelectorAll('#live-seats button')].find(b=>b.textContent==='Open Live Pi')"))
@@ -127,7 +163,39 @@ try {
   const reads = await inFrame("return p.calls.filter(c=>c.name==='pi-live.read').length")
   await delay(2200)
   assert.equal(await inFrame("return p.calls.filter(c=>c.name==='pi-live.read').length"), reads)
-  console.log('PASS: Native Chat right-aligned prompts, inert inline Markdown, collapsed tool runs, in-place results, notices and shell rows, scroll anchoring, exact scope, selection reset and hidden-panel cancellation.')
+  // Run another start with a terminal switch that hides the Dashboard.
+  await inFrame("f.style.display='';d.getElementById('pi-live-close').click();p.started=false;p.navigateOnExecute=true;p.finishPrepare=p.finishExecute=null;d.getElementById('refresh-pods').click();return true")
+  await until(() => inFrame("return !d.querySelector('#live-seats [data-live-seat]').disabled && d.querySelector('#seat-start-list button:not([disabled])')!==null"))
+  await inFrame("d.querySelector('#live-seats [data-live-seat]').click();return true")
+  await until(waitingForHistory)
+  const originalId = await inFrame("return p.active")
+  assert.equal(await preparingStart(), true)
+  await inFrame("p.finishPrepare();return true")
+  await until(pendingReview)
+  assert.equal(await inFrame("return !d.getElementById('pi-live').hidden && p.active!==null"), true, 'The follow stays pinned until the terminal switch hides the Dashboard')
+  assert.equal(await confirmStart(), true)
+  assert.deepEqual(await inFrame("return p.calls.filter(c=>c.name==='setup.execute').at(-1).input"), { planId: `${plan.id}-navigate`, workspaceId: workspace.id, acceptStartupRisk: true })
+  await until(() => stopsMatch(4))
+  const resumeVisible = "!d.getElementById('pi-live').hidden && !d.getElementById('pi-live-resume').hidden && d.getElementById('pi-live-status').textContent.startsWith('Paused while hidden')"
+  assert.equal(await inFrame(`return f.style.display==='none' && (${resumeVisible}) && d.getElementById('pi-live-resume').disabled`), true)
+  const readsBeforeReturn = await inFrame("return p.calls.filter(c=>c.name==='pi-live.read').length")
+  await inFrame("p.finishExecute();return true")
+  await until(() => inFrame("return !d.getElementById('plugin-receipt').hidden && d.getElementById('receipt-summary').textContent.includes('Visibility: shown')"))
+  await inFrame("f.style.display='';return true")
+  await until(liveButtonReady)
+  assert.equal(await inFrame(`return (${resumeVisible}) && !d.getElementById('pi-live-resume').disabled`), true)
+  await delay(5200)
+  assert.equal(await stopsMatch(4), true, 'Returning to Dashboard must not reopen a follow')
+  assert.equal(await inFrame("return p.calls.filter(c=>c.name==='pi-live.read').length"), readsBeforeReturn)
+  assert.equal(await inFrame("return d.querySelector('.pi-esp-feed').childElementCount"), 0)
+  await inFrame("d.getElementById('pi-live-resume').click();return true")
+  await until(() => inFrame("return d.querySelector('.pi-esp-user-bubble')!==null && d.getElementById('pi-live-resume').hidden"))
+  const { id: resumedId, ...resumedScope } = await inFrame("return p.calls.filter(c=>c.name==='pi-live.start').at(-1).input")
+  assert.notEqual(resumedId, originalId)
+  assert.deepEqual(resumedScope, piScope)
+  await inFrame("d.getElementById('pi-live-close').click();return true")
+  await until(() => stopsMatch(5))
+  console.log('PASS: Live Pi keeps the original follow while Dashboard stays visible and requires explicit resume after a terminal switch hides it; rendering, scroll anchoring and scope checks passed.')
 } catch (error) {
   browserFailure = error
   throw error

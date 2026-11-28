@@ -162,28 +162,33 @@ test('Pi Live rejection after target loss does not open a retry view for the old
   const shown: string[] = [], scope: PiLiveScope = { source: 'tui', instanceKey: 'a'.repeat(64), podKey: 'pod', seatKey: 'seat', session: 'seat@pod' }
   const pending = new Promise<never>((_resolve, fail) => { reject = fail })
   const controller = createPiLiveController(async name => name === 'pi-live.stop' ? { stopped: true } : pending,
-    { reset: label => shown.push(label), append: () => {}, status: text => shown.push(text), hide: () => shown.push('hidden') }, () => eligible, () => true, () => 'b'.repeat(32))
+    { reset: label => shown.push(label), append: () => {}, status: text => shown.push(text), hide: () => shown.push('hidden') }, () => eligible, () => true, { makeId: () => 'b'.repeat(32) })
   assert.equal(controller.open(scope, 'old target'), true)
   eligible = false; reject(new Error('Late rejection'))
   await new Promise(resolve => setImmediate(resolve)); assert.equal(shown.at(-1), 'hidden'); assert.equal(controller.resume(), false)
 })
 
-test('Pi Live panel clears the previous history when waiting or rebinding without another start', async t => {
+test('Pi Live clears stale history and keeps the same waiting follow through an operation', async t => {
   t.mock.timers.enable({ apis: ['setTimeout'] })
   const id = 'c'.repeat(32), scope: PiLiveScope = { source: 'tui', instanceKey: 'e'.repeat(64), podKey: 'pod', seatKey: 'seat', session: 'seat@pod' }
   const base: PiLiveBatch = { id, events: [], more: false, omittedHistory: false, skippedRecords: 0 }
   const event = (text: string): PiLiveBatch['events'] => [{ key: 'same-offset', kind: 'user', title: 'You', text }]
   const batches = [{ ...base, events: event('old') }, { ...base, waiting: true }, { ...base, waiting: true }, { ...base, events: event('resumed') }, { ...base, reset: true, events: event('replacement') }]
   const requests: string[] = [], resets: string[] = [], rows: string[] = [], statuses: string[] = []
-  const controller = createPiLiveController(async name => { requests.push(name); return batches.shift() },
-    { reset: label => { resets.push(label); rows.length = 0 }, append: batch => rows.push(...batch.events.map(e => e.text)), status: text => statuses.push(text), hide: () => {} }, () => true, () => true, () => id)
+  let canOpen = true
+  const controller = createPiLiveController(async (name, input) => { requests.push(name); assert.equal((input as { id: string }).id, id); return batches.shift() },
+    { reset: label => { resets.push(label); rows.length = 0 }, append: batch => rows.push(...batch.events.map(e => e.text)), status: text => statuses.push(text), hide: () => statuses.push('hidden') }, () => true, () => true, { canOpen: () => canOpen, makeId: () => id })
   const settled = () => new Promise(resolve => setImmediate(resolve))
   assert.equal(controller.open(scope, 'target'), true); await settled(); assert.deepEqual(rows, ['old'])
   t.mock.timers.tick(2000); await settled(); assert.deepEqual(rows, []); assert.match(statuses.at(-1)!, /Waiting/)
+  canOpen = false; controller.sync()
+  assert.equal(controller.open(scope, 'target'), false); assert.equal(controller.resume(), false)
   t.mock.timers.tick(5000); await settled(); assert.equal(resets.length, 2)
+  assert.match(statuses.at(-1)!, /Waiting/)
+  canOpen = true; controller.sync()
   t.mock.timers.tick(5000); await settled(); assert.deepEqual(rows, ['resumed'])
   t.mock.timers.tick(2000); await settled(); assert.deepEqual(rows, ['replacement']); assert.equal(resets.length, 3)
-  assert.equal(requests.filter(name => name === 'pi-live.start').length, 1)
+  assert.deepEqual(requests, ['pi-live.start', 'pi-live.read', 'pi-live.read', 'pi-live.read', 'pi-live.read'])
   controller.close()
 })
 
@@ -191,20 +196,22 @@ test('Pi Live panel opts in explicitly and discards late results when hidden or 
   const allowed: PiLiveScope = { source: 'tui', instanceKey: 'e'.repeat(64), podKey: 'pod', seatKey: 'seat', session: 'seat@pod' }
   const id = 'b'.repeat(32), calls: string[] = [], shown: string[] = [], appended: PiLiveBatch[] = []
   const pending: { resolve: (value: unknown) => void; signal?: AbortSignal }[] = []
-  let visible = false, eligible = true
+  let visible = false, eligible = true, canOpen = true
   const controller = createPiLiveController(async (name, _input, options) => {
     calls.push(name)
     if (name === 'pi-live.stop') return { stopped: true }
     return new Promise(resolve => pending.push({ resolve, signal: options?.signal }))
-  }, { reset: label => shown.push(`reset ${label}`), append: batch => appended.push(batch), status: message => shown.push(message), hide: () => shown.push('hidden') }, () => eligible, () => visible, () => id)
+  }, { reset: label => shown.push(`reset ${label}`), append: batch => appended.push(batch), status: message => shown.push(message), hide: () => shown.push('hidden') }, () => eligible, () => visible, { canOpen: () => canOpen, makeId: () => id })
   controller.sync(); assert.equal(controller.open(allowed, 'label'), false); assert.deepEqual(calls, [])
   visible = true; assert.equal(controller.open(allowed, 'label'), true)
-  visible = false; controller.sync(); assert.ok(pending[0].signal?.aborted); assert.match(shown.at(-1)!, /Paused/)
+  canOpen = false; visible = false; controller.sync(); assert.ok(pending[0].signal?.aborted); assert.match(shown.at(-1)!, /Paused/)
   pending[0].resolve({ id, events: [{ key: 'late', kind: 'user', title: 'You', text: 'do not show' }] })
   await new Promise(resolve => setImmediate(resolve)); assert.deepEqual(appended, [])
-  visible = true; assert.equal(controller.resume(), true)
-  eligible = false; controller.sync(); assert.equal(shown.at(-1), 'hidden'); assert.ok(pending[1].signal?.aborted)
+  visible = true; controller.sync(); assert.equal(controller.resume(), false)
+  canOpen = true; controller.sync(); assert.equal(pending.length, 1); assert.equal(controller.resume(), true)
+  canOpen = false; eligible = false; controller.sync(); assert.equal(shown.at(-1), 'hidden'); assert.ok(pending[1].signal?.aborted)
   pending[1].resolve({ id, events: [{ key: 'late again', kind: 'user', title: 'You', text: 'do not show' }] })
   await new Promise(resolve => setImmediate(resolve)); assert.deepEqual(appended, [])
   assert.deepEqual(calls, ['pi-live.start', 'pi-live.stop', 'pi-live.start', 'pi-live.stop'])
+  canOpen = true; eligible = true; assert.equal(controller.resume(), false)
 })
