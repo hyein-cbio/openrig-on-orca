@@ -28,10 +28,10 @@
     "scripts/visualizer-inputs.mjs": "bbbad94634733c60a3002972848928bd77b087a6f2aeacaa6a0741130d7f514a",
     "src/example-story.mjs": "a384d642674d6becf1df0a7054038fdb43c5d5c37ed669f224e1f06a161d5f2f",
     "src/pi-export-guard.mjs": "376844cab5e6f26973ed7acf6ecc5cb84d4d8361ef026ce8dfa8e787190b62c5",
-    "src/pi-live-controller.ts": "c3e79954286406658479612132e05b74a844088b7ecbbc1b40ba0264d41b6d52",
+    "src/pi-live-controller.ts": "00d7f5735c4fda56c2c3b4385fde2f11320643b731494f70f875f4f12ca3c426",
     "src/pi-live-view.ts": "d36fb6193a3dd50f3b9ed9bc6006a247b543725f6f8d17f720e657fc46a2cd8c",
     "src/pi-live.css": "5c29ad64b681a0826e07eebf49d0ffa094534a945a5a48e380ac067e539ace88",
-    "src/plugin-client.mjs": "325a9e8d597a4629e92fadd836c52a406495695ab9408d19655fedab8d2acf9f",
+    "src/plugin-client.mjs": "036ca5670e1682b2adb9d4ca24551a0eb7da0de26f623499ed4ae1151d3ff369",
     "src/plugin-state.mjs": "fda601f069f7b9b2cfd8928a68f311eac017b9d8285f5ed03db90052ee67abfe",
     "src/plugin.css": "4a2f1d578459660280b90b1eb4652999bd59feecf58b744cb4f93880c736a972",
     "src/plugin.html": "a020e4d55e707eb3677f5ef0cd06ea55093cea066467fbbfeb7bde542d81ce66",
@@ -1251,8 +1251,8 @@
     },
     {
       "path": "workspace.mjs",
-      "bytes": 110438,
-      "sha256": "62e10ba0eadea32281f869029e88dc90dd14587e6d1716dd8a92bc5c5ac3eec7"
+      "bytes": 110552,
+      "sha256": "c4bdebb93397adc23df484b7c0f3e38c39ea61560796259a79f48f713b24d91d"
     }
   ]
 }

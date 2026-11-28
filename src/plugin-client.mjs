@@ -29,9 +29,10 @@ const bridge = window.orca?.plugin?.request ? (name, input, options) => window.o
 let ageTimer = null, disposed = false
 const session = createPluginSession(bridge, render)
 const liveRoot = $('pi-live'), liveView = createPiLiveView(liveRoot), liveVisible = () => session.state.autoRefresh?.visible === true
+const canStartFollowing = () => !session.state.plan && session.state.busyKind !== 'operation'
 function liveConnection(state, pod) {
   const connection = state.inventory?.connection
-  if (!state.host || state.view !== 'dashboard' || state.diagramSource !== 'inventory' || state.plan || state.busyKind === 'operation' || session.dirty() || !session.selectedReachable() || !connection || connection.source !== state.inventorySource || !pod || state.observation.seatsError || state.observation.missing || state.observation.identityChanged) return null
+  if (!state.host || state.view !== 'dashboard' || state.diagramSource !== 'inventory' || session.dirty() || !session.selectedReachable() || !connection || connection.source !== state.inventorySource || !pod || state.observation.seatsError || state.observation.missing || state.observation.identityChanged) return null
   return connection
 }
 function liveScope(key) {
@@ -47,8 +48,8 @@ const live = createPiLiveController(bridge, { ...liveView, hide() {
     const active = document.activeElement
     if (liveRoot.hidden && (!active || active === document.body || liveRoot.contains(active))) restoreLiveFocus()
   })
-} }, scope => JSON.stringify(liveScope(scope.seatKey)?.scope) === JSON.stringify(scope), liveVisible)
-const canOpenLive = key => liveVisible() && Boolean(liveScope(key))
+} }, scope => JSON.stringify(liveScope(scope.seatKey)?.scope) === JSON.stringify(scope), liveVisible, { canOpen: canStartFollowing })
+const canOpenLive = key => liveVisible() && canStartFollowing() && Boolean(liveScope(key))
 let liveOpener = null
 const openLive = (key, button) => { const target = liveScope(key); if (target && live.open(target.scope, target.label)) { liveOpener = { button, scope: target.scope }; liveView.focus() } }
 function restoreLiveFocus() {
@@ -160,7 +161,7 @@ function renderSeatStarts(state) {
   }))
 }
 function renderSeats(state) {
-  const pod = session.selectedPod(), rows = session.podSeats(), liveAvailable = Boolean(liveVisible() && liveConnection(state, pod))
+  const pod = session.selectedPod(), rows = session.podSeats(), liveAvailable = Boolean(liveVisible() && canStartFollowing() && liveConnection(state, pod))
   text('selected-pod-heading', pod ? `${pod.label} · seat snapshot` : 'Seats')
   const list = $('live-seats'), active = document.activeElement
   const liveSeatToRefocus = list.contains(active) ? active.dataset?.liveSeat : null
@@ -368,6 +369,7 @@ function render(state) {
   for (const button of document.querySelectorAll('[data-operation]')) button.disabled = !session.canPrepare(button.dataset.operation, button.dataset)
   setPiExportAction(key => session.prepare('export-pi-html', { seatKey: key }), key => session.canPrepare('export-pi-html', { seatKey: key }))
   live.sync(); setPiLiveAction(openLive, canOpenLive)
+  $('pi-live-resume').disabled = !canStartFollowing()
   renderSeatStarts(state); renderSeats(state); renderUserReports(state); renderMessages(state); renderExamples(state); renderReview(state)
   show('plugin-receipt', Boolean(state.receipt && !state.plan))
   if (state.receipt) {

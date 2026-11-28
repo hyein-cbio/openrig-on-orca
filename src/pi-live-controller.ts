@@ -14,7 +14,8 @@ interface Follow { scope: PiLiveScope; label: string; id: string; cancel: AbortC
 const id = () => Array.from(crypto.getRandomValues(new Uint8Array(16)), byte => byte.toString(16).padStart(2, '0')).join('')
 
 /** Follow one selection. Scope changes and visibility loss discard both rows and late replies. */
-export function createPiLiveController(request: Request | null, view: View, eligible: (scope: PiLiveScope) => boolean, visible: () => boolean, makeId = id) {
+export function createPiLiveController(request: Request | null, view: View, matchesScope: (scope: PiLiveScope) => boolean, visible: () => boolean,
+  { canOpen = () => true, makeId = id }: { canOpen?: () => boolean; makeId?: () => string } = {}) {
   let follow: Follow | undefined, selection: { scope: PiLiveScope; label: string } | undefined
   const end = () => {
     const old = follow; follow = undefined
@@ -25,7 +26,7 @@ export function createPiLiveController(request: Request | null, view: View, elig
   const close = () => { end(); selection = undefined; view.hide() }
   function sync() {
     if (!selection) return
-    if (!eligible(selection.scope)) { close(); return }
+    if (!matchesScope(selection.scope)) { close(); return }
     if (follow && !visible()) {
       end(); view.reset(selection.label); view.status('Paused while hidden. Resume to verify the same seat again.', true)
     }
@@ -59,7 +60,7 @@ export function createPiLiveController(request: Request | null, view: View, elig
     }
   }
   function open(scope: PiLiveScope, label: string) {
-    if (!request || !eligible(scope) || !visible()) return false
+    if (!request || !matchesScope(scope) || !visible() || !canOpen()) return false
     end(); selection = { scope, label }
     const current = { ...selection, id: makeId(), cancel: new AbortController() }
     follow = current; view.reset(label); view.status('Verifying the selected Pi seat…')
